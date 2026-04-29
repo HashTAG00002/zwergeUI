@@ -1,5 +1,5 @@
 """
-Layer-wise Grounding Quality Probe  (v2 — ScreenSpot-Pro support + layer mask)
+Layer-wise Grounding Quality Probe  (v3 — 多GPU并行 + 断点续跑 + 定期落盘)
 ================================================================================
 
 两种运行模式:
@@ -17,6 +17,22 @@ Layer-wise Grounding Quality Probe  (v2 — ScreenSpot-Pro support + layer mask)
         --layer_mask not_last    去除最后一层
       输出: 整体 ACC + 每个 ui_type 的 ACC，和正式评测格式对齐。
 
+多GPU并行 (进程级数据并行，每张卡各自推断自己的数据分片，rank-0 汇总结果):
+  # 单卡
+  python eval/layer_probe.py --mode probe --gpu_id 0 ...
+
+  # 双卡并行（推荐，速度 ≈ 2x）
+  torchrun --nproc_per_node=2 eval/layer_probe.py --mode probe ...
+  # 或者手动指定 rank（不依赖 torchrun）：
+  CUDA_VISIBLE_DEVICES=0 python eval/layer_probe.py --rank 0 --world_size 2 ... &
+  CUDA_VISIBLE_DEVICES=1 python eval/layer_probe.py --rank 1 --world_size 2 ... &
+  wait
+
+断点续跑:
+  每 --save_every N 条落一次盘，写到 <output_path>.rank<R>.ckpt.json
+  重新启动时自动检测 checkpoint 并跳过已完成的样本。
+  所有进程都完成后，rank-0 合并所有分片 checkpoint 到最终 output_path。
+
 数据集支持:
   - ScreenSpot-Pro 本地 JSON（--dataset_path 指定 json 文件路径）
   - ScreenSpot-v2  HuggingFace  (--dataset screenspot_v2)
@@ -24,32 +40,16 @@ Layer-wise Grounding Quality Probe  (v2 — ScreenSpot-Pro support + layer mask)
 推断引擎:
   HuggingFace Transformers + flash_attention_2（前向）
   QK 重算（O(T*S) per layer）用于提取每层 attention map，避免保存完整 S×S 矩阵。
-
-运行示例:
-  # Mode 1: probe
-  python eval/layer_probe.py --mode probe \\
-      --model_path /path/to/GUI-AIMA-3B \\
-      --dataset_path /path/to/ScreenSpot-Pro/eval.json \\
-      --num_samples 200 --output_path eval_results/probe.json
-
-  # Mode 2: eval with only last layer
-  python eval/layer_probe.py --mode eval \\
-      --model_path /path/to/GUI-AIMA-3B \\
-      --dataset_path /path/to/ScreenSpot-Pro/eval.json \\
-      --layer_mask last --output_path eval_results/eval_last_layer.json
-
-  # Mode 2: eval without last layer (all shallow layers)
-  python eval/layer_probe.py --mode eval \\
-      --model_path /path/to/GUI-AIMA-3B \\
-      --dataset_path /path/to/ScreenSpot-Pro/eval.json \\
-      --layer_mask not_last --output_path eval_results/eval_no_last.json
 """
 
 import argparse
 import json
 import math
 import os
+import sys
+import time
 from collections import defaultdict
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -92,6 +92,75 @@ def to_norm_bbox(bbox_pixel, img_w, img_h):
     """Convert pixel bbox to [0,1] normalized bbox."""
     x1, y1, x2, y2 = bbox_pixel
     return (x1 / img_w, y1 / img_h, x2 / img_w, y2 / img_h)
+
+
+# ---------------------------------------------------------------------------
+# 多GPU 辅助：rank / world_size 自动感知
+# ---------------------------------------------------------------------------
+
+def get_dist_info():
+    """
+    支持两种启动方式:
+      1. torchrun: 自动读取 LOCAL_RANK / WORLD_SIZE 环境变量
+      2. 手动:     通过 --rank / --world_size 命令行参数（在 parse_args 中处理）
+    返回 (rank, world_size, local_rank)
+    """
+    # torchrun 注入的环境变量
+    if "LOCAL_RANK" in os.environ:
+        local_rank  = int(os.environ["LOCAL_RANK"])
+        rank        = int(os.environ.get("RANK", local_rank))
+        world_size  = int(os.environ.get("WORLD_SIZE", 1))
+        return rank, world_size, local_rank
+    # 手动模式：由 parse_args 注入 sys._dist_rank / sys._dist_world_size
+    rank       = getattr(sys, "_dist_rank", 0)
+    world_size = getattr(sys, "_dist_world_size", 1)
+    local_rank = rank  # 单机多卡场景 rank == local_rank
+    return rank, world_size, local_rank
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint 辅助
+# ---------------------------------------------------------------------------
+
+def ckpt_path_for_rank(output_path: str, rank: int) -> str:
+    """e.g. results/foo.json → results/foo.json.rank0.ckpt.json"""
+    return output_path + f".rank{rank}.ckpt.json"
+
+
+def load_checkpoint(ckpt_path: str):
+    """
+    返回已完成的样本列表 per_sample_results（list），
+    以及 n_done_global（已计入统计的样本数，用于恢复计数器）。
+    若 checkpoint 不存在则返回 ([], 0)。
+    """
+    if not os.path.exists(ckpt_path):
+        return [], 0
+    try:
+        with open(ckpt_path) as f:
+            ckpt = json.load(f)
+        results = ckpt.get("per_sample_results", [])
+        n_done  = ckpt.get("n_done", len(results))
+        print(f"[ckpt] Resumed {len(results)} samples from {ckpt_path}")
+        return results, n_done
+    except Exception as e:
+        print(f"[warn] Failed to load checkpoint {ckpt_path}: {e}, starting fresh.")
+        return [], 0
+
+
+def save_checkpoint(ckpt_path: str, per_sample_results: list, n_done: int,
+                    extra_meta: dict = None):
+    """原子写入（先写tmp再rename，防止断电损坏）"""
+    data = {
+        "n_done": n_done,
+        "per_sample_results": per_sample_results,
+    }
+    if extra_meta:
+        data["meta"] = extra_meta
+    tmp = ckpt_path + ".tmp"
+    os.makedirs(os.path.dirname(os.path.abspath(ckpt_path)), exist_ok=True)
+    with open(tmp, "w") as f:
+        json.dump(data, f, default=str)
+    os.replace(tmp, ckpt_path)
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +324,7 @@ def compute_layerwise_signals(
       "A_hw"     → list[Tensor(V,)]  per-layer: ANCHOR→visual attn, AIMA-style head-weighted
                     head weight = softmax( Σ_v  attn_head(query_token_topk1 → visual_v) )
                     等价于 AIMA 的 kl_query_weighting=False, query_topk=1 配置
-      "hw"       → list[Tensor(L*H,)] per-layer head weights  (for diagnostics)
+      "hw"       → list[Tensor(nh,)] per-layer head weights  (for diagnostics)
       "B"        → list[Tensor(V,)]  per-layer: cosine-sim(ANCHOR_hs, visual_hs)
       "C"        → list[float]       per-layer: visual-patch attention entropy (uniform avg over heads)
     """
@@ -391,163 +460,6 @@ def aima_aggregate(
 
 
 # ---------------------------------------------------------------------------
-# Run one batch (probe mode)
-# ---------------------------------------------------------------------------
-
-def run_probe_mode(model, proc, tok, records, args):
-    n_layers = len(model.model.layers)
-    acc_stats = {"A": [[] for _ in range(n_layers)],
-                 "B": [[] for _ in range(n_layers)]}
-    entropy_stats = [[] for _ in range(n_layers)]
-
-    npts, ptr_pad_toks, ast_start, ptr_start_tok = _setup_tokens(model, tok)
-    lp_list = LogitsProcessorList(
-        [ForceFollowTokensLogitsProcessorSimple(tokenizer=tok, number_of_points=npts)]
-    )
-
-    n_done = n_skip = 0
-    for rec in tqdm(records[:args.num_samples] if args.num_samples > 0 else records,
-                    desc="[probe]"):
-        res = _forward_one(model, proc, tok, rec, lp_list, ast_start)
-        if res is None:
-            n_skip += 1
-            continue
-
-        sigs, vis_idx, tgt_idx, nw, nh, bbox_n = res
-        gt = ((bbox_n[0]+bbox_n[2])/2, (bbox_n[1]+bbox_n[3])/2)
-
-        for li in range(n_layers):
-            if sigs.get("C") and li < len(sigs["C"]):
-                entropy_stats[li].append(sigs["C"][li])
-            for sig in ("A", "B"):
-                sl = sigs.get(sig, [])
-                if li >= len(sl) or sl[li] is None or sl[li].numel() == 0:
-                    continue
-                px, py = patch_scores_to_point(sl[li], nw, nh, args.activation_threshold)
-                acc_stats[sig][li].append(
-                    (is_point_in_bbox(px, py, bbox_n), euclidean_distance((px,py), gt))
-                )
-        n_done += 1
-
-    print(f"\n[probe] done={n_done}, skip={n_skip}")
-    results = {"meta": vars(args), "layer_results": {}}
-    print(f"\n{'L':>5} | {'ACC_A':>8} | {'ACC_B':>8} | {'ENTROPY':>9}")
-    print("-" * 42)
-    for li in range(n_layers):
-        ld = {"layer_idx": li}
-        for sig in ("A","B"):
-            sp = acc_stats[sig][li]
-            ld[f"acc_{sig}"] = float(sum(h for h,_ in sp)/max(len(sp),1))
-            ld[f"mean_dist_{sig}"] = float(sum(d for _,d in sp)/max(len(sp),1)) if sp else 1.0
-        ev = entropy_stats[li]
-        ld["entropy_mean"] = float(sum(ev)/max(len(ev),1))
-        ld["entropy_std"] = float((sum((e-ld["entropy_mean"])**2 for e in ev)/max(len(ev)-1,1))**0.5)
-        results["layer_results"][str(li)] = ld
-        print(f"{li:>5} | {ld['acc_A']:>8.4f} | {ld['acc_B']:>8.4f} | {ld['entropy_mean']:>9.4f}")
-
-    _save(results, args.output_path)
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Run one batch (eval mode with layer mask)
-# ---------------------------------------------------------------------------
-
-def run_eval_mode(model, proc, tok, records, args):
-    n_layers = len(model.model.layers)
-    layer_mask_set = parse_layer_mask(args.layer_mask, n_layers)
-    print(f"[eval] Layer mask '{args.layer_mask}' → using layers: {sorted(layer_mask_set)}")
-
-    npts, ptr_pad_toks, ast_start, ptr_start_tok = _setup_tokens(model, tok)
-    lp_list = LogitsProcessorList(
-        [ForceFollowTokensLogitsProcessorSimple(tokenizer=tok, number_of_points=npts)]
-    )
-
-    # Track two variants:
-    #   "hw"  = AIMA-style head-weighted (A_hw), exact replication with layer mask applied
-    #   "uni" = uniform head average (A), ablation baseline
-    n_done = n_skip = 0
-    n_hit = {"hw": 0, "uni": 0}
-    hit_by_type = {"hw": defaultdict(lambda: [0, 0]),
-                   "uni": defaultdict(lambda: [0, 0])}
-    per_sample_results = []
-
-    recs = records[:args.num_samples] if args.num_samples > 0 else records
-    for rec in tqdm(recs, desc=f"[eval|mask={args.layer_mask}]"):
-        res = _forward_one(model, proc, tok, rec, lp_list, ast_start)
-        if res is None:
-            n_skip += 1
-            per_sample_results.append({"skipped": True})
-            continue
-
-        sigs, vis_idx, tgt_idx, nw, nh, bbox_n = res
-        gt = ((bbox_n[0]+bbox_n[2])/2, (bbox_n[1]+bbox_n[3])/2)
-
-        # Aggregate with layer mask — two variants
-        map_hw  = aima_aggregate(sigs.get("A_hw", []), layer_mask_set, n_layers)
-        map_uni = aima_aggregate(sigs.get("A",    []), layer_mask_set, n_layers)
-
-        if map_hw is None and map_uni is None:
-            n_skip += 1
-            per_sample_results.append({"skipped": True})
-            continue
-
-        sample_res = {
-            "gt": gt, "ui_type": rec["ui_type"],
-            "instruction": rec["instruction"],
-            "bbox_norm": bbox_n, "skipped": False,
-        }
-
-        for variant, gmap in (("hw", map_hw), ("uni", map_uni)):
-            if gmap is None:
-                sample_res[f"hit_{variant}"] = False
-                continue
-            px, py = patch_scores_to_point(gmap, nw, nh, args.activation_threshold)
-            hit = is_point_in_bbox(px, py, bbox_n)
-            dist = euclidean_distance((px, py), gt)
-            n_hit[variant] += int(hit)
-            hit_by_type[variant][rec["ui_type"]][0] += int(hit)
-            hit_by_type[variant][rec["ui_type"]][1] += 1
-            sample_res[f"hit_{variant}"] = hit
-            sample_res[f"pred_{variant}"] = (px, py)
-            sample_res[f"dist_{variant}"] = dist
-
-        n_done += 1
-        per_sample_results.append(sample_res)
-
-    acc_hw  = n_hit["hw"]  / max(n_done, 1)
-    acc_uni = n_hit["uni"] / max(n_done, 1)
-    print(f"\n[eval] mask={args.layer_mask}  done={n_done}, skip={n_skip}")
-    print(f"  ACC (AIMA head-weighted): {acc_hw:.4f}  ({n_hit['hw']}/{n_done})")
-    print(f"  ACC (uniform heads):      {acc_uni:.4f}  ({n_hit['uni']}/{n_done})")
-
-    print(f"\n{'ui_type':>20} | {'ACC_hw':>8} | {'ACC_uni':>8} | {'n':>6}")
-    print("-" * 52)
-    all_types = set(hit_by_type["hw"]) | set(hit_by_type["uni"])
-    for ut in sorted(all_types):
-        h_hw, t_hw   = hit_by_type["hw"][ut]
-        h_uni, t_uni = hit_by_type["uni"][ut]
-        print(f"{ut:>20} | {h_hw/max(t_hw,1):>8.4f} | {h_uni/max(t_uni,1):>8.4f} | {t_hw:>6}")
-
-    results = {
-        "meta": {**vars(args), "layer_mask_set": sorted(layer_mask_set)},
-        "overall_acc_hw": acc_hw,
-        "overall_acc_uniform": acc_uni,
-        "n_hit_hw": n_hit["hw"],
-        "n_hit_uniform": n_hit["uni"],
-        "n_total": n_done,
-        "n_skip": n_skip,
-        "acc_by_type_hw": {k: {"acc": h/max(t,1), "n": t, "hit": h}
-                           for k,(h,t) in hit_by_type["hw"].items()},
-        "acc_by_type_uniform": {k: {"acc": h/max(t,1), "n": t, "hit": h}
-                                for k,(h,t) in hit_by_type["uni"].items()},
-        "per_sample": per_sample_results,
-    }
-    _save(results, args.output_path)
-    return results
-
-
-# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
@@ -663,11 +575,404 @@ def _forward_one(model, proc, tok, rec, lp_list, ast_start):
     return sigs, vis_idx, tgt_idx, n_patch_w, n_patch_h, rec["bbox_norm"]
 
 
-def _save(data, path):
+def _atomic_save(data, path):
+    """先写 .tmp 再 rename，防止写到一半断电损坏文件"""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "w") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2, default=str)
+    os.replace(tmp, path)
     print(f"[saved] → {path}")
+
+
+# ---------------------------------------------------------------------------
+# Run one batch (probe mode) — 支持多GPU分片 + 断点续跑 + 定期落盘
+# ---------------------------------------------------------------------------
+
+def run_probe_mode(model, proc, tok, records, args, rank, world_size):
+    n_layers = len(model.model.layers)
+    ckpt_path = ckpt_path_for_rank(args.output_path, rank)
+
+    # ── 断点续跑：加载已有 checkpoint ──
+    prev_results, n_done_prev = load_checkpoint(ckpt_path)
+    # checkpoint 里存的是 per-sample 聚合结果（probe模式每条存各层hit/dist/entropy）
+    # 恢复各层累计统计
+    acc_stats = {"A": [[] for _ in range(n_layers)],
+                 "B": [[] for _ in range(n_layers)]}
+    entropy_stats = [[] for _ in range(n_layers)]
+    for entry in prev_results:
+        if entry.get("skipped"):
+            continue
+        for li in range(n_layers):
+            lk = str(li)
+            if lk not in entry.get("layer_data", {}):
+                continue
+            ld = entry["layer_data"][lk]
+            for sig in ("A", "B"):
+                if f"hit_{sig}" in ld:
+                    acc_stats[sig][li].append((ld[f"hit_{sig}"], ld[f"dist_{sig}"]))
+            if "entropy" in ld:
+                entropy_stats[li].append(ld["entropy"])
+
+    # ── 数据分片：按 rank 切割，跳过已完成 ──
+    recs_all = records[:args.num_samples] if args.num_samples > 0 else records
+    # 当前 rank 负责的样本（stride 切割，保证均匀）
+    my_recs = recs_all[rank::world_size]
+    # 跳过已经做完的
+    n_skip_ckpt = n_done_prev  # checkpoint 里已完成条数（不含 skip）
+    # 注意：checkpoint 里记录的是 n_done（成功处理的），不含 forward 失败的
+    # 所以跳过前 n_done_prev 条即可（checkpoint 已按顺序追加）
+    my_recs_todo = my_recs[len(prev_results):]   # 用列表长度跳过（包含 skipped entry）
+
+    npts, ptr_pad_toks, ast_start, ptr_start_tok = _setup_tokens(model, tok)
+    lp_list = LogitsProcessorList(
+        [ForceFollowTokensLogitsProcessorSimple(tokenizer=tok, number_of_points=npts)]
+    )
+
+    per_sample_results = list(prev_results)   # 从 checkpoint 继续追加
+    n_done = n_done_prev
+    n_skip = sum(1 for e in prev_results if e.get("skipped"))
+    last_save_idx = len(per_sample_results)
+
+    pbar = tqdm(my_recs_todo,
+                desc=f"[rank{rank}|probe]",
+                initial=len(prev_results),
+                total=len(my_recs))
+
+    for rec in pbar:
+        res = _forward_one(model, proc, tok, rec, lp_list, ast_start)
+        if res is None:
+            n_skip += 1
+            per_sample_results.append({"skipped": True})
+            # 失败条也算入落盘判断
+        else:
+            sigs, vis_idx, tgt_idx, nw, nh, bbox_n = res
+            gt = ((bbox_n[0]+bbox_n[2])/2, (bbox_n[1]+bbox_n[3])/2)
+            entry = {"skipped": False, "layer_data": {}, "bbox_norm": bbox_n,
+                     "ui_type": rec["ui_type"], "instruction": rec["instruction"]}
+            for li in range(n_layers):
+                ld = {}
+                if sigs.get("C") and li < len(sigs["C"]):
+                    ld["entropy"] = sigs["C"][li]
+                    entropy_stats[li].append(sigs["C"][li])
+                for sig in ("A", "B"):
+                    sl = sigs.get(sig, [])
+                    if li >= len(sl) or sl[li] is None or sl[li].numel() == 0:
+                        continue
+                    px, py = patch_scores_to_point(sl[li], nw, nh, args.activation_threshold)
+                    hit = is_point_in_bbox(px, py, bbox_n)
+                    dist = euclidean_distance((px, py), gt)
+                    ld[f"hit_{sig}"] = hit
+                    ld[f"dist_{sig}"] = dist
+                    acc_stats[sig][li].append((hit, dist))
+                entry["layer_data"][str(li)] = ld
+            per_sample_results.append(entry)
+            n_done += 1
+
+        # ── 定期落盘 ──
+        if len(per_sample_results) - last_save_idx >= args.save_every:
+            save_checkpoint(ckpt_path, per_sample_results, n_done,
+                            extra_meta={"rank": rank, "world_size": world_size,
+                                        "mode": "probe", "args": vars(args)})
+            last_save_idx = len(per_sample_results)
+            pbar.set_postfix({"saved": len(per_sample_results), "done": n_done})
+
+    # 最后再落一次盘
+    save_checkpoint(ckpt_path, per_sample_results, n_done,
+                    extra_meta={"rank": rank, "world_size": world_size,
+                                "mode": "probe", "args": vars(args)})
+    print(f"[rank{rank}|probe] done={n_done}, skip={n_skip}, total_processed={len(per_sample_results)}")
+
+    # ── rank-0 等所有进程完成后合并并生成最终结果 ──
+    if world_size > 1:
+        _barrier_wait_all_ranks(args.output_path, rank, world_size, timeout=3600)
+
+    if rank == 0:
+        _merge_probe_results(args, world_size, n_layers)
+
+
+def _barrier_wait_all_ranks(output_path: str, rank: int, world_size: int, timeout: int = 3600):
+    """
+    轻量级文件锁 barrier：
+    每个 rank 写一个 done 标记文件，rank-0 等待所有 rank 都写完。
+    非 rank-0 的进程在写完标记后直接退出等待。
+    """
+    done_flag = output_path + f".rank{rank}.done"
+    Path(done_flag).touch()
+    print(f"[rank{rank}] Wrote done flag: {done_flag}")
+
+    if rank != 0:
+        return  # 非 rank-0 不需要等待
+
+    # rank-0 等待所有其他 rank 的 done 标记
+    print(f"[rank0] Waiting for all {world_size} ranks to finish...")
+    start = time.time()
+    while True:
+        all_done = all(
+            os.path.exists(output_path + f".rank{r}.done")
+            for r in range(world_size)
+        )
+        if all_done:
+            break
+        if time.time() - start > timeout:
+            print(f"[rank0] Timeout waiting for other ranks after {timeout}s, proceeding with available checkpoints.")
+            break
+        time.sleep(5)
+
+    # 清理 done 标记
+    for r in range(world_size):
+        flag = output_path + f".rank{r}.done"
+        if os.path.exists(flag):
+            os.remove(flag)
+
+
+def _merge_probe_results(args, world_size, n_layers):
+    """合并所有 rank 的 checkpoint，生成最终 JSON 结果"""
+    print(f"[rank0] Merging {world_size} rank checkpoints...")
+    acc_stats = {"A": [[] for _ in range(n_layers)],
+                 "B": [[] for _ in range(n_layers)]}
+    entropy_stats = [[] for _ in range(n_layers)]
+    all_per_sample = []
+
+    for r in range(world_size):
+        ckpt_path = ckpt_path_for_rank(args.output_path, r)
+        if not os.path.exists(ckpt_path):
+            print(f"[warn] rank{r} checkpoint not found: {ckpt_path}")
+            continue
+        with open(ckpt_path) as f:
+            ckpt = json.load(f)
+        for entry in ckpt.get("per_sample_results", []):
+            all_per_sample.append(entry)
+            if entry.get("skipped"):
+                continue
+            for li in range(n_layers):
+                lk = str(li)
+                if lk not in entry.get("layer_data", {}):
+                    continue
+                ld = entry["layer_data"][lk]
+                for sig in ("A", "B"):
+                    if f"hit_{sig}" in ld:
+                        acc_stats[sig][li].append((ld[f"hit_{sig}"], ld[f"dist_{sig}"]))
+                if "entropy" in ld:
+                    entropy_stats[li].append(ld["entropy"])
+
+    # 汇总统计
+    results = {
+        "meta": {**vars(args), "world_size": world_size},
+        "layer_results": {},
+        "n_total": sum(1 for e in all_per_sample if not e.get("skipped")),
+        "n_skip": sum(1 for e in all_per_sample if e.get("skipped")),
+    }
+    print(f"\n{'L':>5} | {'ACC_A':>8} | {'ACC_B':>8} | {'ENTROPY':>9}")
+    print("-" * 42)
+    for li in range(n_layers):
+        ld = {"layer_idx": li}
+        for sig in ("A", "B"):
+            sp = acc_stats[sig][li]
+            ld[f"acc_{sig}"] = float(sum(h for h,_ in sp) / max(len(sp), 1))
+            ld[f"mean_dist_{sig}"] = float(sum(d for _,d in sp) / max(len(sp), 1)) if sp else 1.0
+            ld[f"n_{sig}"] = len(sp)
+        ev = entropy_stats[li]
+        ld["entropy_mean"] = float(sum(ev) / max(len(ev), 1))
+        ld["entropy_std"]  = float((sum((e - ld["entropy_mean"])**2 for e in ev) / max(len(ev)-1, 1))**0.5)
+        results["layer_results"][str(li)] = ld
+        print(f"{li:>5} | {ld['acc_A']:>8.4f} | {ld['acc_B']:>8.4f} | {ld['entropy_mean']:>9.4f}")
+
+    _atomic_save(results, args.output_path)
+
+    # 清理各 rank 的 checkpoint 文件
+    if not args.keep_ckpt:
+        for r in range(world_size):
+            ckpt_path = ckpt_path_for_rank(args.output_path, r)
+            if os.path.exists(ckpt_path):
+                os.remove(ckpt_path)
+                print(f"[rank0] Removed checkpoint: {ckpt_path}")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Run one batch (eval mode with layer mask) — 支持多GPU分片 + 断点续跑 + 定期落盘
+# ---------------------------------------------------------------------------
+
+def run_eval_mode(model, proc, tok, records, args, rank, world_size):
+    n_layers = len(model.model.layers)
+    layer_mask_set = parse_layer_mask(args.layer_mask, n_layers)
+    if rank == 0:
+        print(f"[eval] Layer mask '{args.layer_mask}' → using layers: {sorted(layer_mask_set)}")
+
+    ckpt_path = ckpt_path_for_rank(args.output_path, rank)
+
+    # ── 断点续跑：加载已有 checkpoint ──
+    prev_results, n_done_prev = load_checkpoint(ckpt_path)
+    n_hit_prev = {"hw": sum(1 for e in prev_results if e.get("hit_hw")),
+                  "uni": sum(1 for e in prev_results if e.get("hit_uni"))}
+
+    # ── 数据分片 ──
+    recs_all = records[:args.num_samples] if args.num_samples > 0 else records
+    my_recs = recs_all[rank::world_size]
+    my_recs_todo = my_recs[len(prev_results):]
+
+    npts, ptr_pad_toks, ast_start, ptr_start_tok = _setup_tokens(model, tok)
+    lp_list = LogitsProcessorList(
+        [ForceFollowTokensLogitsProcessorSimple(tokenizer=tok, number_of_points=npts)]
+    )
+
+    n_done = n_done_prev
+    n_skip = sum(1 for e in prev_results if e.get("skipped"))
+    n_hit  = dict(n_hit_prev)
+    hit_by_type = {"hw": defaultdict(lambda: [0, 0]),
+                   "uni": defaultdict(lambda: [0, 0])}
+    # 从 checkpoint 恢复 hit_by_type
+    for entry in prev_results:
+        if entry.get("skipped"):
+            continue
+        ut = entry.get("ui_type", "unknown")
+        for variant in ("hw", "uni"):
+            if entry.get(f"hit_{variant}"):
+                hit_by_type[variant][ut][0] += 1
+            if f"hit_{variant}" in entry:
+                hit_by_type[variant][ut][1] += 1
+
+    per_sample_results = list(prev_results)
+    last_save_idx = len(per_sample_results)
+
+    pbar = tqdm(my_recs_todo,
+                desc=f"[rank{rank}|eval|mask={args.layer_mask}]",
+                initial=len(prev_results),
+                total=len(my_recs))
+
+    for rec in pbar:
+        res = _forward_one(model, proc, tok, rec, lp_list, ast_start)
+        if res is None:
+            n_skip += 1
+            per_sample_results.append({"skipped": True})
+        else:
+            sigs, vis_idx, tgt_idx, nw, nh, bbox_n = res
+            gt = ((bbox_n[0]+bbox_n[2])/2, (bbox_n[1]+bbox_n[3])/2)
+
+            map_hw  = aima_aggregate(sigs.get("A_hw", []), layer_mask_set, n_layers)
+            map_uni = aima_aggregate(sigs.get("A",    []), layer_mask_set, n_layers)
+
+            if map_hw is None and map_uni is None:
+                n_skip += 1
+                per_sample_results.append({"skipped": True})
+            else:
+                sample_res = {
+                    "gt": gt, "ui_type": rec["ui_type"],
+                    "instruction": rec["instruction"],
+                    "bbox_norm": bbox_n, "skipped": False,
+                }
+                for variant, gmap in (("hw", map_hw), ("uni", map_uni)):
+                    if gmap is None:
+                        sample_res[f"hit_{variant}"] = False
+                        continue
+                    px, py = patch_scores_to_point(gmap, nw, nh, args.activation_threshold)
+                    hit = is_point_in_bbox(px, py, bbox_n)
+                    dist = euclidean_distance((px, py), gt)
+                    n_hit[variant] += int(hit)
+                    hit_by_type[variant][rec["ui_type"]][0] += int(hit)
+                    hit_by_type[variant][rec["ui_type"]][1] += 1
+                    sample_res[f"hit_{variant}"] = hit
+                    sample_res[f"pred_{variant}"] = (px, py)
+                    sample_res[f"dist_{variant}"] = dist
+                n_done += 1
+                per_sample_results.append(sample_res)
+
+        # ── 定期落盘 ──
+        if len(per_sample_results) - last_save_idx >= args.save_every:
+            save_checkpoint(ckpt_path, per_sample_results, n_done,
+                            extra_meta={"rank": rank, "world_size": world_size,
+                                        "mode": "eval", "layer_mask": args.layer_mask,
+                                        "args": vars(args)})
+            last_save_idx = len(per_sample_results)
+            acc_hw_cur = n_hit["hw"] / max(n_done, 1)
+            pbar.set_postfix({"saved": len(per_sample_results),
+                              "acc_hw": f"{acc_hw_cur:.3f}"})
+
+    # 最后落盘
+    save_checkpoint(ckpt_path, per_sample_results, n_done,
+                    extra_meta={"rank": rank, "world_size": world_size,
+                                "mode": "eval", "layer_mask": args.layer_mask,
+                                "args": vars(args)})
+    print(f"[rank{rank}|eval] done={n_done}, skip={n_skip}, "
+          f"acc_hw={n_hit['hw']/max(n_done,1):.4f}, acc_uni={n_hit['uni']/max(n_done,1):.4f}")
+
+    # ── rank-0 等待并合并 ──
+    if world_size > 1:
+        _barrier_wait_all_ranks(args.output_path, rank, world_size, timeout=3600)
+
+    if rank == 0:
+        _merge_eval_results(args, world_size, layer_mask_set, n_layers)
+
+
+def _merge_eval_results(args, world_size, layer_mask_set, n_layers):
+    """合并所有 rank 的 eval checkpoint，生成最终 JSON 结果"""
+    print(f"[rank0] Merging {world_size} eval checkpoints...")
+    n_done = 0
+    n_skip = 0
+    n_hit = {"hw": 0, "uni": 0}
+    hit_by_type = {"hw": defaultdict(lambda: [0, 0]),
+                   "uni": defaultdict(lambda: [0, 0])}
+    all_per_sample = []
+
+    for r in range(world_size):
+        ckpt_path = ckpt_path_for_rank(args.output_path, r)
+        if not os.path.exists(ckpt_path):
+            print(f"[warn] rank{r} checkpoint not found: {ckpt_path}")
+            continue
+        with open(ckpt_path) as f:
+            ckpt = json.load(f)
+        for entry in ckpt.get("per_sample_results", []):
+            all_per_sample.append(entry)
+            if entry.get("skipped"):
+                n_skip += 1
+                continue
+            n_done += 1
+            ut = entry.get("ui_type", "unknown")
+            for variant in ("hw", "uni"):
+                if f"hit_{variant}" in entry:
+                    n_hit[variant] += int(entry[f"hit_{variant}"])
+                    hit_by_type[variant][ut][0] += int(entry[f"hit_{variant}"])
+                    hit_by_type[variant][ut][1] += 1
+
+    acc_hw  = n_hit["hw"]  / max(n_done, 1)
+    acc_uni = n_hit["uni"] / max(n_done, 1)
+    print(f"\n[eval] mask={args.layer_mask}  total_done={n_done}, total_skip={n_skip}")
+    print(f"  ACC (AIMA head-weighted): {acc_hw:.4f}  ({n_hit['hw']}/{n_done})")
+    print(f"  ACC (uniform heads):      {acc_uni:.4f}  ({n_hit['uni']}/{n_done})")
+
+    print(f"\n{'ui_type':>20} | {'ACC_hw':>8} | {'ACC_uni':>8} | {'n':>6}")
+    print("-" * 52)
+    all_types = set(hit_by_type["hw"]) | set(hit_by_type["uni"])
+    for ut in sorted(all_types):
+        h_hw, t_hw   = hit_by_type["hw"][ut]
+        h_uni, t_uni = hit_by_type["uni"][ut]
+        print(f"{ut:>20} | {h_hw/max(t_hw,1):>8.4f} | {h_uni/max(t_uni,1):>8.4f} | {t_hw:>6}")
+
+    results = {
+        "meta": {**vars(args), "layer_mask_set": sorted(layer_mask_set),
+                 "world_size": world_size},
+        "overall_acc_hw": acc_hw,
+        "overall_acc_uniform": acc_uni,
+        "n_hit_hw": n_hit["hw"],
+        "n_hit_uniform": n_hit["uni"],
+        "n_total": n_done,
+        "n_skip": n_skip,
+        "acc_by_type_hw": {k: {"acc": h/max(t,1), "n": t, "hit": h}
+                           for k,(h,t) in hit_by_type["hw"].items()},
+        "acc_by_type_uniform": {k: {"acc": h/max(t,1), "n": t, "hit": h}
+                                for k,(h,t) in hit_by_type["uni"].items()},
+        "per_sample": all_per_sample,
+    }
+    _atomic_save(results, args.output_path)
+
+    if not args.keep_ckpt:
+        for r in range(world_size):
+            ckpt_path = ckpt_path_for_rank(args.output_path, r)
+            if os.path.exists(ckpt_path):
+                os.remove(ckpt_path)
+                print(f"[rank0] Removed checkpoint: {ckpt_path}")
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -690,36 +995,95 @@ def parse_args():
                    help="Max samples to evaluate. -1 = all.")
     p.add_argument("--output_path", type=str, default="eval_results/layer_probe.json")
     p.add_argument("--max_pixels", type=int, default=5760000)
-    p.add_argument("--gpu_id", type=int, default=0)
     p.add_argument("--activation_threshold", type=float, default=0.3)
     # Layer mask (for eval mode)
     p.add_argument("--layer_mask", type=str, default="all",
                    help=("Layer selection for eval mode. Options: "
                          "all | last | not_last | first_half | last_half | 0,5,10 | 0-9"))
+    # 多GPU: 手动模式（不用 torchrun 时使用）
+    p.add_argument("--gpu_id", type=int, default=None,
+                   help="(单卡模式) 指定使用哪张 GPU。多卡时请改用 torchrun 或 --rank/--world_size。")
+    p.add_argument("--rank", type=int, default=None,
+                   help="(手动多卡) 当前进程的 rank (0-based)")
+    p.add_argument("--world_size", type=int, default=None,
+                   help="(手动多卡) 总进程数（=GPU 数量）")
+    # 断点续跑 / 定期落盘
+    p.add_argument("--save_every", type=int, default=20,
+                   help="每处理 N 条样本保存一次 checkpoint（默认 20）")
+    p.add_argument("--keep_ckpt", action="store_true",
+                   help="合并完成后保留各 rank 的 checkpoint 文件（默认删除）")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
-    print(f"[probe] Loading model: {args.model_path}")
+
+    # ── 确定 rank / world_size / 本进程用哪张 GPU ──
+    # 优先级: torchrun 环境变量 > 手动 --rank/--world_size > 单卡 --gpu_id
+    env_rank, env_ws, env_local = get_dist_info()
+
+    if args.rank is not None:
+        # 手动多卡模式：用 --rank 和 --world_size
+        rank       = args.rank
+        world_size = args.world_size if args.world_size is not None else 1
+        local_rank = rank   # 单机假设
+    elif env_ws > 1:
+        # torchrun 启动
+        rank       = env_rank
+        world_size = env_ws
+        local_rank = env_local
+    else:
+        # 纯单卡模式
+        rank       = 0
+        world_size = 1
+        local_rank = 0
+
+    # 注入到 sys 供 get_dist_info 回调使用（仅手动模式需要）
+    sys._dist_rank       = rank
+    sys._dist_world_size = world_size
+
+    # 确定 GPU device
+    if args.gpu_id is not None:
+        device = f"cuda:{args.gpu_id}"
+    else:
+        n_gpu = torch.cuda.device_count()
+        if n_gpu == 0:
+            device = "cpu"
+        else:
+            device = f"cuda:{local_rank % n_gpu}"
+
+    if rank == 0:
+        print(f"[main] mode={args.mode}, world_size={world_size}, "
+              f"rank={rank}/{world_size}, device={device}")
+
+    # ── 加载模型（每个进程独立加载到自己的 GPU）──
+    if rank == 0:
+        print(f"[main] Loading model: {args.model_path}")
     proc = AutoProcessor.from_pretrained(args.model_path, max_pixels=args.max_pixels)
-    tok = proc.tokenizer
+    tok  = proc.tokenizer
     model = Qwen2_5_VLForConditionalGenerationWithPointer.from_pretrained(
         args.model_path,
         torch_dtype=torch.bfloat16,
-        device_map=f"cuda:{args.gpu_id}",
+        device_map=device,
         attn_implementation="flash_attention_2",
     ).eval()
-    print(f"[probe] Layers: {len(model.model.layers)}, Device: {model.device}")
+    if rank == 0:
+        print(f"[main] Layers: {len(model.model.layers)}, Device: {model.device}")
 
-    print(f"[probe] Loading dataset ...")
+    # ── 加载数据集 ──
+    if rank == 0:
+        print(f"[main] Loading dataset ...")
     records = load_dataset_records(args)
-    print(f"[probe] Dataset size: {len(records)}")
+    if rank == 0:
+        recs_all = records[:args.num_samples] if args.num_samples > 0 else records
+        print(f"[main] Dataset size: {len(records)} "
+              f"(using {len(recs_all)}, this rank handles ~{len(recs_all)//world_size} samples)")
 
+    # ── 分发到对应模式 ──
     if args.mode == "probe":
-        run_probe_mode(model, proc, tok, records, args)
+        run_probe_mode(model, proc, tok, records, args, rank, world_size)
     else:
-        run_eval_mode(model, proc, tok, records, args)
+        run_eval_mode(model, proc, tok, records, args, rank, world_size)
 
 
 if __name__ == "__main__":
