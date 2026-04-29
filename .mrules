@@ -1,0 +1,136 @@
+# ZwerGe-UI Project Rules
+# ============================================================
+# 论文：ZwerGe-UI — Grounding Emerges Before Decoding via Layerwise Zoom-In for GUI Agents
+# 目标：ACL ARR May 投稿
+# 核心主张：GUI grounding signal 在生成前、中浅层已经形成；
+#           通过 layer-wise internal posterior + uncertainty-gated zoom-in
+#           实现 coarse-to-fine grounding，无需依赖长 CoT / 在线 RL。
+# ============================================================
+
+
+## 一、代码库结构
+
+工作区根目录：/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/
+
+子模块布局：
+  GUI-AIMA/                    # 主 backbone，ZwerGe-UI 的代码起点
+    src/gui_aima/              # 核心模型代码
+      modeling_qwen25vl.py     # Qwen2.5-VL + pointer head（FA2 路径）
+      modeling_qwen25vl_eager.py  # eager attention 版本（用于 attention 可视化分析）
+      inference.py             # 标准推理（FA2）
+      inference_eager.py       # eager 推理（分析用）
+      constants.py             # token 定义（pointer_start/pad/end 等）
+      trainer.py               # SFT trainer
+    eval/                      # 评测脚本
+      layer_probe.py           # 层级 grounding signal 分析（ZwerGe 核心分析工具）
+      screenSpot_v2.py         # ScreenSpot-v2 eval
+      screenSpot_pro.py        # ScreenSpot-Pro eval（单阶段）
+      screenSpot_pro_two_stage.py  # ScreenSpot-Pro two-stage zoom eval
+      osworld-g.py             # OSWorld-G eval
+      osworld-g_two_stage.py   # OSWorld-G two-stage eval
+      mmbench_gui_l2.py        # MMBench GUI L2 eval
+      plot_probe.py            # layer_probe 结果可视化
+    scripts/
+      sft_single_node.sh       # 单机 SFT 训练
+      sft_multi_node.sh        # 多机 SFT 训练
+      aima_analysis.sh         # 分析实验脚本
+
+  GUI-Actor/                   # 对比 baseline，coordinate-free grounding
+    src/gui_actor/
+      modeling_qwen25vl.py     # GUI-Actor 模型（<ACTOR> token）
+    eval/                      # screenSpot / screenSpot_pro / screenSpot_v2
+
+  scripts/                     # 项目级公用脚本（当前为空，按需添加）
+  debate/                      # 实验性目录
+
+
+## 二、模型权重
+
+需要加载模型时，先通过 ls 或 ll 查找以下两个目录，再确认具体子目录名，不要凭记忆猜测路径：
+
+  GUI Agent 系列：/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/
+  Qwen 系列：    /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/Qwen/
+
+完整路径格式：<根目录>/<model_name>
+例：.../GUI_Agents/GUI-AIMA-3B
+
+
+## 三、核心方法三层结构
+
+  Layer 1 — Layerwise Grounding Emergence
+    读取中间层 hidden states 或 sparse anchor-attention slice，
+    得到每层 patch posterior p^(l)，统计 accuracy / entropy / margin / JS divergence。
+
+  Layer 2 — Uncertainty-Gated Zoom Controller
+    输入：多层 internal features（H, margin, active area, cross-layer JS）
+    输出：STOP / ZOOM(ROI, scale-bin)
+    实现：先 supervised warm-start，再 GRPO 只优化 controller（不对整 backbone 做 RL）。
+
+  Layer 3 — Local Refiner
+    对 controller 选出的 ROI crop-and-scale，再过一次 backbone（或轻量后半层变体），
+    将局部预测映射回全局坐标。
+
+
+## 四、工程约束（写代码时必须遵守）
+
+1. FA2 兼容性：主训练路径必须走 flash_attention_2，不能依赖 output_attentions=True 保存完整 attention matrix。
+2. 显存约束：禁止在多层同时保存完整 (B, L, H, S, S) attention weights（O(B·L·H·S²) 必炸）。
+3. 分析与训练解耦：
+   - 分析路径（layer_probe.py / plot_probe.py）：允许对少数指定层做 sparse QK recompute（只算 anchor/actor → visual tokens 的切片）。
+   - 训练路径：只依赖 hidden-state probe 或单 query 对 visual keys 的稀疏读出。
+4. Attention 可解释性路径：hook 住单层 q/k，只做小 matmul（不需要整层 eager），可参考 inference_eager.py 的实现。
+5. RL 范围：GRPO 只施加在 zoom controller（和可选的 local refiner LoRA），不对整个 backbone 做在线 RL。
+
+
+## 五、评测基准与优先级
+
+  P0（主指标）：ScreenSpot-v2（1272样本，web/desktop/mobile）
+  P1（高分辨率/小目标）：ScreenSpot-Pro
+  P2（复杂真实GUI）：OSWorld-G（564样本）
+  P3（Action扩展）：UI-Vision（offline，element/layout/action prediction）
+  sanity check（不作主结论）：AndroidWorld / AgentNetBench 小规模在线跑
+
+  eval 脚本统一输出到 /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results 目录，禁止使用 find 等递归遍历目录的命令，必要时仅适用 ls/ll。
+
+
+## 六、论文叙事边界（避免踩雷）
+
+- 不说"adaptive zoom-in" / "uncertainty-guided zoom-in" / "another two-stage grounding"
+- 不把工作定位成"和工业界拼总榜"
+- 正确定位：GUI-specific layer-wise internal posterior 建模 + compute-aware learned policy
+- 与 GUI-AIMA 的区别：我们把 layer-wise posterior 演化本身作为主研究对象，并训练 controller
+- 与 UI-Zoomer 的区别：uncertainty 来自 single-pass internal state，而非 sampled predictions 的 spatial consensus
+- zoom-in 必须是 layout-aware 的，不能写成"删背景" / 纯 saliency pruning
+
+
+## 七、变更日志
+
+  - [2026-04-29 17:35] 创建 .mrules 文件（代码库结构、模型权重路径规则、方法三层结构、工程约束、评测基准、论文叙事边界）；新增 memory：每轮对话结束前将核心变动追加写入本文件的"## 七、变更日志"区块
+
+  - [2026-04-29 ~18:00] 【分析】layer_probe.py 中的启发式规则盘点：
+      唯一影响最终 grounding 输出的启发式函数是 patch_scores_to_point，包含三层嵌套假设：
+      (1) 阈值 max×0.3 过滤低分 patch（threshold_ratio=0.3，可配置）；
+      (2) 4-连通区域 BFS 分割；
+      (3) 选峰值最高的连通区域（非最大面积）；
+      (4) 对选中区域做 attention-score 加权质心。
+      aima_aggregate 中跨层等权平均也是一个简化假设。
+      提出了两种无规则替代方案（argmax、softmax 加权质心）供 ablation 参考，未写入代码。
+
+  - [2026-04-29 ~18:10] 【溯源】patch_scores_to_point 的真实来源定位：
+      GUI-Actor 官方实现：GUI-Actor/src/gui_actor/inference.py，函数名 get_prediction_region_point（第63-177行）。
+      GUI-AIMA 官方实现：GUI-AIMA/src/gui_aima/inference.py，函数名 get_prediction_region_point（第230-347行）。
+      关键发现：GUI-Actor 用 avg_score=sum/len 选区域，GUI-AIMA 改为 avg_score=max(item[3])（已注释掉avg版本）。
+      layer_probe.py 的 patch_scores_to_point 与 GUI-AIMA 对齐（用峰值选区域），与 GUI-Actor 不同。
+
+  - [2026-04-29 ~18:25] 【差异对照】layer_probe.py 与官方 GUI-AIMA/GUI-Actor 推断代码的全面差异：
+      差异1（选区域标准）：我们=AIMA=峰值max；GUI-Actor=均值sum/len。已正确对齐AIMA。
+      差异2（attention提取）：官方一次性聚合所有层；我们逐层保留用于probe分析。设计差异，正确。
+      差异3（output_attentions）：官方True；我们False+自实现QK重算，等价但节省显存。正确。
+      差异4（part_query_weighting截断）⚠️：AIMA官方在query_indices末尾截去后12个token
+        （config.part_query_weighting=True时执行 query_indices[0:-12]），layer_probe.py未实现此截断。
+        如果GUI-AIMA-3B训练时启用了该配置，head weighting计算与官方存在偏差，是潜在复现误差来源。
+        待查：检查 GUI-AIMA-3B model config 中 part_query_weighting 的实际值。
+      差异5（target attention取法）：官方GroundingHead取merged_idx最后一个position（[:, -1, :]）；
+        我们对全部T个target token做mean。npts==1时无差异，npts>1时结果不同。
+      差异6：layer_probe.py 额外计算 Signal B（hidden-state cosine sim）和 Signal C（entropy），官方无。
+      差异7（temperature）：官方传temperature=0.1；我们未传（但do_sample=False，无实际影响）。
