@@ -1,0 +1,28 @@
+{"time":"2026-05-13T19:17:35.095383913+08:00","level":"INFO","msg":"using version","core version":"0.18.3"}
+{"time":"2026-05-13T19:17:35.096847819+08:00","level":"INFO","msg":"created symlink","path":"/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/wandb/run-20260513_191734-esf5etwy/logs/debug-core.log"}
+{"time":"2026-05-13T19:17:35.10141114+08:00","level":"ERROR","msg":"dialing: google: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information"}
+{"time":"2026-05-13T19:17:35.125709774+08:00","level":"INFO","msg":"created new stream","id":"esf5etwy"}
+{"time":"2026-05-13T19:17:35.126326469+08:00","level":"INFO","msg":"stream: started","id":"esf5etwy"}
+{"time":"2026-05-13T19:17:35.126358239+08:00","level":"INFO","msg":"sender: started","stream_id":{"value":"esf5etwy"}}
+{"time":"2026-05-13T19:17:35.126344463+08:00","level":"INFO","msg":"writer: Do: started","stream_id":{"value":"esf5etwy"}}
+{"time":"2026-05-13T19:17:35.126346878+08:00","level":"INFO","msg":"handler: started","stream_id":{"value":"esf5etwy"}}
+{"time":"2026-05-13T19:17:36.446326508+08:00","level":"INFO","msg":"wandb-core","!BADKEY":null}
+{"time":"2026-05-13T19:17:36.451375331+08:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2026-05-13T23:14:15.949064035+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:14:48.011262373+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:15:22.260880759+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2026-05-13T23:17:30.985124869+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:18:03.104763681+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:18:37.644780629+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-14T03:09:15.94270548+08:00","level":"INFO","msg":"stream: closing","id":"esf5etwy"}
+{"time":"2026-05-14T03:09:15.94274778+08:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2026-05-14T03:09:16.056886322+08:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2026-05-14T03:09:17.351070959+08:00","level":"WARN","msg":"No job ingredients found, not creating job artifact"}
+{"time":"2026-05-14T03:09:17.351610318+08:00","level":"WARN","msg":"No source type found, not creating job artifact"}
+{"time":"2026-05-14T03:09:17.352125291+08:00","level":"INFO","msg":"sender: sendDefer: no job artifact to save"}
+{"time":"2026-05-14T03:09:21.047631108+08:00","level":"ERROR","msg":"monitor: gpu: timeout waiting for process to exit"}
+{"time":"2026-05-14T03:09:26.708038631+08:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-05-14T03:09:44.028226461+08:00","level":"INFO","msg":"handler: closed","stream_id":{"value":"esf5etwy"}}
+{"time":"2026-05-14T03:09:44.028289881+08:00","level":"INFO","msg":"writer: Close: closed","stream_id":{"value":"esf5etwy"}}
+{"time":"2026-05-14T03:09:44.028312043+08:00","level":"INFO","msg":"sender: closed","stream_id":{"value":"esf5etwy"}}
+{"time":"2026-05-14T03:09:44.033929776+08:00","level":"INFO","msg":"stream: closed","id":"esf5etwy"}

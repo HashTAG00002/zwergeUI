@@ -1,0 +1,32 @@
+{"time":"2026-05-13T19:19:16.559882742+08:00","level":"INFO","msg":"using version","core version":"0.18.3"}
+{"time":"2026-05-13T19:19:16.561225563+08:00","level":"INFO","msg":"created symlink","path":"/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/wandb/run-20260513_191916-xj66l09u/logs/debug-core.log"}
+{"time":"2026-05-13T19:19:16.56548266+08:00","level":"ERROR","msg":"dialing: google: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information"}
+{"time":"2026-05-13T19:19:16.589900808+08:00","level":"INFO","msg":"created new stream","id":"xj66l09u"}
+{"time":"2026-05-13T19:19:16.590249721+08:00","level":"INFO","msg":"stream: started","id":"xj66l09u"}
+{"time":"2026-05-13T19:19:16.590263066+08:00","level":"INFO","msg":"writer: Do: started","stream_id":{"value":"xj66l09u"}}
+{"time":"2026-05-13T19:19:16.590285268+08:00","level":"INFO","msg":"sender: started","stream_id":{"value":"xj66l09u"}}
+{"time":"2026-05-13T19:19:16.590267324+08:00","level":"INFO","msg":"handler: started","stream_id":{"value":"xj66l09u"}}
+{"time":"2026-05-13T19:19:18.044580865+08:00","level":"INFO","msg":"wandb-core","!BADKEY":null}
+{"time":"2026-05-13T19:19:18.049535708+08:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2026-05-13T23:10:29.278504039+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2026-05-13T23:12:29.287978857+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:13:59.296340986+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:14:31.669540148+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2026-05-13T23:15:06.432611916+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:15:45.88992762+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2026-05-13T23:16:33.168514073+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:17:38.393742849+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-13T23:18:43.729656032+08:00","level":"INFO","msg":"api: retrying HTTP error","status":503,"url":"https://api.wandb.ai/graphql"}
+{"time":"2026-05-13T23:20:13.733690063+08:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2026-05-14T03:11:57.089076791+08:00","level":"INFO","msg":"stream: closing","id":"xj66l09u"}
+{"time":"2026-05-14T03:11:57.08912402+08:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2026-05-14T03:11:57.107362859+08:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2026-05-14T03:11:58.217682352+08:00","level":"WARN","msg":"No job ingredients found, not creating job artifact"}
+{"time":"2026-05-14T03:11:58.218120785+08:00","level":"WARN","msg":"No source type found, not creating job artifact"}
+{"time":"2026-05-14T03:11:58.218482893+08:00","level":"INFO","msg":"sender: sendDefer: no job artifact to save"}
+{"time":"2026-05-14T03:12:02.094320897+08:00","level":"ERROR","msg":"monitor: gpu: timeout waiting for process to exit"}
+{"time":"2026-05-14T03:12:07.871162924+08:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-05-14T03:12:09.090244304+08:00","level":"INFO","msg":"handler: closed","stream_id":{"value":"xj66l09u"}}
+{"time":"2026-05-14T03:12:09.090292967+08:00","level":"INFO","msg":"writer: Close: closed","stream_id":{"value":"xj66l09u"}}
+{"time":"2026-05-14T03:12:09.090322122+08:00","level":"INFO","msg":"sender: closed","stream_id":{"value":"xj66l09u"}}
+{"time":"2026-05-14T03:12:09.09183675+08:00","level":"INFO","msg":"stream: closed","id":"xj66l09u"}

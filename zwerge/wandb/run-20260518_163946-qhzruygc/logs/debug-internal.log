@@ -1,0 +1,10 @@
+{"time":"2026-05-18T16:39:46.611049333+08:00","level":"INFO","msg":"using version","core version":"0.18.3"}
+{"time":"2026-05-18T16:39:46.61382601+08:00","level":"INFO","msg":"created symlink","path":"/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/wandb/run-20260518_163946-qhzruygc/logs/debug-core.log"}
+{"time":"2026-05-18T16:39:46.61784328+08:00","level":"ERROR","msg":"dialing: google: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information"}
+{"time":"2026-05-18T16:39:46.638122531+08:00","level":"INFO","msg":"created new stream","id":"qhzruygc"}
+{"time":"2026-05-18T16:39:46.638580165+08:00","level":"INFO","msg":"stream: started","id":"qhzruygc"}
+{"time":"2026-05-18T16:39:46.638588767+08:00","level":"INFO","msg":"writer: Do: started","stream_id":{"value":"qhzruygc"}}
+{"time":"2026-05-18T16:39:46.63860047+08:00","level":"INFO","msg":"sender: started","stream_id":{"value":"qhzruygc"}}
+{"time":"2026-05-18T16:39:46.638592613+08:00","level":"INFO","msg":"handler: started","stream_id":{"value":"qhzruygc"}}
+{"time":"2026-05-18T16:39:48.793069044+08:00","level":"INFO","msg":"wandb-core","!BADKEY":null}
+{"time":"2026-05-18T16:39:48.798318064+08:00","level":"INFO","msg":"Starting system monitor"}
