@@ -1,0 +1,59 @@
+\begin{table*}[!t]
+    \centering
+    \footnotesize
+    \caption{Ablation results of \method{}-lite and GUI-Actor~\citep{wu2025gui} using the grounding verifier of GUI-Actor on ScreenSpot-v1 and ScreenSpot-v2.}
+    \vspace{-1em}
+    \resizebox{0.9\linewidth}{!}{
+    % {\color{blue}
+    \begin{tabular}{clccccccc}
+        \toprule
+        & \multirow{3}{*}{\textbf{Model}} 
+          & \multicolumn{2}{c}{\textbf{Mobile}}
+          & \multicolumn{2}{c}{\textbf{Desktop}}
+          & \multicolumn{2}{c}{\textbf{Web}}
+          & \multirow{2.5}{*}{\textbf{Avg.}} \\
+        \cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
+        & & Text & Icon & Text & Icon & Text & Icon &  \\
+        \midrule
+        &GUI-Actor-3B (Qwen2.5-VL) + Verifier & 95.6&84.7&93.8&83.6&93.0&83.0&89.5$_{(+1.1)}$ \\
+        &GUI-Actor-7B (Qwen2.5-VL) + Verifier & 96.0&85.6&96.4&82.9&91.7&83.0&\textbf{89.9}$_{(+0.0)}$\\
+        &\textbf{\method{}-3B-lite} + Verifier & 97.1&83.8&96.4&83.6&91.3&84.0&\textbf{89.9}$_{(+1.1)}$ \\
+        \midrule
+        &GUI-Actor-3B (Qwen2.5-VL) + Verifier & 98.3 & 85.3 & 96.9 & 87.9 & 95.3 & 86.7 & 92.4$_{(+1.4)}$ \\
+        &GUI-Actor-7B (Qwen2.5-VL) + Verifier & 96.9 & 89.6 & 97.4 & 86.4 & 95.7 & 84.7 & 92.5$_{(+0.4)}$ \\
+        &\textbf{\method{}-3B-lite} + Verifier & 99.0&87.2&99.0&89.3&96.6&83.3&\textbf{93.0}$_{(+1.5)}$ \\
+        \bottomrule
+    \end{tabular}
+    }
+    % \vspace{-2em}
+    \label{tab:results_with_verifier}
+\end{table*}
+\begin{table*}[!t]
+    \centering
+    \footnotesize
+    \caption{Ablation results on ScreenSpot-v2, ScreenSpot-Pro and OSWorld-G of GUI grounding methods fine-tuned with the entire training set (254k elements). All variants are trained with the weighted patch-wise label introduced in \cref{sec:label} except $^*$.}
+    \vspace{-1em}
+    \resizebox{1\linewidth}{!}{
+    % \begin{tabular}{y{240}ccccccc}
+    \begin{tabular}{p{300pt}ccccccc}
+        \toprule
+        \multirow{2}{*}{\textbf{Model}} & \multicolumn{3}{c@{\hspace{1em}}}{\textbf{ScreenSpot-v2}} & \multicolumn{3}{c@{\hspace{1em}}}{\textbf{ScreenSpot-Pro}} & \multicolumn{1}{c@{\hspace{1em}}}{\textbf{OSWorld-G}}\\
+        & Text & Icon & \textbf{Avg.}& Text & Icon & \textbf{Avg.} & \textbf{Avg.} \\
+        \midrule
+        GUI-Actor-3B$^*$ w/o weighted patch-wise label &94.99&80.87&88.84 & 49.13&19.04&37.63&50.53 \\
+        GUI-Actor-3B &95.13&83.94&90.25&54.04&24.50&42.76&55.14\\
+        \midrule
+        \rowcolor{gray!10}\multicolumn{8}{l}{\textit{Attention Grounding without $\texttt{<ANCHOR>}$}}\\
+        Vanilla Attention Grounding (multi-head weighting uniformly) &95.40&81.41&89.31& 58.03&21.52&44.09&55.03\\
+        Vanilla Attention Grounding (multi-head weighted with $\mathcal{Q}'=\mathcal{Q}$ in \cref{eq:unified_head_score}) & 95.40&81.23&89.23 &55.07&23.84&43.14&54.14 \\
+        \midrule
+        \rowcolor{gray!10}\multicolumn{8}{l}{\textit{Simplified Attention Grounding with $\texttt{<ANCHOR>}$}}\\
+        % \midrule
+        $\texttt{<ANCHOR>}$-based multi-head weighting with $\mathcal{Q}'=\{\texttt{<ANCHOR>}\}$ in \cref{eq:unified_head_score}&96.52&82.85&90.57&59.77&21.69&45.22&54.79\\
+        GUI-AIMA-3B-lite w/ stop-grad on $w$&96.38&85.56&\textbf{91.67}&58.34&25.33&45.73&56.38 \\
+        GUI-AIMA-3B-lite &97.21&84.12&91.51& 62.03&29.97&\textbf{49.78}&\textbf{58.33} \\
+        \bottomrule
+      \end{tabular}}
+    % \vspace{-2em}
+    \label{tab:ablation_all}
+\end{table*}

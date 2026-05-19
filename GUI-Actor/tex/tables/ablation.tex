@@ -1,0 +1,51 @@
+\begin{table}[h]
+\centering
+\vspace{-0.5em}
+\caption{Ablation study on \textit{ScreenSpot-Pro}, \textit{ScreenSpot}, and \textit{ScreenSpot-v2}.}
+\small
+\resizebox{1.\columnwidth}{!}{
+% \setlength{\tabcolsep}{1.5mm}
+
+% \begin{tabular}{lccccccccc}
+% \toprule
+% & \textbf{Dev} & \textbf{Creative} & \textbf{CAD} & \textbf{Scientific} & \textbf{Office} & \textbf{OS} & \textbf{Avg-Text} & \textbf{Avg-Icon} & \textbf{Avg} \\
+% \midrule
+% GUI-Actor-2B-LiteTrain + Verifier & 34.5 & 31.1 & 25.7 & 29.5 & 50.4 & 33.7 & 48.8 & 9.3 & 33.7 \\
+% GUI-Actor-2B-LiteTrain & 25.4 & 26.1 & 18.0 & 20.9 & 41.7 & 20.9 & 38.4 & 4.5 & 25.4\\
+% \midrule
+% GUI-Actor-7B-LiteTrain + Verifier & & & & & & & & & \\
+% GUI-Actor-7B-LiteTrain & 23.4 & 21.4 & 14.9 & 27.6 & 29.1 & 21.9 & 33.1 & 6.5 & 22.9\\
+% \midrule
+% GUI-Actor-7B & & & & & & & & & \\
+% Aguvis-7B (bbox sup.) & 12.4 & 17.0 & 1.5 & 18.1 & 21.7 & 11.7 & 20.6 & 2.8 & 13.8\\
+% Aguvis-7B (point sup.) & 15.7 & 19.4 & 3.8 & 17.3 & 24.4 & 11.7 & 23.3 & 3.0 & 15.6 \\
+% \bottomrule
+% \end{tabular}
+
+\begin{tabular}{lccccccc}
+\toprule
+\textit{\textbf{ScreenSpot-Pro:}}& \textbf{Dev} & \textbf{Creative} & \textbf{CAD} & \textbf{Scientific} & \textbf{Office} & \textbf{OS} & \textbf{Avg} \\
+\midrule
+GUI-Actor-7B& 38.8 & 40.2 & 29.5 & 44.5 & 56.5 & 36.2 & 40.7 \\
+Aguvis-7B (bbox sup.) & 12.4 & 17.0 & 1.5 & 18.1 & 21.7 & 11.7 & 13.8\\
+Aguvis-7B (point sup.) & 15.7 & 19.4 & 3.8 & 17.3 & 24.4 & 11.7 & 15.6 \\
+\midrule
+\textit{\textbf{ScreenSpot:}} & \textbf{Mobile-Text} & \textbf{Mobile-Icon} & \textbf{Desktop-Text} & \textbf{Desktop-Icon} & \textbf{Web-Text} & \textbf{Web-Icon} & \textbf{Avg} \\
+\midrule
+GUI-Actor-7B& 94.9 & 82.1 & 91.8 & 80.0& 91.3 & 85.4 & 88.3 \\
+Aguvis-7B (bbox sup.) & 92.3 & 73.4 & 92.3 & 76.4 & 92.6 & 74.8 & 84.4\\
+Aguvis-7B (point sup.) & 92.3 & 79.0 & 93.3 & 71.4 & 92.6 & 75.2 & 85.1\\
+\midrule
+\textit{\textbf{ScreenSpot-v2:}} & \textbf{Mobile-Text} & \textbf{Mobile-Icon} & \textbf{Desktop-Text} & \textbf{Desktop-Icon} & \textbf{Web-Text} & \textbf{Web-Icon} & \textbf{Avg} \\
+\midrule
+GUI-Actor-7B& 96.5 & 84.3 & 91.7 & 84.1 & 93.9 & 82.3 & 89.5 \\
+Aguvis-7B (bbox sup.) & 92.3 & 73.4 & 92.3 & 76.4 & 92.6 & 74.8 & 84.4 \\
+Aguvis-7B (point sup.) & 96.1 & 80.1 & 96.1 & 74.6 & 93.6 & 74.3 & 87.0\\
+\bottomrule
+\end{tabular}
+
+\vspace{-0.5em}
+}
+\label{tab:ablation}
+\end{table}
+

@@ -1,0 +1,46 @@
+\begin{table}[!t]
+\centering
+\caption{Performance comparison on \textit{ScreenSpot-v2}. $^{\dagger}$ indicates results obtained from our own evaluation of the official model on Huggingface.}
+\resizebox{1.0\columnwidth}{!}{
+\begin{tabular}{lccccccc}
+\toprule
+& \textbf{Mobile-Text} & \textbf{Mobile-Icon} & \textbf{Desktop-Text} & \textbf{Desktop-Icon} & \textbf{Web-Text} & \textbf{Web-Icon} & \cellcolor{lightblue}\textbf{Avg} \\
+\midrule
+Operator & 47.3 & 41.5 & 90.2 & 80.3 & 92.8 & 84.3 & \cellcolor{lightblue}70.5\\
+GPT-4o + OmniParser-v2 & 95.5 & 74.6 & 92.3 & 60.9 & 88.0 & 59.6 & \cellcolor{lightblue}80.7 \\
+\midrule
+OS-Atlas-4B & 87.2 & 59.7 & 72.7 & 46.4 & 85.9 & 63.1 & \cellcolor{lightblue}71.9 \\
+UI-TARS-2B & 95.2 & 79.1 & 90.7 & 68.6 & 87.2 & 78.3 & \cellcolor{lightblue}84.7 \\
+% \midrule
+\cellcolor{lightblue}\textbf{GUI-Actor-2B} & \cellcolor{lightblue}95.0 & \cellcolor{lightblue}82.2 & \cellcolor{lightblue}92.2 & \cellcolor{lightblue}81.8 & \cellcolor{lightblue}92.9 & \cellcolor{lightblue}82.7 & \cellcolor{lightblue}\textbf{88.6}\\
+% \cellcolor{lightblue}\textbf{GUI-Actor-2B-LiteTrain + Verifier} & \cellcolor{lightblue}94.1 & \cellcolor{lightblue}69.2 & \cellcolor{lightblue}93.8 & \cellcolor{lightblue}65.0 & \cellcolor{lightblue}89.7 & \cellcolor{lightblue}69.0 & \cellcolor{lightblue}81.9 \\
+\cellcolor{lightblue}\textbf{GUI-Actor-2B + Verifier} &
+% \cellcolor{lightblue}95.5 & \cellcolor{lightblue}82.5 & \cellcolor{lightblue}93.8 & \cellcolor{lightblue}82.9 & \cellcolor{lightblue}90.6 & \cellcolor{lightblue}84.2 & \cellcolor{lightblue}\textbf{89.0} \\
+ \cellcolor{lightblue}95.9 & \cellcolor{lightblue}81.5 & \cellcolor{lightblue}94.3 & \cellcolor{lightblue}82.9 & \cellcolor{lightblue}93.6 & \cellcolor{lightblue}82.8 & \cellcolor{lightblue}\textbf{89.3} \\
+% \midrule
+\midrule
+% \multicolumn{8}{l}{\textbf{Agent Model}} \\
+SeeClick-9.6B & 78.4 & 50.7 & 70.1 & 29.3 & 55.2 & 32.5 & \cellcolor{lightblue}55.1 \\
+Magma-8B & 62.8 & 53.4 & 80.0 & 57.9 & 67.5 & 47.3 & \cellcolor{lightblue}61.5 \\
+OS-Atlas-7B & 95.2 & 75.8 & 90.7 & 63.6 & 90.6 & 77.3 & \cellcolor{lightblue}84.1 \\
+% Aguvis-7B$^{\dagger}$ & 95.0 & 82.7 & 96.1 & 81.0 & 92.5 & 78.5 & 88.3\\
+Aguvis-7B$^{\dagger}$ & 95.5 & 77.3 & 95.4 & 77.9 & 91.0 & 72.4 & \cellcolor{lightblue}86.0\\
+UGround-V1-7B$^{\dagger}$ & 95.0 & 83.3 & 95.0 & 77.8 & 92.1 & 77.2 & \cellcolor{lightblue}87.6 \\
+UI-TARS-7B & 96.9 & 89.1 & 95.4 & 85.0 & 93.6 & 85.2 & \cellcolor{lightblue}91.6 \\
+% \midrule
+% Aguvis-7B-bbox$^*$ & & & & & & & \\
+% \midrule
+\cellcolor{lightblue}\textbf{GUI-Actor-7B} & \cellcolor{lightblue}96.5 & \cellcolor{lightblue}84.3 & \cellcolor{lightblue}91.7 & \cellcolor{lightblue}84.1 & \cellcolor{lightblue}93.9 & \cellcolor{lightblue}82.3 & \cellcolor{lightblue}\textbf{89.5} \\
+% \cellcolor{lightblue}\textbf{GUI-Actor-7B-LiteTrain + Verifier} & \cellcolor{lightblue}& \cellcolor{lightblue}& \cellcolor{lightblue}& \cellcolor{lightblue}& \cellcolor{lightblue}& \cellcolor{lightblue}& \cellcolor{lightblue}\\
+\cellcolor{lightblue}\textbf{GUI-Actor-7B + Verifier} & 
+% \cellcolor{lightblue}97.2 & \cellcolor{lightblue}84.4 & \cellcolor{lightblue}93.3 & \cellcolor{lightblue}80.7 & \cellcolor{lightblue}94.9 & \cellcolor{lightblue}84.7 & \cellcolor{lightblue}\textbf{90.3} \\
+\cellcolor{lightblue}97.2 & \cellcolor{lightblue}84.8 & \cellcolor{lightblue}94.3 & \cellcolor{lightblue}85.0 & \cellcolor{lightblue}94.0 & \cellcolor{lightblue}85.2 & \cellcolor{lightblue}\textbf{90.9} \\
+\midrule
+UI-TARS-72B & 94.8 & 86.3 & 91.2 & 87.9 & 91.5 & 87.7 & \cellcolor{lightblue}90.3 \\
+
+
+\bottomrule
+\end{tabular}
+}
+\label{tab:screenspot_v2}
+\end{table}

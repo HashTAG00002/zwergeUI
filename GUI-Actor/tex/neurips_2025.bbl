@@ -1,0 +1,303 @@
+\begin{thebibliography}{59}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Zhang et~al.(2024{\natexlab{a}})Zhang, Li, He, Zhang, Qiao, Qin, Ma, Kang, Lin, Rajmohan, et~al.]{zhang2024ufo}
+Chaoyun Zhang, Liqun Li, Shilin He, Xu~Zhang, Bo~Qiao, Si~Qin, Minghua Ma, Yu~Kang, Qingwei Lin, Saravan Rajmohan, et~al.
+\newblock Ufo: A ui-focused agent for windows os interaction.
+\newblock \emph{arXiv preprint arXiv:2402.07939}, 2024{\natexlab{a}}.
+
+\bibitem[Zhang et~al.(2025{\natexlab{a}})Zhang, Huang, Ni, Mu, Qin, He, Wang, Yang, Zhao, Du, et~al.]{zhang2025ufo2}
+Chaoyun Zhang, He~Huang, Chiming Ni, Jian Mu, Si~Qin, Shilin He, Lu~Wang, Fangkai Yang, Pu~Zhao, Chao Du, et~al.
+\newblock Ufo2: The desktop agentos.
+\newblock \emph{arXiv preprint arXiv:2504.14603}, 2025{\natexlab{a}}.
+
+\bibitem[Wang et~al.()Wang, Xu, Ye, Yan, Shen, Zhang, Huang, and Sang]{wang2024mobileagentautonomousmultimodalmobile}
+Junyang Wang, Haiyang Xu, Jiabo Ye, Ming Yan, Weizhou Shen, Ji~Zhang, Fei Huang, and Jitao Sang.
+\newblock Mobile-agent: Autonomous multi-modal mobile device agent with visual perception.
+\newblock In \emph{ICLR 2024 Workshop on Large Language Model (LLM) Agents}.
+
+\bibitem[Zheng et~al.(2024)Zheng, Gou, Kil, Sun, and Su]{zheng2024gpt}
+Boyuan Zheng, Boyu Gou, Jihyung Kil, Huan Sun, and Yu~Su.
+\newblock Gpt-4v (ision) is a generalist web agent, if grounded.
+\newblock \emph{arXiv preprint arXiv:2401.01614}, 2024.
+
+\bibitem[Zhang et~al.(2024{\natexlab{b}})Zhang, He, Qian, Li, Li, Qin, Kang, Ma, Liu, Lin, et~al.]{zhang2024large}
+Chaoyun Zhang, Shilin He, Jiaxu Qian, Bowen Li, Liqun Li, Si~Qin, Yu~Kang, Minghua Ma, Guyue Liu, Qingwei Lin, et~al.
+\newblock Large language model-brained gui agents: A survey.
+\newblock \emph{arXiv preprint arXiv:2411.18279}, 2024{\natexlab{b}}.
+
+\bibitem[Wang et~al.(2024{\natexlab{a}})Wang, Yang, Zhang, Lu, Qian, He, Zhao, Qiao, Huang, Qin, et~al.]{wang2024large}
+Lu~Wang, Fangkai Yang, Chaoyun Zhang, Junting Lu, Jiaxu Qian, Shilin He, Pu~Zhao, Bo~Qiao, Ray Huang, Si~Qin, et~al.
+\newblock Large action models: From inception to implementation.
+\newblock \emph{arXiv preprint arXiv:2412.10047}, 2024{\natexlab{a}}.
+
+\bibitem[Xu et~al.(2024)Xu, Wang, Wang, Lu, Xie, Saha, Sahoo, Yu, and Xiong]{xu2024aguvis}
+Yiheng Xu, Zekun Wang, Junli Wang, Dunjie Lu, Tianbao Xie, Amrita Saha, Doyen Sahoo, Tao Yu, and Caiming Xiong.
+\newblock Aguvis: Unified pure vision agents for autonomous gui interaction.
+\newblock \emph{arXiv preprint arXiv:2412.04454}, 2024.
+
+\bibitem[Gou et~al.(2024)Gou, Wang, Zheng, Xie, Chang, Shu, Sun, and Su]{gou2024navigating}
+Boyu Gou, Ruohan Wang, Boyuan Zheng, Yanan Xie, Cheng Chang, Yiheng Shu, Huan Sun, and Yu~Su.
+\newblock Navigating the digital world as humans do: Universal visual grounding for gui agents.
+\newblock \emph{arXiv preprint arXiv:2410.05243}, 2024.
+
+\bibitem[Dosovitskiy et~al.(2021)Dosovitskiy, Beyer, Kolesnikov, Weissenborn, Zhai, Unterthiner, Dehghani, Minderer, Heigold, Gelly, Uszkoreit, and Houlsby]{dosovitskiy2021an}
+Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby.
+\newblock An image is worth 16x16 words: Transformers for image recognition at scale.
+\newblock In \emph{International Conference on Learning Representations}, 2021.
+\newblock URL \url{https://openreview.net/forum?id=YicbFdNTTy}.
+
+\bibitem[Qin et~al.(2025)Qin, Ye, Fang, Wang, Liang, Tian, Zhang, Li, Li, Huang, et~al.]{qin2025ui}
+Yujia Qin, Yining Ye, Junjie Fang, Haoming Wang, Shihao Liang, Shizuo Tian, Junda Zhang, Jiahao Li, Yunxin Li, Shijue Huang, et~al.
+\newblock Ui-tars: Pioneering automated gui interaction with native agents.
+\newblock \emph{arXiv preprint arXiv:2501.12326}, 2025.
+
+\bibitem[Sun et~al.(2019)Sun, Sun, Wang, He, and Lu]{sun2019roi}
+Yuxuan Sun, Chong Sun, Dong Wang, You He, and Huchuan Lu.
+\newblock Roi pooled correlation filters for visual tracking.
+\newblock In \emph{Proceedings of the IEEE/CVF conference on computer vision and pattern recognition}, pages 5783--5791, 2019.
+
+\bibitem[Zhu et~al.(2019)Zhu, Cheng, Zhang, Lin, and Dai]{zhu2019empirical}
+Xizhou Zhu, Dazhi Cheng, Zheng Zhang, Stephen Lin, and Jifeng Dai.
+\newblock An empirical study of spatial attention mechanisms in deep networks.
+\newblock In \emph{Proceedings of the IEEE/CVF international conference on computer vision}, pages 6688--6697, 2019.
+
+\bibitem[Rawles et~al.(2024)Rawles, Clinckemaillie, Chang, Waltz, Lau, Fair, Li, Bishop, Li, Campbell-Ajala, et~al.]{rawles2024androidworld}
+Christopher Rawles, Sarah Clinckemaillie, Yifan Chang, Jonathan Waltz, Gabrielle Lau, Marybeth Fair, Alice Li, William Bishop, Wei Li, Folawiyo Campbell-Ajala, et~al.
+\newblock Androidworld: A dynamic benchmarking environment for autonomous agents.
+\newblock \emph{arXiv preprint arXiv:2405.14573}, 2024.
+
+\bibitem[Zhou et~al.(2023)Zhou, Xu, Zhu, Zhou, Lo, Sridhar, Cheng, Ou, Bisk, Fried, et~al.]{zhou2023webarena}
+Shuyan Zhou, Frank~F Xu, Hao Zhu, Xuhui Zhou, Robert Lo, Abishek Sridhar, Xianyi Cheng, Tianyue Ou, Yonatan Bisk, Daniel Fried, et~al.
+\newblock Webarena: A realistic web environment for building autonomous agents.
+\newblock \emph{arXiv preprint arXiv:2307.13854}, 2023.
+
+\bibitem[Deng et~al.(2023)Deng, Gu, Zheng, Chen, Stevens, Wang, Sun, and Su]{deng2023mind2web}
+Xiang Deng, Yu~Gu, Boyuan Zheng, Shijie Chen, Sam Stevens, Boshi Wang, Huan Sun, and Yu~Su.
+\newblock Mind2web: Towards a generalist agent for the web.
+\newblock \emph{Advances in Neural Information Processing Systems}, 36:\penalty0 28091--28114, 2023.
+
+\bibitem[Xie et~al.(2024)Xie, Zhang, Chen, Li, Zhao, Cao, Hua, Cheng, Shin, Lei, et~al.]{xie2024osworld}
+Tianbao Xie, Danyang Zhang, Jixuan Chen, Xiaochuan Li, Siheng Zhao, Ruisheng Cao, Toh~J Hua, Zhoujun Cheng, Dongchan Shin, Fangyu Lei, et~al.
+\newblock Osworld: Benchmarking multimodal agents for open-ended tasks in real computer environments.
+\newblock \emph{Advances in Neural Information Processing Systems}, 37:\penalty0 52040--52094, 2024.
+
+\bibitem[Wu et~al.(2024{\natexlab{a}})Wu, Han, Ding, Weng, Liu, Yao, Yu, and Kong]{wu2024copilot}
+Zhiyong Wu, Chengcheng Han, Zichen Ding, Zhenmin Weng, Zhoumianze Liu, Shunyu Yao, Tao Yu, and Lingpeng Kong.
+\newblock Os-copilot: Towards generalist computer agents with self-improvement.
+\newblock \emph{arXiv preprint arXiv:2402.07456}, 2024{\natexlab{a}}.
+
+\bibitem[Jia et~al.(2024)Jia, Luo, Dang, Sun, Xu, Hu, Xie, and Wu]{jia2024agentstore}
+Chengyou Jia, Minnan Luo, Zhuohang Dang, Qiushi Sun, Fangzhi Xu, Junlin Hu, Tianbao Xie, and Zhiyong Wu.
+\newblock Agentstore: Scalable integration of heterogeneous agents as specialized generalist computer assistant.
+\newblock \emph{arXiv preprint arXiv:2410.18603}, 2024.
+
+\bibitem[Sun et~al.(2024{\natexlab{a}})Sun, Chen, Xu, Cheng, Ma, Yin, Wang, Han, Zhu, Yuan, et~al.]{sun2024survey}
+Qiushi Sun, Zhirui Chen, Fangzhi Xu, Kanzhi Cheng, Chang Ma, Zhangyue Yin, Jianing Wang, Chengcheng Han, Renyu Zhu, Shuai Yuan, et~al.
+\newblock A survey of neural code intelligence: Paradigms, advances and beyond.
+\newblock \emph{arXiv preprint arXiv:2403.14734}, 2024{\natexlab{a}}.
+
+\bibitem[Sun et~al.(2025)Sun, Liu, Ma, Ding, Xu, Yin, Zhao, Wu, Cheng, Liu, et~al.]{sun2025scienceboard}
+Qiushi Sun, Zhoumianze Liu, Chang Ma, Zichen Ding, Fangzhi Xu, Zhangyue Yin, Haiteng Zhao, Zhenyu Wu, Kanzhi Cheng, Zhaoyang Liu, et~al.
+\newblock Scienceboard: Evaluating multimodal autonomous agents in realistic scientific workflows.
+\newblock \emph{arXiv preprint arXiv:2505.19897}, 2025.
+
+\bibitem[Zhang et~al.(2025{\natexlab{b}})Zhang, Yang, Liu, Li, Han, Chen, Huang, Fu, and Yu]{zhang2025appagent}
+Chi Zhang, Zhao Yang, Jiaxuan Liu, Yanda Li, Yucheng Han, Xin Chen, Zebiao Huang, Bin Fu, and Gang Yu.
+\newblock Appagent: Multimodal agents as smartphone users.
+\newblock In \emph{Proceedings of the 2025 CHI Conference on Human Factors in Computing Systems}, pages 1--20, 2025{\natexlab{b}}.
+
+\bibitem[Zhang et~al.(2025{\natexlab{c}})Zhang, He, Li, Qin, Kang, Lin, and Zhang]{zhang2025api}
+Chaoyun Zhang, Shilin He, Liqun Li, Si~Qin, Yu~Kang, Qingwei Lin, and Dongmei Zhang.
+\newblock Api agents vs. gui agents: Divergence and convergence.
+\newblock \emph{arXiv preprint arXiv:2503.11069}, 2025{\natexlab{c}}.
+
+\bibitem[Chen et~al.(2024)Chen, Cui, Hu, Qin, Fang, Zhao, Wang, Liu, Chen, Huo, et~al.]{chen2024guicourse}
+Wentong Chen, Junbo Cui, Jinyi Hu, Yujia Qin, Junjie Fang, Yue Zhao, Chongyi Wang, Jun Liu, Guirong Chen, Yupeng Huo, et~al.
+\newblock Guicourse: From general vision language models to versatile gui agents.
+\newblock \emph{arXiv preprint arXiv:2406.11317}, 2024.
+
+\bibitem[Chai et~al.(2024)Chai, Huang, Niu, Xiao, Liu, Zhang, Gao, Ren, and Li]{chai2024amex}
+Yuxiang Chai, Siyuan Huang, Yazhe Niu, Han Xiao, Liang Liu, Dingyu Zhang, Peng Gao, Shuai Ren, and Hongsheng Li.
+\newblock Amex: Android multi-annotation expo dataset for mobile gui agents.
+\newblock \emph{arXiv preprint arXiv:2407.17490}, 2024.
+
+\bibitem[Lu et~al.(2024{\natexlab{a}})Lu, Shao, Liu, Meng, Li, Chen, Huang, Zhang, Qiao, and Luo]{lu2024gui}
+Quanfeng Lu, Wenqi Shao, Zitao Liu, Fanqing Meng, Boxuan Li, Botong Chen, Siyuan Huang, Kaipeng Zhang, Yu~Qiao, and Ping Luo.
+\newblock Gui odyssey: A comprehensive dataset for cross-app gui navigation on mobile devices.
+\newblock \emph{arXiv preprint arXiv:2406.08451}, 2024{\natexlab{a}}.
+
+\bibitem[You et~al.(2024)You, Zhang, Schoop, Weers, Swearngin, Nichols, Yang, and Gan]{you2024ferret}
+Keen You, Haotian Zhang, Eldon Schoop, Floris Weers, Amanda Swearngin, Jeffrey Nichols, Yinfei Yang, and Zhe Gan.
+\newblock Ferret-ui: Grounded mobile ui understanding with multimodal llms.
+\newblock In \emph{European Conference on Computer Vision}, pages 240--255. Springer, 2024.
+
+\bibitem[Rawles et~al.(2023)Rawles, Li, Rodriguez, Riva, and Lillicrap]{rawles2023androidinthewild}
+Christopher Rawles, Alice Li, Daniel Rodriguez, Oriana Riva, and Timothy Lillicrap.
+\newblock Androidinthewild: A large-scale dataset for android device control.
+\newblock \emph{Advances in Neural Information Processing Systems}, 36:\penalty0 59708--59728, 2023.
+
+\bibitem[Zhang et~al.(2024{\natexlab{c}})Zhang, Wu, Teng, Liao, Xu, Xiao, Wei, and Tang]{zhang2024android}
+Jiwen Zhang, Jihao Wu, Yihua Teng, Minghui Liao, Nuo Xu, Xiao Xiao, Zhongyu Wei, and Duyu Tang.
+\newblock Android in the zoo: Chain-of-action-thought for gui agents.
+\newblock \emph{arXiv preprint arXiv:2403.02713}, 2024{\natexlab{c}}.
+
+\bibitem[Zheng et~al.(2025)Zheng, Wang, Yang, Zhang, Mei, Yin, Lin, Zhang, Rajmohan, and Zhang]{zheng2025vem}
+Jiani Zheng, Lu~Wang, Fangkai Yang, Chaoyun Zhang, Lingrui Mei, Wenjie Yin, Qingwei Lin, Dongmei Zhang, Saravan Rajmohan, and Qi~Zhang.
+\newblock Vem: Environment-free exploration for training gui agent with value environment model.
+\newblock \emph{arXiv preprint arXiv:2502.18906}, 2025.
+
+\bibitem[Sun et~al.(2024{\natexlab{b}})Sun, Cheng, Ding, Jin, Wang, Xu, Wu, Jia, Chen, Liu, et~al.]{sun2024genesis}
+Qiushi Sun, Kanzhi Cheng, Zichen Ding, Chuanyang Jin, Yian Wang, Fangzhi Xu, Zhenyu Wu, Chengyou Jia, Liheng Chen, Zhoumianze Liu, et~al.
+\newblock Os-genesis: Automating gui agent trajectory construction via reverse task synthesis.
+\newblock \emph{arXiv preprint arXiv:2412.19723}, 2024{\natexlab{b}}.
+
+\bibitem[Cheng et~al.(2024{\natexlab{a}})Cheng, Li, Xu, Zhang, Zhou, and Liu]{cheng2024vision}
+Kanzhi Cheng, Yantao Li, Fangzhi Xu, Jianbing Zhang, Hao Zhou, and Yang Liu.
+\newblock Vision-language models can self-improve reasoning via reflection.
+\newblock \emph{arXiv preprint arXiv:2411.00855}, 2024{\natexlab{a}}.
+
+\bibitem[Zhang et~al.(2025{\natexlab{d}})Zhang, Ding, Ma, Chen, Sun, Lan, and He]{zhang2025breaking}
+Junlei Zhang, Zichen Ding, Chang Ma, Zijie Chen, Qiushi Sun, Zhenzhong Lan, and Junxian He.
+\newblock Breaking the data barrier--building gui agents through task generalization.
+\newblock \emph{arXiv preprint arXiv:2504.10127}, 2025{\natexlab{d}}.
+
+\bibitem[He et~al.(2024)He, Yao, Ma, Yu, Dai, Zhang, Lan, and Yu]{he2024webvoyager}
+Hongliang He, Wenlin Yao, Kaixin Ma, Wenhao Yu, Yong Dai, Hongming Zhang, Zhenzhong Lan, and Dong Yu.
+\newblock Webvoyager: Building an end-to-end web agent with large multimodal models.
+\newblock \emph{arXiv preprint arXiv:2401.13919}, 2024.
+
+\bibitem[Cheng et~al.(2024{\natexlab{b}})Cheng, Sun, Chu, Xu, Li, Zhang, and Wu]{cheng2024seeclick}
+Kanzhi Cheng, Qiushi Sun, Yougang Chu, Fangzhi Xu, Yantao Li, Jianbing Zhang, and Zhiyong Wu.
+\newblock Seeclick: Harnessing gui grounding for advanced visual gui agents.
+\newblock \emph{arXiv preprint arXiv:2401.10935}, 2024{\natexlab{b}}.
+
+\bibitem[OpenAI(2025)]{openai2025operator}
+OpenAI.
+\newblock Computer-using agent.
+\newblock Available at: https://openai.com/index/computer-using-agent, 2025.
+
+\bibitem[Anthropic(2024)]{anthropic2024cuda}
+Anthropic.
+\newblock Claude computer use.
+\newblock Available at: https://www.anthropic.com/news/developing-computer-use, 2024.
+
+\bibitem[Chen et~al.(2023)Chen, Zhang, Zeng, Zhang, Zhu, and Zhao]{chen2023shikra}
+Keqin Chen, Zhao Zhang, Weili Zeng, Richong Zhang, Feng Zhu, and Rui Zhao.
+\newblock Shikra: Unleashing multimodal llm's referential dialogue magic.
+\newblock \emph{arXiv preprint arXiv:2306.15195}, 2023.
+
+\bibitem[Wang et~al.(2024{\natexlab{b}})Wang, Bai, Tan, Wang, Fan, Bai, Chen, Liu, Wang, Ge, et~al.]{wang2024qwen2}
+Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, et~al.
+\newblock Qwen2-vl: Enhancing vision-language model's perception of the world at any resolution.
+\newblock \emph{arXiv preprint arXiv:2409.12191}, 2024{\natexlab{b}}.
+
+\bibitem[Lin et~al.(2024)Lin, Li, Gao, Yang, Wu, Bai, Lei, Wang, and Shou]{lin2024showui}
+Kevin~Qinghong Lin, Linjie Li, Difei Gao, Zhengyuan Yang, Shiwei Wu, Zechen Bai, Weixian Lei, Lijuan Wang, and Mike~Zheng Shou.
+\newblock Showui: One vision-language-action model for gui visual agent.
+\newblock \emph{arXiv preprint arXiv:2411.17465}, 2024.
+
+\bibitem[Yang et~al.(2024)Yang, Wang, Li, Luo, Chen, Huang, and Li]{yang2024aria}
+Yuhao Yang, Yue Wang, Dongxu Li, Ziyang Luo, Bei Chen, Chao Huang, and Junnan Li.
+\newblock Aria-ui: Visual grounding for gui instructions.
+\newblock \emph{arXiv preprint arXiv:2412.16256}, 2024.
+
+\bibitem[Pawlowski et~al.(2024)Pawlowski, Zawistowski, Lapacz, Skorupa, Wiacek, Postansque, and Hoscilowicz]{pawlowski2024tinyclick}
+Pawel Pawlowski, Krystian Zawistowski, Wojciech Lapacz, Marcin Skorupa, Adam Wiacek, Sebastien Postansque, and Jakub Hoscilowicz.
+\newblock Tinyclick: Single-turn agent for empowering gui automation.
+\newblock \emph{arXiv preprint arXiv:2410.11871}, 2024.
+
+\bibitem[Tang et~al.(2025)Tang, Shen, Zhang, Chen, Hou, Zhang, Zhang, Song, Lu, and Zhuang]{tang2025think}
+Fei Tang, Yongliang Shen, Hang Zhang, Siqi Chen, Guiyang Hou, Wenqi Zhang, Wenqiao Zhang, Kaitao Song, Weiming Lu, and Yueting Zhuang.
+\newblock Think twice, click once: Enhancing gui grounding via fast and slow systems.
+\newblock \emph{arXiv preprint arXiv:2503.06470}, 2025.
+
+\bibitem[Bai et~al.(2025)Bai, Chen, Liu, Wang, Ge, Song, Dang, Wang, Wang, Tang, et~al.]{bai2025qwen2}
+Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et~al.
+\newblock Qwen2. 5-vl technical report.
+\newblock \emph{arXiv preprint arXiv:2502.13923}, 2025.
+
+\bibitem[Xie et~al.(2025)Xie, Deng, Li, Yang, Wu, Chen, Hu, Wang, Xu, Wang, Xu, Wang, Sahoo, Yu, and Xiong]{xie2025scaling}
+Tianbao Xie, Jiaqi Deng, Xiaochuan Li, Junlin Yang, Haoyuan Wu, Jixuan Chen, Wenjing Hu, Xinyuan Wang, Yuhui Xu, Zekun Wang, Yiheng Xu, Junli Wang, Doyen Sahoo, Tao Yu, and Caiming Xiong.
+\newblock Scaling computer-use grounding via user interface decomposition and synthesis, 2025.
+
+\bibitem[Wu et~al.(2024{\natexlab{b}})Wu, Wu, Xu, Wang, Sun, Jia, Cheng, Ding, Chen, Liang, et~al.]{wu2024atlas}
+Zhiyong Wu, Zhenyu Wu, Fangzhi Xu, Yian Wang, Qiushi Sun, Chengyou Jia, Kanzhi Cheng, Zichen Ding, Liheng Chen, Paul~Pu Liang, et~al.
+\newblock Os-atlas: A foundation action model for generalist gui agents.
+\newblock \emph{arXiv preprint arXiv:2410.23218}, 2024{\natexlab{b}}.
+
+\bibitem[Xu et~al.(2025)Xu, Chen, Wang, and Liu]{xu2025attention}
+Hai-Ming Xu, Qi~Chen, Lei Wang, and Lingqiao Liu.
+\newblock Attention-driven gui grounding: Leveraging pretrained multimodal large language models without fine-tuning.
+\newblock In \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, pages 8851--8859, 2025.
+
+\bibitem[Cobbe et~al.(2021)Cobbe, Kosaraju, Bavarian, Chen, Jun, Kaiser, Plappert, Tworek, Hilton, Nakano, et~al.]{cobbe2021training}
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et~al.
+\newblock Training verifiers to solve math word problems.
+\newblock \emph{arXiv preprint arXiv:2110.14168}, 2021.
+
+\bibitem[Li et~al.(2025)Li, Meng, Lin, Luo, Tian, Ma, Huang, and Chua]{li2025screenspot}
+Kaixin Li, Ziyang Meng, Hongzhan Lin, Ziyang Luo, Yuchen Tian, Jing Ma, Zhiyong Huang, and Tat-Seng Chua.
+\newblock Screenspot-pro: Gui grounding for professional high-resolution computer use.
+\newblock \emph{arXiv preprint arXiv:2504.07981}, 2025.
+
+\bibitem[OpenAI(2024)]{openai2024gpt4o}
+OpenAI.
+\newblock Introducing gpt-4o.
+\newblock Available at: https://openai.com/index/hello-gpt-4o, 2024.
+
+\bibitem[Hu et~al.(2024)Hu, Ouyang, Gao, and Shou]{hu2024dawnguiagentpreliminary}
+Siyuan Hu, Mingyu Ouyang, Difei Gao, and Mike~Zheng Shou.
+\newblock The dawn of gui agent: A preliminary case study with claude 3.5 computer use, 2024.
+\newblock URL \url{https://arxiv.org/abs/2411.10323}.
+
+\bibitem[Google(2024)]{google2024gemini}
+Google.
+\newblock Introducing gemini 2.0.
+\newblock Available at: https://blog.google/technology/google-deepmind/google-gemini-ai-update-december-2024, 2024.
+
+\bibitem[Yang et~al.(2025)Yang, Tan, Wu, Zheng, Peng, Liang, Gu, Cai, Ye, Jang, et~al.]{yang2025magma}
+Jianwei Yang, Reuben Tan, Qianhui Wu, Ruijie Zheng, Baolin Peng, Yongyuan Liang, Yu~Gu, Mu~Cai, Seonghyeon Ye, Joel Jang, et~al.
+\newblock Magma: A foundation model for multimodal ai agents.
+\newblock \emph{arXiv preprint arXiv:2502.13130}, 2025.
+
+\bibitem[Bonatti et~al.(2024)Bonatti, Zhao, Bonacci, Dupont, Abdali, Li, Lu, Wagle, Koishida, Bucker, et~al.]{bonatti2024windows}
+Rogerio Bonatti, Dan Zhao, Francesco Bonacci, Dillon Dupont, Sara Abdali, Yinheng Li, Yadong Lu, Justin Wagle, Kazuhito Koishida, Arthur Bucker, et~al.
+\newblock Windows agent arena: Evaluating multi-modal os agents at scale.
+\newblock \emph{arXiv preprint arXiv:2409.08264}, 2024.
+
+\bibitem[Lu et~al.(2024{\natexlab{b}})Lu, Yang, Shen, and Awadallah]{lu2024omniparser}
+Yadong Lu, Jianwei Yang, Yelong Shen, and Ahmed Awadallah.
+\newblock Omniparser for pure vision based gui agent.
+\newblock \emph{arXiv preprint arXiv:2408.00203}, 2024{\natexlab{b}}.
+
+\bibitem[Li et~al.(2024)Li, Bishop, Li, Rawles, Campbell-Ajala, Tyamagundlu, and Riva]{li2024effects}
+Wei Li, William~E Bishop, Alice Li, Christopher Rawles, Folawiyo Campbell-Ajala, Divya Tyamagundlu, and Oriana Riva.
+\newblock On the effects of data scale on ui control agents.
+\newblock \emph{Advances in Neural Information Processing Systems}, 37:\penalty0 92130--92154, 2024.
+
+\bibitem[Penedo et~al.(2024)Penedo, Kydl{\'\i}{\v{c}}ek, Lozhkov, Mitchell, Raffel, Von~Werra, Wolf, et~al.]{penedo2024fineweb}
+Guilherme Penedo, Hynek Kydl{\'\i}{\v{c}}ek, Anton Lozhkov, Margaret Mitchell, Colin~A Raffel, Leandro Von~Werra, Thomas Wolf, et~al.
+\newblock The fineweb datasets: Decanting the web for the finest text data at scale.
+\newblock \emph{Advances in Neural Information Processing Systems}, 37:\penalty0 30811--30849, 2024.
+
+\bibitem[Bai et~al.(2021)Bai, Zang, Xu, Sunkara, Rastogi, Chen, et~al.]{bai2021uibert}
+Chongyang Bai, Xiaoxue Zang, Ying Xu, Srinivas Sunkara, Abhinav Rastogi, Jindong Chen, et~al.
+\newblock Uibert: Learning generic multimodal representations for ui understanding.
+\newblock \emph{arXiv preprint arXiv:2107.13731}, 2021.
+
+\bibitem[Li et~al.(2020{\natexlab{a}})Li, He, Zhou, Zhang, and Baldridge]{li2020mapping}
+Yang Li, Jiacong He, Xin Zhou, Yuan Zhang, and Jason Baldridge.
+\newblock Mapping natural language instructions to mobile ui action sequences.
+\newblock \emph{arXiv preprint arXiv:2005.03776}, 2020{\natexlab{a}}.
+
+\bibitem[Li et~al.(2020{\natexlab{b}})Li, Li, He, Zheng, Li, and Guan]{li2020widget}
+Yang Li, Gang Li, Luheng He, Jingjie Zheng, Hong Li, and Zhiwei Guan.
+\newblock Widget captioning: Generating natural language description for mobile user interface elements.
+\newblock \emph{arXiv preprint arXiv:2010.04295}, 2020{\natexlab{b}}.
+
+\end{thebibliography}

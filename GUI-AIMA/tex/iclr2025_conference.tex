@@ -1,0 +1,47 @@
+\documentclass{article} 
+\usepackage{iclr2025_conference,times}
+\iclrfinalcopy
+\input{math_commands.tex}
+\usepackage{bm}
+\usepackage{fontawesome5}
+% \usepackage{fontawesome}
+\usepackage{hyperref}
+\usepackage[nameinlink,capitalise]{cleveref} 
+\usepackage{url}
+\usepackage{xcolor}
+\usepackage{booktabs}           
+\usepackage{mathtools}
+\usepackage{multirow}
+\usepackage[table]{xcolor} 
+\usepackage{array} 
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tabularx}
+\usepackage{makecell}
+\usepackage{marvosym}
+\usepackage[normalem]{ulem}
+\usepackage{wrapfig}
+\definecolor{lightblue}{RGB}{220,235,255}
+\newcommand{\method}{GUI-AIMA}
+\newcommand{\Overhang}{0em} 
+\input{preamble}
+    \title{GUI-AIMA: \textbf{A}ligning \textbf{I}ntrinsic \textbf{M}ultimodal \textbf{A}ttention with a Context Anchor for GUI Grounding}
+\author{Shijie Zhou$^{1}$\thanks{Core contributors, majority work done while SZ is at University at Buffalo.}~, Viet Dac Lai$^{2}$, Hao Tan$^{2}$, Jihyung Kil$^{2}$, \textbf{Wanrong Zhu}$^{2}$\\
+\textbf{Changyou Chen}$^{1}$, \textbf{Ruiyi Zhang}$^{2*}$ \textsuperscript{\Letter} \\
+University at Buffalo$^1$, Adobe Research$^{2}$\\ \texttt{shijiezh@buffalo.edu}, \texttt{ryzhang.cs@gmail.com}
+}
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+\begin{document}
+\maketitle
+\input{sec/0_abstract}
+\input{sec/1_intro}
+\input{sec/2_related}
+\input{sec/3_method}
+\input{sec/4_experiment}
+\input{sec/5_conclusion}
+\newpage
+\bibliography{main}
+\bibliographystyle{iclr2025_conference}
+\input{sec/appendix}
+\end{document}

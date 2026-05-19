@@ -51,9 +51,10 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 from transformers import AutoProcessor, LogitsProcessorList
 from qwen_vl_utils import process_vision_info
@@ -575,6 +576,293 @@ def _forward_one(model, proc, tok, rec, lp_list, ast_start):
     return sigs, vis_idx, tgt_idx, n_patch_w, n_patch_h, rec["bbox_norm"]
 
 
+# ---------------------------------------------------------------------------
+# Visualization helpers  (Signal A / B → RGB heatmap overlaid on screenshot)
+# ---------------------------------------------------------------------------
+
+# Cold-to-hot colormap: black(0) → blue → cyan → green → yellow → red(max)
+# Implemented as a manual 5-segment linear interpolation (no matplotlib needed)
+_CMAP_STOPS = np.array([
+    [0,   0,   0  ],   # 0.00  black
+    [0,   0,   255],   # 0.25  blue
+    [0,   255, 255],   # 0.50  cyan
+    [0,   255, 0  ],   # 0.625 green
+    [255, 255, 0  ],   # 0.75  yellow
+    [255, 0,   0  ],   # 1.00  red
+], dtype=np.float32)
+_CMAP_POS   = np.array([0.0, 0.25, 0.50, 0.625, 0.75, 1.0], dtype=np.float32)
+
+
+def _scores_to_rgb(scores_1d: torch.Tensor, n_h: int, n_w: int) -> np.ndarray:
+    """
+    Convert 1-D patch scores (V,) to an (n_h, n_w, 3) uint8 RGB heatmap.
+    Score is linearly normalized to [0,1] then mapped via cold-hot colormap.
+    """
+    s = scores_1d.float().cpu().numpy()
+    s_min, s_max = s.min(), s.max()
+    if s_max - s_min < 1e-9:
+        s_norm = np.zeros_like(s)
+    else:
+        s_norm = (s - s_min) / (s_max - s_min)
+    s_grid = s_norm.reshape(n_h, n_w)          # (H_patch, W_patch)
+
+    # Vectorized interpolation along cmap
+    flat = s_grid.reshape(-1)                   # (V,)
+    rgb_flat = np.zeros((len(flat), 3), dtype=np.float32)
+    for i in range(len(_CMAP_POS) - 1):
+        lo, hi = _CMAP_POS[i], _CMAP_POS[i + 1]
+        mask = (flat >= lo) & (flat <= hi)
+        if not mask.any():
+            continue
+        t = (flat[mask] - lo) / (hi - lo + 1e-9)
+        c0, c1 = _CMAP_STOPS[i], _CMAP_STOPS[i + 1]
+        rgb_flat[mask] = c0[None] * (1 - t[:, None]) + c1[None] * t[:, None]
+
+    rgb = rgb_flat.reshape(n_h, n_w, 3).astype(np.uint8)
+    return rgb
+
+
+def render_attn_heatmap_on_image(
+    orig_img: Image.Image,
+    scores_1d: torch.Tensor,
+    n_patch_h: int,
+    n_patch_w: int,
+    bbox_norm: tuple,
+    pred_xy: tuple,
+    layer_idx: int,
+    signal_name: str,
+    hit: bool,
+    alpha: float = 0.55,
+) -> Image.Image:
+    """
+    Overlay a patch-level attention heatmap on top of orig_img.
+
+    Layout:
+      - Heatmap: bilinear-upsampled to image size, blended with alpha
+      - GT bbox:   green rectangle (dashed via 4-pixel segments)
+      - Pred point: circle, green if hit, red if miss
+      - Label strip at bottom: layer index, signal, hit/miss
+
+    Returns a new PIL Image (RGB).
+    """
+    W, H = orig_img.size
+
+    # ── 1. Build patch-level heatmap, upsample to (H, W) ──
+    patch_rgb = _scores_to_rgb(scores_1d, n_patch_h, n_patch_w)  # (ph, pw, 3)
+    hm_pil = Image.fromarray(patch_rgb, "RGB").resize((W, H), Image.BILINEAR)
+    hm_arr = np.array(hm_pil, dtype=np.float32)
+
+    # ── 2. Alpha blend ──
+    orig_arr  = np.array(orig_img.convert("RGB"), dtype=np.float32)
+    blend_arr = (1 - alpha) * orig_arr + alpha * hm_arr
+    blend_arr = blend_arr.clip(0, 255).astype(np.uint8)
+    result = Image.fromarray(blend_arr, "RGB")
+
+    # ── 3. Draw GT bbox (dashed green rectangle) ──
+    draw = ImageDraw.Draw(result)
+    x1 = int(bbox_norm[0] * W)
+    y1 = int(bbox_norm[1] * H)
+    x2 = int(bbox_norm[2] * W)
+    y2 = int(bbox_norm[3] * H)
+    # draw rectangle as 4 dashed lines
+    dash = 6
+    for edge in [
+        [(x1, y1, x2, y1), "x"],  # top
+        [(x1, y2, x2, y2), "x"],  # bottom
+        [(x1, y1, x1, y2), "y"],  # left
+        [(x2, y1, x2, y2), "y"],  # right
+    ]:
+        (ex1, ey1, ex2, ey2), axis = edge
+        if axis == "x":
+            x = ex1
+            while x < ex2:
+                draw.line([(x, ey1), (min(x + dash, ex2), ey1)], fill=(0, 220, 0), width=2)
+                x += dash * 2
+        else:
+            y = ey1
+            while y < ey2:
+                draw.line([(ex1, y), (ex1, min(y + dash, ey2))], fill=(0, 220, 0), width=2)
+                y += dash * 2
+
+    # ── 4. Draw predicted point ──
+    px = int(pred_xy[0] * W)
+    py = int(pred_xy[1] * H)
+    dot_color = (0, 220, 0) if hit else (220, 0, 0)
+    r = max(4, min(W, H) // 80)
+    draw.ellipse([px - r, py - r, px + r, py + r], fill=dot_color, outline=(255, 255, 255), width=1)
+    # crosshair
+    draw.line([(px - r * 2, py), (px + r * 2, py)], fill=dot_color, width=1)
+    draw.line([(px, py - r * 2), (px, py + r * 2)], fill=dot_color, width=1)
+
+    # ── 5. Label strip (bottom) ──
+    strip_h = max(20, H // 28)
+    label_img = Image.new("RGB", (W, strip_h), color=(20, 20, 20))
+    label_draw = ImageDraw.Draw(label_img)
+    hit_str = "HIT ✓" if hit else "MISS ✗"
+    hit_color = (80, 220, 80) if hit else (220, 80, 80)
+    label_text = f"Layer {layer_idx:02d}  Signal {signal_name}  {hit_str}"
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", size=strip_h - 4)
+    except Exception:
+        font = ImageFont.load_default()
+    label_draw.text((4, 2), label_text, fill=hit_color, font=font)
+
+    combined = Image.new("RGB", (W, H + strip_h))
+    combined.paste(result, (0, 0))
+    combined.paste(label_img, (0, H))
+    return combined
+
+
+def _make_vis_grid(images: list, ncols: int = 6) -> Image.Image:
+    """
+    Stack a list of PIL images into a W×H grid (fills with black if uneven).
+    All images must have the same size.
+    """
+    if not images:
+        return Image.new("RGB", (100, 100), (0, 0, 0))
+    W, H = images[0].size
+    nrows = math.ceil(len(images) / ncols)
+    grid = Image.new("RGB", (W * ncols, H * nrows), (10, 10, 10))
+    for i, img in enumerate(images):
+        r, c = divmod(i, ncols)
+        grid.paste(img, (c * W, r * H))
+    return grid
+
+
+# ---------------------------------------------------------------------------
+# Vis mode: per-sample layerwise attention heatmap visualization
+# ---------------------------------------------------------------------------
+
+def run_vis_mode(model, proc, tok, records, args, rank, world_size):
+    """
+    Vis mode: for each sample in --vis_samples, for each layer in --vis_layers,
+    render Signal A and/or B attention maps as heatmaps overlaid on the screenshot.
+    Saves images to:
+      <vis_output_dir>/sample_<idx>/<signal>_layer<ll>.png
+    and a summary grid:
+      <vis_output_dir>/sample_<idx>/grid_<signal>.png
+
+    Only rank-0 runs this mode (no multi-GPU split needed for small N).
+    """
+    if rank != 0:
+        return
+
+    n_layers = len(model.model.layers)
+    vis_layers = _parse_vis_layers(args.vis_layers, n_layers)
+    vis_signals = [s.strip().upper() for s in args.vis_signal.split(",")]
+    valid_signals = {"A", "B", "A_HW"}
+    vis_signals = [s for s in vis_signals if s in valid_signals]
+    if not vis_signals:
+        print("[vis] No valid signals specified. Use --vis_signal A,B or A_HW")
+        return
+
+    print(f"[vis] layers={sorted(vis_layers)}, signals={vis_signals}, "
+          f"n_samples={args.vis_samples}, output_dir={args.vis_output_dir}")
+
+    npts, ptr_pad_toks, ast_start, ptr_start_tok = _setup_tokens(model, tok)
+    lp_list = LogitsProcessorList(
+        [ForceFollowTokensLogitsProcessorSimple(tokenizer=tok, number_of_points=npts)]
+    )
+
+    recs = records[:args.vis_samples] if args.vis_samples > 0 else records
+
+    for sample_idx, rec in enumerate(tqdm(recs, desc="[vis] samples")):
+        res = _forward_one(model, proc, tok, rec, lp_list, ast_start)
+        if res is None:
+            print(f"[vis] sample {sample_idx}: forward failed, skipping")
+            continue
+
+        sigs, vis_idx, tgt_idx, nw, nh, bbox_n = res
+        gt = ((bbox_n[0] + bbox_n[2]) / 2, (bbox_n[1] + bbox_n[3]) / 2)
+
+        # ── Output directory for this sample ──
+        sample_dir = os.path.join(args.vis_output_dir, f"sample_{sample_idx:04d}")
+        os.makedirs(sample_dir, exist_ok=True)
+
+        # Save a small metadata JSON alongside the images
+        meta = {
+            "sample_idx": sample_idx,
+            "instruction": rec["instruction"],
+            "ui_type": rec.get("ui_type", "unknown"),
+            "bbox_norm": list(bbox_n),
+            "gt_center": list(gt),
+            "n_vis_patches": int(vis_idx.numel()),
+            "patch_grid": [int(nh), int(nw)],
+            "vis_layers": sorted(vis_layers),
+            "vis_signals": vis_signals,
+        }
+
+        orig_img = rec["image"].convert("RGB")
+
+        # ── Map from signal key name → actual list in sigs ──
+        sig_key_map = {
+            "A":    sigs.get("A",    []),
+            "B":    sigs.get("B",    []),
+            "A_HW": sigs.get("A_hw", []),
+        }
+
+        for sig_name in vis_signals:
+            sig_list = sig_key_map[sig_name]
+            layer_images = []
+
+            for li in sorted(vis_layers):
+                if li >= len(sig_list) or sig_list[li] is None or sig_list[li].numel() == 0:
+                    continue
+
+                scores = sig_list[li]          # Tensor (V,)
+                px, py = patch_scores_to_point(scores, nw, nh, args.activation_threshold)
+                hit = is_point_in_bbox(px, py, bbox_n)
+                dist = euclidean_distance((px, py), gt)
+
+                vis_img = render_attn_heatmap_on_image(
+                    orig_img=orig_img,
+                    scores_1d=scores,
+                    n_patch_h=nh,
+                    n_patch_w=nw,
+                    bbox_norm=bbox_n,
+                    pred_xy=(px, py),
+                    layer_idx=li,
+                    signal_name=sig_name,
+                    hit=hit,
+                    alpha=args.vis_alpha,
+                )
+                # Save individual layer image
+                fname = os.path.join(sample_dir, f"{sig_name}_layer{li:02d}.png")
+                vis_img.save(fname)
+                layer_images.append(vis_img)
+
+                # Record per-layer result in meta
+                meta.setdefault("layer_results", {}).setdefault(sig_name, {})[str(li)] = {
+                    "pred": [round(px, 4), round(py, 4)],
+                    "hit": hit,
+                    "dist": round(dist, 4),
+                }
+
+            # Save grid for this signal
+            if layer_images:
+                ncols = min(len(layer_images), 6)
+                grid = _make_vis_grid(layer_images, ncols=ncols)
+                grid_path = os.path.join(sample_dir, f"grid_{sig_name}.png")
+                grid.save(grid_path)
+                print(f"[vis] sample {sample_idx:04d} | {sig_name} | "
+                      f"{len(layer_images)} layers → {grid_path}")
+
+        # Save metadata
+        with open(os.path.join(sample_dir, "meta.json"), "w") as f:
+            json.dump(meta, f, indent=2, default=str)
+
+    print(f"[vis] Done. Results saved to: {args.vis_output_dir}")
+
+
+def _parse_vis_layers(vis_layers_str: str, n_layers: int) -> set:
+    """
+    Parse --vis_layers argument.
+    Supports: "18-36", "18,21,24,27", "all", "last_half" etc.
+    Same grammar as parse_layer_mask.
+    """
+    return parse_layer_mask(vis_layers_str, n_layers)
+
+
 def _atomic_save(data, path):
     """先写 .tmp 再 rename，防止写到一半断电损坏文件"""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -981,8 +1269,10 @@ def _merge_eval_results(args, world_size, layer_mask_set, n_layers):
 
 def parse_args():
     p = argparse.ArgumentParser(description="Layer-wise Grounding Probe + Eval with Layer Mask")
-    p.add_argument("--mode", choices=["probe", "eval"], default="probe",
-                   help="probe: per-layer ACC analysis | eval: full grounding with layer mask")
+    p.add_argument("--mode", choices=["probe", "eval", "vis"], default="probe",
+                   help=("probe: per-layer ACC analysis | "
+                         "eval: full grounding with layer mask | "
+                         "vis: layerwise attention heatmap visualization"))
     p.add_argument("--model_path", type=str,
                    default="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/GUI-AIMA-3B")
     # Dataset options
@@ -1000,6 +1290,24 @@ def parse_args():
     p.add_argument("--layer_mask", type=str, default="all",
                    help=("Layer selection for eval mode. Options: "
                          "all | last | not_last | first_half | last_half | 0,5,10 | 0-9"))
+    # Visualization options (for vis mode)
+    p.add_argument("--vis_layers", type=str, default="18-36",
+                   help=("Layer range for vis mode. Same syntax as --layer_mask. "
+                         "Default: '18-36' (layers 18 to 36 inclusive). "
+                         "Examples: '18,21,24,27,30,33,35', '18-36', 'last_half'"))
+    p.add_argument("--vis_samples", type=int, default=8,
+                   help="Number of samples to visualize in vis mode (default: 8)")
+    p.add_argument("--vis_output_dir", type=str,
+                   default="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/gui_aima",
+                   help="Output directory for vis mode heatmap images")
+    p.add_argument("--vis_signal", type=str, default="A,B",
+                   help=("Signals to visualize. Comma-separated subset of: A, B, A_HW. "
+                         "A=ANCHOR attention (uniform head avg), "
+                         "B=hidden-state cosine sim, "
+                         "A_HW=AIMA head-weighted attention. "
+                         "Default: 'A,B'"))
+    p.add_argument("--vis_alpha", type=float, default=0.55,
+                   help="Heatmap blend alpha (0=original, 1=pure heatmap, default=0.55)")
     # 多GPU: 手动模式（不用 torchrun 时使用）
     p.add_argument("--gpu_id", type=int, default=None,
                    help="(单卡模式) 指定使用哪张 GPU。多卡时请改用 torchrun 或 --rank/--world_size。")
@@ -1082,8 +1390,10 @@ def main():
     # ── 分发到对应模式 ──
     if args.mode == "probe":
         run_probe_mode(model, proc, tok, records, args, rank, world_size)
-    else:
+    elif args.mode == "eval":
         run_eval_mode(model, proc, tok, records, args, rank, world_size)
+    else:
+        run_vis_mode(model, proc, tok, records, args, rank, world_size)
 
 
 if __name__ == "__main__":

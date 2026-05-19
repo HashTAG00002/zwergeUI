@@ -1,1 +1,4 @@
 results/
+wandb/
+__pycache__/
+*.egg-info/

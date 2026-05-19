@@ -1,0 +1,84 @@
+\section{Experiments}\label{sec:exp}
+\subsection{Implementation Details.}
+\paragraph{Training Setup.}
+We use Qwen2.5-VL-3B-Instruct~\citep{bai2025qwen2} as the MLLM backbone for \method{} and all ablation variants. Following GUI-Actor~\citep{wu2025gui}, we retain the next-token prediction loss for \method{}'s grounding format. \method{}-3B is trained on 8 NVIDIA A100-80G GPUs with a global batch size of 64 and a learning rate of $5\times 10^{-6}$. We set $\alpha=0.8$ for the adaptive deviation control in Gaussian labeling. For visual-sink query token selection, we use the top-1 token under the global uniform criterion in \cref{eq:find_sink}. The patch grid resolution is $28\times 28$ in Qwen2.5-VL base model. \method{}-3B is trained for one epoch with all parameters unfrozen, without extra modules or a warm-up stage.
+\input{sec/tab/tab_screenspot_pro_compact}
+\paragraph{Training Data and Inference Setup.}
+To examine the scalability of \method{} with increased training data, we train two model variants: \method{}-3B-lite is trained on the full training sets of GUIAct~\citep{chen2024guicourse}, AndroidControl~\citep{li2024effects}, and Wave-UI~\citep{waveui}, together with 60k randomly sampled samples from UGround~\citep{gou2024navigating} and 60k from the GTA1's training set~\citep{yang2025gta1guitesttimescaling}, resulting in 259k instructions and approximately 85k images in total. \method{}-3B is then further trained with an additional 250k instructions (509k in total) from GroundCUA~\citep{feizi2025grounding} to better scale to desktop scenarios. For the 45k ablation training set for ablations in \cref{sec:ablation}, we use the first 10k samples from GUIAct, AndroidControl, and Wave-UI, together with the first 15k samples from UGround. For the two-step inference in \cref{sec:zoom}, we set the crop size to $616$ pixels and use a $2\times$ zoom-in ratio in the second pass. Additional implementation details of \method{} and baselines are provided in \cref{app:anchor,app:baseline}.
+
+\paragraph{Benchmarks and Metrics.}
+We evaluate \method{} on five GUI grounding benchmarks covering a wide range of grounding scenarios: ScreenSpot-Pro~\citep{li2025screenspot}, OSWorld-G~\citep{xie2505scaling} and UI-Vision~\citep{nayak2025ui} (in-domain) for the desktop scenario, ScreenSpot-v2~\citep{wu2024atlas} and MMBench-GUI-L2~\citep{wang2025mmbench} for general evaluations across mobile, desktop, and web domains. 
+For grounding accuracy, we follow the standard center-point metric~\citep{lin2024showui}: a prediction is considered correct if the click point falls within the ground-truth bounding box.
+% \paragraph{Baselines.}Three categories of methods are compared: 
+% (1) General MLLMs including
+% GPT-4o~\citep{openai2024gpt4o}, 
+% Gemini-2.5-Pro~\citep{comanici2025gemini}, 
+% Claude Computer~\citep{hu2024dawnguiagentpreliminary},
+% Operator~\citep{cua2025},
+% Qwen2.5-VL~\citep{bai2025qwen2}; (2) GUI-specific supervised fine-tuned model: 
+% OS-Atlas~\citep{wu2024atlas}, 
+% UGround~\citep{gou2024navigating}, 
+% UI-TARS~\citep{qin2025ui}, 
+% JEDI~\citep{xie2025scaling} and 
+% GUI-Actor~\citep{wu2025gui}
+% ; (3) GUI-specific Reinforcement fine-tuned model: 
+% UI-R1~\citep{lu2025ui},  
+% InfiGUI-R1~\citep{liu2025infiguig1advancingguigrounding}, 
+% GUI-G1~\citep{zhou2025gui}, 
+% SE-GUI~\citep{yuan2025enhancing}, 
+% GUI-G$^2$~\citep{tang2025gui}.
+% \paragraph{Baselines.}Three categories of methods are compared: 
+% (1) General MLLMs including
+% Gemini-2.5-Pro~\citep{comanici2025gemini}, 
+% Claude Computer~\citep{hu2024dawnguiagentpreliminary},
+% Operator~\citep{cua2025},
+% Qwen2.5-VL~\citep{bai2025qwen2}  and Qwen3-VL~\citep{bai2025qwen3}; (2) GUI-specific supervised fine-tuned models: 
+% OS-Atlas~\citep{wu2024atlas}, 
+% UGround~\citep{gou2024navigating}, 
+% UI-TARS~\citep{qin2025ui}, 
+% JEDI~\citep{xie2025scaling}, 
+% GUI-Actor~\citep{wu2025gui} and GroundNext (SFT)~\citep{feizi2025grounding}; (3) GUI-specific Reinforcement fine-tuned models: 
+% UI-R1~\citep{lu2025ui},  
+% InfiGUI-R1~\citep{liu2025infiguig1advancingguigrounding}, 
+% GUI-G1~\citep{zhou2025gui}, 
+% SE-GUI~\citep{yuan2025enhancing}, 
+% GUI-G$^2$~\citep{tang2025gui}, GTA1~\citep{yang2025gta1}, InfiGUI-G1~\citep{liu2025infigui} and GroundNext (RL)~\citep{feizi2025grounding}.
+
+\paragraph{Baselines.}Three categories of methods are compared: 
+(1) General MLLMs; (2) GUI-specific supervised fine-tuned models; (3) GUI-specific Reinforcement fine-tuned models. For our variants, \method{}-3B-lite is trained on the subset of GUI-Actor~\citep{wu2025gui}'s training data, while \method{}-3B additionally incorporates the 250k subset of GroundNext~\citep{feizi2025grounding}'s training data (710k). UI-Vision results are in-domain for both \method{}-3B and GroundNext.
+\input{sec/tab/tab_v2}
+\subsection{Main Results: Grounding Performance}
+We compare \method{} with state-of-the-art methods on ScreenSpot-Pro (\cref{tab:screenspot_pro}), ScreenSpot-v2 (\cref{tab:screenspot_v2}), UI-Vision and MMBench-GUI-L2 (\cref{tab:ui_mm}), and OSWorld-G (\cref{tab:osworld_g}).
+
+\textbf{Desktop scenario.}
+\method{} achieves strong performance on challenging high-resolution desktop benchmarks. On ScreenSpot-Pro, \method{}-3B-lite reaches 49.8\% accuracy, and additional desktop-focused training with 200k GroundCUA instructions further scales \method{}-3B to 53.8\%, outperforming strong SFT and RL baselines. Moreover, our patch-level attention grounding naturally enables a two-step zoom-in inference, which substantially improves performance to 57.0\% for \method{}-3B-lite and 61.5\% for \method{}-3B, with particularly large gains on the abstract icon subset. Despite being trained with less than one-third of the GroundCUA data used by GroundNext-3B, \method{}-3B achieves comparable in-domain performance on UI-Vision, while outperforming it on the other benchmarks. On OSWorld-G,  given already a competitive base model (62.8\%), \method{}-3B is further improved to 68.1\% with zoom-in, performing competitively against the strongest large-scale baselines (GTA1-7B and Qwen3-VL-30B-A3B). These results highlight the practical advantage of directly supervising intrinsic attention for dense, high-resolution desktop interfaces.
+
+\textbf{General grounding across domains.}
+On ScreenSpot-v2, \method{}-3B outperforms same-scale and larger baselines, and remains competitive with the two-step GUI-Actor-3B with verifier, which is trained on 9.6M samples, demonstrating the data efficiency of \method{}. Notably, \method{} achieves strong icon grounding across desktop domains, indicating robust generalization beyond text-heavy cases. On MMBench-GUI-L2, \method{}-3B consistently outperforms same-scale baselines and matches many larger models.
+
+Overall, \method{} is both effective and scalable. The intrinsic attention grounding manner provides data efficiency for better scaling and flexibility for inference-time improvements without additional training. The consistent improvement from \method{}-3B-lite to \method{}-3B with additional single-domain data further demonstrates the scalability of intrinsic attention supervision. The improvement of \method{} over GUI-Actor shows the advantage of intrinsic attention supervision without adding an extra module and training stage, with much less training effort in a natural manner. We provide additional quantitative results on ScreenSpot-v1~\citep{cheng2024seeclick} in \cref{app:extra_res}. Qualitative visualizations of attention grounding can be found in \cref{app:example}.
+\input{sec/tab/tab_ui_mm}
+
+\subsection{Ablations}\label{sec:ablation}
+\cref{tab:ablation} shows the ablation results on ScreenSpot-v2 and ScreenSpot-Pro. All the ablation variants are trained on the 45k ablation training data with Qwen2.5-VL-3B-Instruct as the backbone. GUI-Actor (45k) is trained in two stages same as the original setting. Additional ablations trained on the 259k training set of \method{}-lite are shown in \cref{app:extra_abla}.
+
+\paragraph{Compare Coordinate-free modeling manners.} In \cref{tab:ablation}, we include 3 different coordinate-free GUI grounding manners, one embedding-based: GUI-Actor, which relies on hidden embeddings for computing similarity with extra modules, and two attention-based: vanilla attention grounding as \cref{eq:aggre_vanilla} and simplified attention grounding as \cref{eq:aggre_final}. With the same importance on all the query tokens and attention heads, the vanilla attention grounding can converge faster than GUI-Actor on more complex visual grounding tasks in ScreenSpot-Pro. When simplifying the aggregation on query tokens, even with naive "weighting uniformly", the simplified attention grounding can have \textbf{1.50\%} and \textbf{4.24\%} improvement over GUI-Actor for ScreenSpot-v2 and ScreenSpot-Pro. These results demonstrate the effectiveness and faster convergence of attention-based visual grounding methods than embedding-based methods, and show the advantage of compressing query contexts into $\texttt{<ANCHOR>}$ token instead of manually controlling the grounding importance from each query token. 
+% \input{sec/tab_ablation}
+
+\paragraph{GUI grounding without Visual-sink Query Token $\mathcal{Q}_s$.} For attention-based GUI grounding variants, weighting the query-visual correlation of each head via the cumulative sum of all query's predictions as $\mathcal{Q}'=\mathcal{Q}$ (TAG's manner) or only the prediction from $\texttt{<ANCHOR>}$ as $\mathcal{Q}'=\{\texttt{<ANCHOR>}\}$ in \cref{eq:unified_head_score} leads to more biased attention predictions than uniform weighting, with worse ScreenSpot-v2 performance of both variants and no improvement on ScreenSpot-Pro as shown in ``Attention Head Weighting without $\mathcal{Q}_s$ in \cref{eq:unified_head_score}'' part of \cref{tab:ablation}. This bias comes from the misleading weighting from visual-unrelated tokens for the variants using all $\mathcal{Q}$ and from using the premature $\texttt{<ANCHOR>}$ token for grounding in the later variant. 
+
+\input{sec/tab/tab_osworld_g}
+\input{sec/tab/tab_ablation_covegence}
+\input{sec/2stage_head_vis}
+\paragraph{The effect of Visual-sink Query Token $\mathcal{Q}_s$.} For ablation of using $\mathcal{Q}_s$ for $w_{l,h}$, we vary the $\operatorname{K}$ value between 1 and 3 in the $\operatorname{topK}$ selection of $\mathcal{Q}_s$ tokens and explore whether differing $\mathcal{Q}_s^l$ for each MLLM's layer, i.e., $\mathcal{Q}_s^l\coloneqq \operatorname*{arg\,topK}_{q_i\in\mathcal{Q}}(c_{q_i}^{\,l})$, or using the same $\mathcal{Q}_s$ for all layers as in \cref{eq:find_sink}. In \cref{tab:ablation}, we can observe that the layer-wise manner performs slightly better on the icon-based tasks, but uniformly-selected same $\mathcal{Q}_s$ for all layers leads to more balanced results on both text and icon sets. Among both manners, $\operatorname{top-1}$ selection remains the overall best performance. These ablations verify the ``global $\operatorname{top-1} \mathcal{Q}_s$'' setting of \method{}, with \textbf{1.90\%} improvement over ``weighting uniformly'' on ScreenSpot-Pro.
+
+\paragraph{Patch-wise labeling considering overlapping and distance.} Here, we also justify the overlapping- and distance-aware~\citep{tang2025gui} patch-wise labeling for fine-tuning \method{} in \cref{eq:labeling}. Based on ``global $\operatorname{top-1} \mathcal{Q}_s$'', down-weighting partial positive and distanced image patches instead of labeling all patches equally leads to \textbf{1.26\%} further enhancement on ScreenSpot-Pro.
+
+\paragraph{Training efficiency.} In \cref{fig:Convergence}, we show the convergence tendency of three methods: \method{}, vanilla attention grounding and GUI-Actor (with extra warm-up stage already) initialized from Qwen-2.5-VL-3B. \method{} converges fastest and achieves the best final results, with steady improvements. Vanilla attention grounding fluctuates as supervision on all tokens from the pretrained vocabulary impairs the general capacity. And GUI-Actor needs a longer training period to customize its extra modules for GUI grounding. 
+\subsection{Analysis of Two-step Inference with Zoom-in}\label{sec:zoomin_analysis}
+In \cref{tab:analysis_zoom}, we present the analysis results of the two-step inference with zoom-in introduced in \cref{sec:zoom}. The analysis focuses on incorrect offset predictions, where the predicted center points fall outside the ground-truth bounding box by a small degree. \cref{tab:analysis_zoom} reports the statistics of offset errors for one-step and two-step inference with different offset distances, and the number of {Corrected} predictions as well as the {Lost} originally-correct predictions after applying the second crop-and-zoom-in step. 
+We observe that performing inference on the focused region determined by the first-step prediction already corrects more than a 18.6\% samples (57) with ``Crop-only'' operation, arising from fewer irrelevant patches showing as distracting noise for our patch-wise grounding. And after cropping, zooming in by a factor from 1.5× to 4× significantly reduces offset errors, especially those with slight deviation (Relax@1). It also helps resolving large-offset errors, achieving up to 31\% (29 fixed) and 32\% (18 fixed) error reduction for Relax@3 and Relax@5, respectively. From the analysis results, we find that the performance of two-step inference is not very sensitive to the zoom-in factor, while a 2-time zoom-in provides the best performance.
+\subsection{Attention Head Contribution in GUI Grounding}
+In \cref{fig:contribution_head}, we visualize the head weights $w_{l,h}$ used during inference of \method{}. Overall, higher weights concentrate in mid-to-late layers (e.g., 22, 28, 33, 34), indicating that deep layers' representations contribute more to grounding. Mid layers contain highly dominant heads (e.g., head 25-5), whereas late layers (e.g., layer 34) tend to exhibit a broader set of moderately high-weight heads.
+
+To quantify the effect of head selection, we perform inference-time head pruning based on $w_{l,h}$. Preserving only the top 30\% heads produces nearly unchanged accuracy (91.0\% on ScreenSpot-v2 and 53.5\% on ScreenSpot-Pro). In contrast, preserving only the bottom 30\% heads causes a substantial drop (76.6\% on ScreenSpot-v2 and 38.1\% on ScreenSpot-Pro). These results confirm that $w_{l,h}$ serves as an effective indicator of grounding-relevant attention heads. 

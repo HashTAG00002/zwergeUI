@@ -1,0 +1,40 @@
+\begin{table}[!h]
+\centering
+% \vspace{-0.5em}
+\caption{Analysis on lightweight training (\textit{-LiteTrain}), where the backbone VLM (\ie, Qwen-2-VL) is frozen, and only the newly introduced parameters for the action head and special tokens are updated during training. %$^{\dagger}$ denotes models trained on both grounding and reasoning data, while our models are only trained with grounding data.
+}
+\small
+\resizebox{\columnwidth}{!}{
+% \setlength{\tabcolsep}{1.5mm}
+
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Method} & \textbf{Updated \# of Params} & \textbf{ScreenSpot-Pro} & \textbf{ScreenSpot} & \textbf{ScreenSpot-v2} \\
+\midrule
+% \textbf{\textit{Qwen-2-VL} as backbone VLM:} & & & \\
+% \midrule
+% \midrule
+% GUI-Actor-2B & 36.7 & 86.5 & 88.6 \\
+GUI-Actor-2B-LiteTrain & 19M & 25.4 & 71.4 & 73.9 \\
+GUI-Actor-2B-LiteTrain + Verifier & 19M & 34.0 & 79.2 & 82.3 \\
+\midrule
+% Qwen-2VL-7B & 1.6 & 55.3 & -\\
+% \textcolor{red}{GUI-Actor-7B-ckpt-8000} & 36.2 & 87.0 & 89.3\\
+GUI-Actor-7B-LiteTrain & 103M & 22.9 & 73.5 & 74.9 \\
+GUI-Actor-7B-LiteTrain + Verifier & 103M & 35.8 & 81.3 & 83.8 \\
+% GUI-Actor-7B & 40.7 & 88.3 & 89.5\\
+% \midrule
+% \textbf{\textit{Qwen-2.5-VL} as backbone VLM:} & & & \\
+% \midrule
+% GUI-Actor-3B-LiteTrain & 31.7 & 79.3 & 82.9 \\
+% GUI-Actor-3B-LiteTrain + Verifier & & & \\
+% GUI-Actor-7B-LiteTrain & 36.8 & 82.3 & 85.8 \\
+% GUI-Actor-7B-LiteTrain + Verifier & & & \\
+\bottomrule
+\end{tabular}
+
+% \vspace{-0.5em}
+}
+\label{tab:lite_train}
+\end{table}
+

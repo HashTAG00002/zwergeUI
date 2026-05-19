@@ -1,0 +1,21 @@
+\begin{table*}[!t]
+    \centering
+    \footnotesize
+    \caption{Inference and training time (85k training set) comparison between \method{}-3B and GUI-Actor-3B.}
+    \vspace{-1em}
+    % {\color{blue}
+    \begin{tabular}{lcc}
+    \toprule
+    & \textbf{GUI-Actor-3B} & \textbf{\method{}-3B} \\ 
+    \midrule
+    ScreenSpot-v2 (s/iteration)  &0.73  & 0.76 \\
+    ScreenSpot-Pro (s/iteration) &1.72  & 1.76 \\
+    OSWorld-G (s/iteration)      &1.15  &1.23  \\
+    \midrule
+    Training time (A100 GPU-hours) & $\sim260$ & $\sim192$\\
+    \bottomrule
+\end{tabular}
+    
+    % \vspace{-2em}
+    \label{tab:time}
+\end{table*}

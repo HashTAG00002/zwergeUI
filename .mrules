@@ -95,12 +95,152 @@
 
 ## 六、论文叙事边界（避免踩雷）
 
-- 不说"adaptive zoom-in" / "uncertainty-guided zoom-in" / "another two-stage grounding"
-- 不把工作定位成"和工业界拼总榜"
-- 正确定位：GUI-specific layer-wise internal posterior 建模 + compute-aware learned policy
-- 与 GUI-AIMA 的区别：我们把 layer-wise posterior 演化本身作为主研究对象，并训练 controller
-- 与 UI-Zoomer 的区别：uncertainty 来自 single-pass internal state，而非 sampled predictions 的 spatial consensus
-- zoom-in 必须是 layout-aware 的，不能写成"删背景" / 纯 saliency pruning
+### 6.1 禁用表达
+- 不说 "adaptive zoom-in" / "uncertainty-guided zoom-in" / "another two-stage grounding"
+- 不把工作定位成 "和工业界拼总榜"
+- zoom-in 必须是 layout-aware 的，不能写成 "删背景" / 纯 saliency pruning
+
+### 6.2 正确定位
+- 核心定位：**GUI-specific layer-wise internal posterior 建模 + compute-aware learned zoom policy**
+- 核心 claim（title 级别）：**"Grounding Emerges Before Decoding"** —— GUI grounding signal 在
+  backbone 中间层、第一个 output token 生成之前就已经形成，可被 probe 并用于驱动 zoom controller
+
+### 6.3 与各竞品的区分策略（Related Work 必写）
+
+#### ① Re-Prefill（arXiv:2605.12549，2026-05-10）⚠️ 时间最近，必须明确区分
+  主张：prefill 决定 grounding，decode 只做坐标精化
+  方法：training-free，取最后 token 跨层 attention → append 回输入重新 prefill
+  与 ZwerGe 的区别：
+    - Re-Prefill 依赖 output_attentions（FA2 不兼容），我们用 hidden-state probe（FA2 兼容）
+    - Re-Prefill 是 training-free heuristic，我们有监督的 layerwise probe head + learned fusion scorer
+    - Re-Prefill 把层级 attention 作为工程手段，ZwerGe 把 **layer-wise posterior 演化本身作为主研究对象**
+      （定量分析哪层 grounding signal 最先成熟，不同类型 GUI 元素的层级差异等）
+  叙事策略：可把 Re-Prefill 作为"prefill 决定 grounding"这一 claim 的旁证引用
+
+#### ② AutoFocus（arXiv:2605.02630）⚠️ 最完美的对照组
+  主张：uncertainty-aware active visual search，token-level perplexity → 各向异性高斯场
+  方法：training-free，需要多次 forward（采样多个坐标假设），在 decode 时计算 perplexity
+  与 ZwerGe 的区别：
+    - AutoFocus 的 uncertainty 在 **解码时** 产生（需要完整 decode pass）
+    - ZwerGe 的 uncertainty 在 **解码前** 中间层就已形成 —— 这正是 "Grounding Emerges Before Decoding" 的核心
+    - AutoFocus 无法回答"哪一层形成了 grounding signal"，ZwerGe 专门研究这个问题
+  叙事策略：AutoFocus 是最佳对照组，用来凸显 ZwerGe claim 的新颖性
+
+#### ③ UI-Zoomer（arXiv:2604.14113）⚠️ 最直接竞争者
+  方法：多次采样（stochastic candidates）的 spatial consensus + token-level confidence → 离散 gate
+  与 ZwerGe 的区别：
+    - UI-Zoomer uncertainty 来自 **多次采样** 的 spatial consensus（需要多次 forward，测试时开销大）
+    - ZwerGe uncertainty 来自 **single-pass internal hidden state**（无需额外推理）
+    - UI-Zoomer 用 law of total variance 确定 crop radius（外部几何公式），ZwerGe 用 learned controller
+  叙事策略：强调"single-pass vs. multi-pass"的计算效率差异
+
+#### ④ Zoom Consistency（arXiv:2604.15376）可正向引用
+  方法：step-2 预测点与 crop 中心的 L2 距离作为 free confidence signal（几何量）
+  与 ZwerGe 的区别：输出空间几何量 vs. 特征空间内部量；需要 2-step 推理才能得到信号
+  叙事策略：引用为"输出空间 confidence"的代表，ZwerGe 是"内部状态 confidence"
+
+#### ⑤ ZoomUI（arXiv:2603.14448）
+  方法：trainless，利用 internal attention 迭代缩放
+  与 ZwerGe 的区别：inference-time heuristic；ZwerGe 是监督的 probe head，能定量分析层级演化
+
+#### ⑥ GUI-AIMA（直接 baseline）
+  方法：无参数 attention 读取器，全层 attention 聚合，依赖 output_attentions
+  与 ZwerGe 的区别：
+    - GUI-AIMA 是无参数读取器，ZwerGe 有 per-layer LoRA adapter + learned fusion scorer
+    - GUI-AIMA 依赖 output_attentions（FA2 不兼容），ZwerGe FA2 兼容
+    - GUI-AIMA 不研究"哪层最优"，ZwerGe 把 layer-wise posterior 演化作为主研究对象
+
+#### ⑦ AdaZoom-GUI / SE-GUI（RL 路线竞品）
+  方法：GRPO 训练，zoom trigger 基于预测 bbox 大小（启发式）或 attention reward shaping
+  与 ZwerGe 的区别：
+    - 这类方法的 zoom trigger 是外部启发式规则或 attention RL，ZwerGe 是 single-pass internal posterior
+    - ZwerGe 的 GRPO 只施加在 zoom controller，不对整个 backbone 做在线 RL
+
+### 6.4 三维差异化坐标系（quick reference）
+
+  维度1：Uncertainty 来源
+    解码后/多次采样 → UI-Zoomer, AutoFocus, MVP, Zoom Consistency Router
+    解码前/single-pass 内部状态 → ZwerGe ✅
+
+  维度2：Layer-wise 建模
+    无层概念（最后层）→ GUI-Actor, AutoFocus, ZoomClick
+    全层 attention（output_attentions，FA2 不兼容）→ GUI-AIMA, Re-Prefill
+    多层 hidden-state probe（FA2 兼容）→ ZwerGe ✅
+
+  维度3：Zoom 触发
+    启发式/几何规则 → ZoomClick, Zoom Consistency, AdaZoom-GUI
+    外部 RL on backbone → SE-GUI
+    Learned controller from internal posterior → ZwerGe ✅
+
+### 6.5 最强 differentiator 表达（可用于 abstract/intro）
+
+  "Unlike prior methods that quantify uncertainty from *sampled output predictions* (UI-Zoomer, MVP)
+  or *decoding-time perplexity* (AutoFocus), ZwerGe-UI derives grounding uncertainty from the
+  **single-pass layer-wise internal posterior**, demonstrating that GUI grounding signals emerge
+  in intermediate representations **before** the first output token is generated."
+
+### 6.6 当前 SOTA 数字参考（数据来源：gui-agent.github.io/grounding-leaderboard，截至 2026-05-17）
+
+  注：SS-Pro leaderboard 最后更新 Apr 14, 2026；SS-v2 leaderboard 约更新至 2025年底。
+  ⭐ = ZwerGe 直接竞争对手（≤8B，单模型，非系统级 ensemble）
+
+  ─── ScreenSpot-Pro 完整排行（关键位次） ───
+  排名  模型                                     SS-Pro  备注
+  #1   KV-Ground-8B + Qwen3.5-27B Router         80.9%  系统级（两模型组合），非单模型对比
+  #2   KV-Ground-GuiOwl1.5-0315-8B-ZoomIn        80.5%  ⭐ 8B+ZoomIn，单模型最强
+  #3   Holo2-235B-A22B (Agentic)                 78.5%  超大 MoE，系统级
+  #4   MAI-UI-32B (MVP)                           77.5%  32B
+  #5   AdaZoom-GUI-4B (+ Qwen3.5-397B refine)    76.8%  系统级
+  #6   KV-Ground-GuiOwl1.5-4B-0228-ZoomIn        76.4%  4B+ZoomIn
+  #7   Holo2-30B-A3B (Agentic)                   75.2%  MoE
+  #8   MVP_Qwen3VL-32B                            74.1%  32B
+  #9   MAI-UI-32B (Zoom In)                       73.5%  32B+ZoomIn
+  #10  KV-Ground-GuiOwl1.5-0315-8B               73.2%  ⭐ 8B 单模型（无 ZoomIn）
+  #11  MAI-UI-8B (Zoom In)                        71.9%  ⭐ 8B+ZoomIn
+  #12  Holo2-8B (Agentic)                         71.4%  ⭐ 8B Agentic
+  #13  AdaZoom-GUI-4B (conditional zoom-in)       70.6%  ⭐ 4B+ZoomIn（纯 grounding，无大模型 refine）
+  #15  KV-Ground-Qwen3VL-4B-ZoomIn               70.3%  4B+ZoomIn
+  #18  UI-Venus-1-5-8B                            68.4%  ⭐ 8B 单模型
+  #22  MAI-UI-8B                                  65.7%  ⭐ 8B 无 ZoomIn
+  #23  MVP_Qwen3VL-8B                             65.0%  ⭐ 8B
+  #29  AdaZoom-GUI-4B（基础版，无 zoom）           61.6%  ⭐ 4B 单模型
+  #30  UI-TARS-1.5                                61.6%  ⭐ 【之前 §6.6 SOTA 参考，已被大幅超越】
+  #32  GUI-ARP-7B                                 60.8%  ⭐ 7B
+  #33  GUI-AIMA-3B（leaderboard 单模型）           59.6%  ⭐ 【ZwerGe 直接 baseline；论文 2-step=61.5%】
+  #36  Holo1.5-7B                                 57.9%  ⭐ 7B
+  #38  BAMI-7B                                    57.7%  ⭐ 7B
+  #41  GTA1-7B                                    55.5%  7B
+  #46  TianXi-Action-7B                           51.9%  7B
+  #53  SE-GUI-7B                                  47.2%  ⭐ 7B（只训 3k 样本）
+  #55  GUI-Actor-2.5VL-7B                         44.6%  ⭐ 7B（之前参考值）
+
+  ─── ScreenSpot-v2 完整排行（关键位次，leaderboard 未及时更新最新模型）───
+  排名  模型                        SS-v2   备注
+  #1   UI-Venus-72B                95.3%   72B
+  #2   Holo2-30B-A3B               94.9%   MoE
+  #3   Holo1.5-72B                 94.4%   72B
+  #4   UI-Venus-7B                 94.1%   ⭐ 7B
+  #5   Holo1.5-7B                  93.3%   ⭐ 7B
+  #6   Holo2-8B                    93.2%   ⭐ 8B
+  #8   GUI-ARP-7B                  91.8%   ⭐ 7B
+  #9   Holo1.5-3B                  91.7%   3B
+  ---  GUI-AIMA-3B（论文自报）      92.1%   ⭐ 3B（未提交 leaderboard）
+  ---  UI-TARS-1.5（原 §6.6）      94.2%   ⭐ （原始参考）
+  ---  POINTS-GUI-G-8B（原 §6.6）  95.7%   ⭐ （原始参考，leaderboard 未出现，疑为旧测试集）
+  注：SS-v2 已趋饱和（7B 级模型已到 91-95% 区间），非主战场。
+
+  ─── OSWorld-G 参考数字（来源：各论文自报，无统一 leaderboard）───
+  模型                    OSWorld-G   来源
+  GUI-AIMA-3B (2-step)    68.1%      arXiv:2511.00810（直接 baseline）
+  POINTS-GUI-G-8B         66.0%      旧参考（2026-05 可能已被超越）
+
+  ─── 关键结论（写论文对比表时使用）───
+  (1) SS-Pro 主战场：ZwerGe 需要打入 60% 以上才有竞争力，超过 GUI-AIMA-3B(59.6%) 即超 baseline；
+      超过 UI-TARS-1.5(61.6%) / UI-Venus-8B(68.4%) 为有意义进步。
+  (2) 8B 单模型 SS-Pro 天花板目前在 73.2%（KV-Ground-8B），含 ZoomIn 可达 80.5%；
+      ZwerGe 的"learned controller + single-pass"路线空间在 60-73% 之间。
+  (3) SS-v2 已无太大区分度，7B 模型 91-95% 区间，写论文时作为辅助数字即可。
+  (4) OSWorld-G 无公开 leaderboard，以论文自报为准；GUI-AIMA-3B 68.1% 是当前参考点。
 
 
 ## 七、变更日志
@@ -134,3 +274,625 @@
         我们对全部T个target token做mean。npts==1时无差异，npts>1时结果不同。
       差异6：layer_probe.py 额外计算 Signal B（hidden-state cosine sim）和 Signal C（entropy），官方无。
       差异7（temperature）：官方传temperature=0.1；我们未传（但do_sample=False，无实际影响）。
+
+  - [2026-04-29 19:15] 【训练框架调研】Qwen3-VL SFT 框架选型：
+      GUI-Actor：只支持 qwen2vl/qwen25vl，无多节点脚本，不可直接用于 Qwen3-VL。
+      GUI-AIMA：只支持 qwen25vl，但有完整多节点脚本（sft_multi_node.sh，torchrun+nnodes/node_rank/master_addr），
+        train.py 使用自定义 PointerHead + 双路 loss（pointer_loss + lm_loss），可扩展支持 Qwen3-VL。
+      ms-swift：已原生注册 Qwen3-VL 全系列（2B/4B/8B/32B），支持多节点（env var方式：NNODES/NODE_RANK/MASTER_ADDR），
+        但走标准 CE loss，不含 PointerHead，不适合 ZwerGe 核心训练路径。
+      结论：带 PointerHead 的主训练路径推荐基于 GUI-AIMA train.py 改造添加 qwen3vl 分支；
+        纯标准 SFT（如 zoom controller warmup）可用 ms-swift。
+
+  - [2026-04-30 03:10] 【Retrofit 训练框架搭建完成】新增子模块 zwerge/（位于 code/zwerge/），包含以下文件：
+      核心代码（code/zwerge/src/zwerge_retrofit/）：
+        constants.py   — 特殊 token 定义（<|ground|>/<|pointer_start|>/<|pointer_pad|>/<|pointer_end|>）、
+                         layer 配置（DEFAULT_PROBE_LAYERS=[14,18,21,24,26,27]）、系统提示词、chat template
+        modeling_uitars.py — UITARSRetrofitModel（继承 Qwen2_5_VLForConditionalGeneration）：
+                         冻结 backbone，新增 LayerWiseGroundingHead（per-layer LoRA adapter +
+                         共享 MLP projector + LayerFusionScorer），Loss = KL(fuse) + λ·KL(per-layer)
+        dataset.py     — RetrofitDataset（支持 OS-Atlas/GUI-Actor/ms-swift 三种格式）+
+                         RetrofitDataCollator；patch label 工具（bbox→binary label，point→Gaussian label）
+        trainer.py     — RetrofitTrainer（自定义 optimizer groups，分离 head LR/embedding LR）+
+                         WandbRetrofitCallback（记录 grounding_loss/lm_loss/layer_weights）+
+                         EmptyCacheCallback
+      入口脚本：
+        train_retrofit.py  — 完整训练脚本，含参数解析/模型加载/冻结设置/数据集构建/trainer启动
+        scripts/sft_uitars_retrofit.sh — torchrun 启动脚本（支持单机/多机，默认8卡）
+        data/prepare_osatlas.py        — 扫描 OS-Atlas 生成 YAML 数据配置
+        setup.py
+      单元测试（均通过）：
+        test_head.py    — LayerWiseGroundingHead 前向/反向传播 ✅（26.7M trainable params）
+        test_dataset.py — RetrofitDataset 数据解析 + patch label 计算 ✅（OS-Atlas linux 9671 images）
+      端到端测试（进行中）：
+        test_e2e.py     — 模型加载+数据集+batch forward+backward 集成测试
+        test_debug_item.py — 单样本调试脚本（已验证单样本处理全流程正常）
+      已发现/修复的 Bug：
+        dataset.py __getitem__ 无限递归 bug：当所有重试均失败时递归无界 → 改为最多重试
+        min(10, len(samples)) 次，失败后返回 None 由 collator 过滤。
+
+  - [2026-04-30 12:00] 【可视化】layer_probe.py 新增 vis 模式（逐层注意力热图可视化）：
+      新增函数：
+        _scores_to_rgb()          — 1D patch scores → RGB 热图（黑→蓝→青→绿→黄→红，无需 matplotlib）
+        render_attn_heatmap_on_image() — patch热图双线性上采样到原图分辨率，alpha叠加，
+                                         绘制GT bbox（虚线绿框）、预测点（hit绿/miss红圆圈+十字准线）、
+                                         底部状态条（Layer xx Signal A/B HIT/MISS）
+        _make_vis_grid()          — 多张等尺寸图片拼接为 ncols 列的网格图
+        run_vis_mode()            — vis 主逻辑：逐样本 forward，对 layers 18-36 提取 Signal A/B（A_HW可选），
+                                    生成 sample_XXXX/<signal>_layer<ll>.png 和 grid_<signal>.png，
+                                    同目录写 meta.json（含 pred/hit/dist 信息）
+        _parse_vis_layers()       — 复用 parse_layer_mask 语法解析 vis_layers 参数
+      新增参数（parse_args）：
+        --vis_layers   默认 "18-36"（支持 parse_layer_mask 全部语法）
+        --vis_samples  默认 8
+        --vis_output_dir 默认 .../zwerge/data/results/gui_aima
+        --vis_signal   默认 "A,B"（支持 A / B / A_HW 逗号分隔）
+        --vis_alpha    默认 0.55
+      main() 新增 vis 分支：mode=="vis" → run_vis_mode()
+      输出目录：/mnt/.../zwerge/data/results/gui_aima/sample_XXXX/
+
+  - [2026-05-08 00:10] 【NaN修复确认 + 架构调研】
+      【NaN问题彻底解决】debug_nan10.py（隔离测试）+ debug_nan11.py（完整forward+backward）均确认：
+        - Per-layer probe: p_l 无 NaN/Inf，logits 范围正常
+        - compute_readiness_features: 所有层输出无 NaN
+        - LayerFusionScorer: omega 均匀分布（~0.167 each），无 NaN
+        - Full head forward: loss_fuse=6.01, loss_layer=6.01, total=9.01（lambda=0.5），全部 finite
+        - Backward pass 成功
+      根因：RMS normalization（h_q_ln / rms_scale_q）成功控制了深层 hidden state 的数值范围，
+        防止 MLP projector (q_proj/k_proj) 产生 inf/nan。
+      【架构调研结论】：
+        (1) Backbone训练策略：验证阶段（Coordinate Bottleneck Hypothesis）只训练 grounding head，
+            完全冻结 backbone。原因：backbone 已有强感知能力（GUI-Actor-LiteTrain 验证），
+            我们的目标是证明"最优 grounding 在中后层"而非提升 backbone 能力。
+        (2) Head架构对比：
+            - GUI-Actor: VisionHead_MultiPatch = SelfAttn(visual) → LN(residual) → proj_enc/dec(MLP)
+              → matmul(dec, enc) / sqrt(d) → softmax。单层，读最后一层 hidden state。
+            - GUI-AIMA: GroundingHead_MultiPatch_Attention = 无参数注意力读取器，直接从
+              output_attentions 中切片 (layer, head, target, visual)，可选 top-k/head weighting。
+              完全依赖 backbone 内部注意力，无可学习参数。
+            - ZwerGe Ours: LayerWiseGroundingHead = per-layer LoRA adapter + shared MLP projector
+              + RMS normalization + LayerFusionScorer(readiness→omega)。多层probe+learned fusion。
+            关键差异：我们是唯一做 layer-wise multi-layer probe + learned fusion 的。
+        (3) GQA vs MHA：Qwen2.5-VL 系列全部使用 GQA（非 MHA）。
+            UI-TARS-1.5-7B: n_heads=28, n_kv_heads=4, groups=7
+            GUI-AIMA-3B: n_heads=16, n_kv_heads=2, groups=8
+            Qwen2.5-VL-7B: n_heads=28, n_kv_heads=4, groups=7
+            我们的 grounding head 不受 GQA 影响：我们读的是 hidden_state（已合并所有 heads），
+            不是原始 attention weights。GQA 是 backbone 内部实现细节，对 head 透明。
+
+  - [2026-05-08 00:30] 【Grounding Head 完整技术文档（NaN根因/解决方案/初始化/架构详述）】
+
+    ═══════════════════════════════════════════════════════════════
+     一、NaN Loss 问题的完整因果链
+    ═══════════════════════════════════════════════════════════════
+
+    【现象】LayerWiseGroundingHead 的 forward() 返回 loss = NaN。
+    调试迭代历程（debug_nan.py ~ debug_nan11.py，共 11 个版本）：
+
+    Step 1 (debug_nan1~3): 排除数据加载问题 — dataset 输出正常，label shape 匹配。
+    Step 2 (debug_nan4~6): 定位到 LayerGroundingProbe.forward() 内部 —
+          单层 probe 在浅层(L14)正常，深层(L26/L27)产生 NaN。
+    Step 3 (debug_nan7~8): 缩小到 MLP projector (q_proj/k_proj) 的输入 —
+          深层 h_q/h_v 经过 LN 后 norm 仍然巨大（>> sqrt(d_model)）。
+    Step 4 (debug_nan9): 确认 LN(h) 的 L2 norm 不受约束：
+          LayerNorm 只归一化 mean 和 variance（让均值为0、方差为1），
+          但不约束 L2 范数。对于高维向量（d_model=3584），
+          即使每个维度都是单位方差，||h||_2 仍可高达 √d_model × 某个放大因子。
+    Step 5 (debug_nan10): 隔离测试确认各模块：
+          - Per-layer probe: p_l 无 NaN ✅
+          - compute_readiness_features: 无 NaN ✅
+          - LayerFusionScorer: omega 均匀分布 ✅
+          - Full head forward: loss finite ✅
+    Step 6 (debug_nan11): 完整 forward+backward 端到端通过 ✅
+
+    【根因分析 — 数值传播链】
+
+    Qwen2.5-VL-7B 共 28 层 Transformer decoder。随着层数加深，
+    residual connection 导致 hidden state 的 L2 norm 逐渐累积增长：
+
+      层     ||h_q||   ||h_vis||   说明
+      L14     88         3542       浅中层，norm 可控
+      L18     108        4716
+      L21     177        5796
+      L24     327        9785
+      L26     433       14329       ← 深层，norm 已经非常大
+      L27     260        8645
+
+    数值爆炸路径（以 L26 为例）：
+
+      h_vis (norm=14328)
+        ↓  LayerLoRAAdapter.k_adapter (内部先做 LayerNorm)
+      h_v_ln = k_ln(h_v_adapted)   ← LN 后 norm 仍然 >> √3584 ≈ 59.9
+        ↓  MLP2 (k_proj): Linear(3584→512) → GELU → Linear(512→512)
+      k = k_proj(h_v_ln)           ← 大 norm 输入 → GELU 内的大值 → inf
+        ↓  matmul(k, q) / √512
+      logits 含 inf
+        ↓  softmax
+      p_l 含 NaN（softmax 对 inf/inf 的处理产生 nan）
+        ↓  log(p.clamp(min=eps))
+      log_p 含 NaN
+        ↓  KL_div(log_p, label_dist)
+      loss = NaN
+
+    关键洞察：GELU 激活函数在输入绝对值 > ~9 时就会饱和到接近 1.0 或 0.0，
+    而 Linear 层的输出幅值与输入 norm 成正比。当 ||h||_2 > 10000 时，
+    Linear 输出可以轻松超过 float32 的有效范围（~3.4e38）。
+
+    ═══════════════════════════════════════════════════════════════
+     二、解决方案：RMS Normalization (Pre-Projector Scaling)
+    ═══════════════════════════════════════════════════════════════
+
+    在共享 MLP projector (q_proj / k_proj) **之前**插入 RMS scaling，
+    强制将输入向量的 L2 norm 约束到 ≈ √d_model。
+
+    修改位置：modeling_uitars.py 第 246-253 行 (LayerGroundingProbe.forward)
+
+    修改前（有 bug）:
+      h_q_ln = self.q_ln(h_q_adapted)       # LayerNorm
+      h_v_ln = self.k_ln(h_v_adapted)       # LayerNorm
+      q = q_proj(h_q_ln)                    # 直接送入 MLP → 深层 NaN！
+      k = k_proj(h_v_ln)
+
+    修改后（已修复）:
+      h_q_ln = self.q_ln(h_q_adapted)       # LayerNorm
+      h_v_ln = self.k_ln(h_v_adapted)       # LayerNorm
+
+      # ★ 新增 RMS scaling ★
+      rms_scale_q = (h_q_ln.norm(dim=-1, keepdim=True) / √d_model).clamp(min=1e-6)
+      rms_scale_v = (h_v_ln.norm(dim=-1, keepdim=True) / √d_model).clamp(min=1e-6)
+
+      q = q_proj(h_q_ln / rms_scale_q)      # 缩放后送入 MLP → 安全
+      k = k_proj(h_v_ln / rms_scale_v)
+
+    数学含义：
+      rms_scale = ||h||_2 / √d_model
+      h_scaled = h / rms_scale
+
+      如果 ||h||_2 = 14328, d_model = 3584:
+        rms_scale = 14328 / 59.87 ≈ 239.3
+        ||h_scaled||_2 = 14328 / 239.3 ≈ 59.87 = √d_model  ✅
+
+    这保证了无论输入来自哪一层（L14 或 L26），MLP projector 接收到的
+    输入 L2 norm 都在 ≈ √d_model 的量级，完全在 float32 安全范围内。
+
+    为什么选择除以 √d_model 而不是直接归一化到 1？
+      - 除以 √d_model 使得 "单位方差输入" 的 norm ≈ 1 × √d_model = √d_model
+        （因为 d 个独立标准正态变量的 L2 norm 期望为 √d）
+      - 这保留了不同样本之间的相对大小信息（只是压缩了绝对尺度）
+      - clamp(min=1e-6) 防止零向量导致的除零
+
+    ═══════════════════════════════════════════════════════════════
+     三、Head 初始化策略（逐模块详解）
+    ═══════════════════════════════════════════════════════════════
+
+    LayerWiseGroundingHead 包含 4 类可学习模块，初始化策略各不相同：
+
+    ┌──────────────────────┬─────────────────────────┬──────────────┬─────────┐
+    │ 模块                  │ 初始化方式               │ 参数量(7B)    │ 目的     │
+    ├──────────────────────┼─────────────────────────┼──────────────┼─────────┤
+    │ LayerLoRAAdapter.A   │ xavier_uniform_(gain=0.1) │ 6×(3584×16)  │ 小随机  │
+    │ LayerLoRAAdapter.B   │ zeros_()                │ 6×(16×3584)  │ 零初始化│
+    │ LayerLoRAAdapter.ln  │ PyTorch 默认(单位矩阵±eps)│ 6×(2×3584)   │ 标准    │
+    ├──────────────────────┼─────────────────────────┼──────────────┼─────────┤
+    │ Probe.q_ln / k_ln    │ PyTorch 默认 LayerNorm   │ 12×(2×3584)  │ 标准    │
+    ├──────────────────────┼─────────────────────────┼──────────────┼─────────┤
+    │ q_proj (MLP2)        │ PyTorch 默认 Kaiming U   │ 3584×512+512² │ 标准    │
+    │                      │ +512×512 + 512×512      │ +512×512     │         │
+    │ k_proj (MLP2)        │ 同上                     │ 同上          │ 同上    │
+    ├──────────────────────┼─────────────────────────┼──────────────┼─────────┤
+    │ Fusion.layer_emb     │ PyTorch 默认 Normal(0,1) │ 6×8          │ 小随机  │
+    │ Fusion.scorer (MLP2) │ PyTorch 默认 Kaiming U   │ 13×26+26²+13 │ 标准    │
+    └──────────────────────┴─────────────────────────┴──────────────┴─────────┘
+    总计约 26.7M 可训练参数（backbone 7B 完全冻结）
+
+    关键设计原则：
+
+    (1) B 零初始化 → LoRA adapter 训练开始时是恒等映射（identity）。
+        h_out = LN(h) + B(A(LN(h))/√d) = LN(h) + 0 = LN(h)
+        这意味着训练初期，adapter 不改变信号，head 的行为完全由
+        共享 projector (q_proj/k_proj) 决定。随着训练推进，
+        B 逐步学到每层的特化偏移。
+
+    (2) A 用小 gain (0.1) 的 xavier → A 的初始输出很小，
+        即使 B 开始偏离零，delta_h = B(a_out) 的初始扰动也很小，
+        避免训练初期的剧烈不稳定。
+
+    (3) Fusion scorer 用默认初始化 → 初期 omega ≈ uniform(1/num_probes)。
+        因为 layer_embeddings 和 scorer 权重都较小且对称，
+        softmax 前的 score 各层近似相等 → omega ≈ [1/6, 1/6, ...]。
+        这意味着训练初期 p_final ≈ mean(p_l)，即简单的等权平均。
+        随着训练推进，scorer 学会根据 readiness features 区分层的质量。
+
+    ═══════════════════════════════════════════════════════════════
+     四、Head 架构完整详述（含数据流图）
+    ═══════════════════════════════════════════════════════════════
+
+    LayerWiseGroundingHead 由三层子模块组成：
+
+    ╔═══════════════════════════════════════════════════════════════╗
+    ║  Layer 1: Per-Layer Grounding Probe (×6, 每个 probe layer 一个)  ║
+    ╠═══════════════════════════════════════════════════════════════╣
+    ║                                                            ║
+    ║  输入:                                                      ║
+    ║    h_q ∈ R^d_model    (anchor token 的该层 hidden state)     ║
+    ║    h_v ∈ R^(N_vis × d_model)  (所有 visual token 的该层 HS)  ║
+    ║                                                            ║
+    ║  处理流程:                                                  ║
+    ║                                                            ║
+    ║    h_q ─→ q_adapter ─→ q_ln ──[RMS scale]──→ q_proj ─→ q ∈ R^d_proj ║
+    ║         (LoRA)      (LN)                       (MLP2)         ║
+    ║                                                            ║
+    ║    h_v ─→ k_adapter ─→ k_ln ──[RMS scale]──→ k_proj ─→ k ∈ R^(N_vis×d_proj) ║
+    ║         (LoRA)      (LN)                       (MLP2)         ║
+    ║                                                            ║
+    ║    logits = k · q / √d_proj        # dot-product attention   ║
+    ║    p_l = softmax(logits)            # patch posterior        ║
+    ║                                                            ║
+    ║  输出: p_l ∈ R^N_vis (该层的 patch 概率分布)                 ║
+    ║                                                            ║
+    ╚═══════════════════════════════════════════════════════════════╝
+                            ↓ (每个 probe layer 产出 p_l)
+    ╔═══════════════════════════════════════════════════════════════╗
+    ║  Layer 2: Readiness Feature Extraction (无参数)                ║
+    ╠═══════════════════════════════════════════════════════════════╣
+    ║                                                            ║
+    ║  对每个 p_l 计算 5 维标量特征（detach，不传梯度到 probe）：     ║
+    ║                                                            ║
+    ║    feat[0] = entropy(p) = -Σ p·log(p)     # 越低越集中=越确信 ║
+    ║    feat[1] = margin = p_max - p_2nd        # 越高胜者越明确   ║
+    ║    feat[2] = top3_mass = Σ_{i=1..3} p_i    # 前3概率质量和     ║
+    ║    feat[3] = top5_mass = Σ_{i=1..5} p_i    # 前5概率质量和     ║
+    ║    feat[4] = active_area = #{p_i > 0.1·p_max}/N_vis  # 活跃面积比 ║
+    ║                                                            ║
+    ║  输出: feat_l ∈ R^5 (每层一个)                               ║
+    ║                                                            ║
+    ╚═══════════════════════════════════════════════════════════════╝
+                            ↓
+    ╔═══════════════════════════════════════════════════════════════╗
+    ║  Layer 3: Learned Layer Fusion (LayerFusionScorer)             ║
+    ╠═══════════════════════════════════════════════════════════════╣
+    ║                                                            ║
+    ║  对每个 probe layer l:                                       ║
+    ║    emb_l = layer_embeddings(l)           # 可学习的层嵌入 R^8  ║
+    ║    concat = [feat_l; emb_l]              # 拼接 → R^13        ║
+    ║    score_l = scorer(concat)              # MLP2(13→26→1)      ║
+    ║                                                            ║
+    ║  omega = softmax([score_0, ..., score_5])  # 归一化层权重     ║
+    ║  p_final = Σ_l omega_l · p_l              # 加权融合 posterior  ║
+    ║                                                            ║
+    ║  输出: p_final ∈ R^N_vis, omega ∈ R^6                       ║
+    ║                                                            ║
+    ╚═══════════════════════════════════════════════════════════════╝
+                            ↓
+    ╔═══════════════════════════════════════════════════════════════╗
+    ║  Loss (当提供 labels 时)                                      ║
+    ╠═══════════════════════════════════════════════════════════════╣
+    ║                                                            ║
+    ║  label_dist = labels / sum(labels)    # 归一化为概率分布      ║
+    ║                                                            ║
+    ║  L_fuse = KL(label ‖ p_final)         # KL 散度（融合预测）    ║
+    ║  L_layer = mean_l KL(label ‖ p_l)     # 各层 KL 均值（辅助监督）║
+    ║  L_total = L_fuse + λ · L_layer       # λ=0.5 (可配置)        ║
+    ║                                                            ║
+    ║  设计意图:                                                    ║
+    ║    L_fuse 驱动 fusion scorer 学习正确的层加权                   ║
+    ║    L_layer 作为 auxiliary loss 帮助每层 probe 也学到有意义     ║
+    ║    的 grounding signal（即使某层 omega 很小也不被忽略）        ║
+    ║                                                            ║
+    ╚═══════════════════════════════════════════════════════════════╝
+
+    与 GUI-Actor / GUI-AIMA 的本质区别总结：
+
+    维度              GUI-Actor          GUI-AIMA           ZwerGe Ours
+    ─────────────── ─────────────── ─────────────── ───────────────
+    参数量           ~25M              0                  ~26.7M
+    层数             单层(最后)         全层(36)           精选6层
+    信息来源          hidden state      attention matrix    hidden state
+    融合方式          无                 top-k/head weight   learned scorer
+    FA2兼容          ✅                 ❌                  ✅
+    层特异性适配      无                 无                  per-layer LoRA
+    数值稳定性依赖    backbone norm     无(backbone算)     RMS normalization
+
+  - [2026-05-08 15:30] 【bfloat16 NaN 根因定位与修复（完整训练通过）】
+
+    【三层 NaN 修复历程】
+
+    Round 1（之前轮次）：修复 MLP projector 前的 RMS scale（解决 float32 NaN）
+      方案：在 LN(h) 后、q_proj/k_proj 前加 h / (||h||/√d)
+
+    Round 2（本轮）：发现 bfloat16 下 LayerLoRAAdapter.forward() 仍产生 NaN
+      根因 1：bfloat16 精度更低（最大有效精度 ≈ 2^8 * 2^126 ≈ 3.4e38，但实际精度只有 ~2 位十进制），
+        deep-layer hidden state norm（L26: ||h||=389）与 adapter 内 LayerNorm 矩阵乘法组合 → overflow
+      方案：在 adapter **输入前**增加第一层 RMS scale（h → h / (||h||/√d)），确保 ||h_input||≈√d_model
+        修改位置：LayerGroundingProbe.forward() 开头，Stage 1 pre-normalize
+
+    Round 3（本轮）：发现加了 pre-scale 后 h_q_safe norm=60（正确），但 adapter 仍产生 NaN
+      根因 2（终极根因）：LayerLoRAAdapter.ln（LayerNorm）的 weight/bias 是 NaN！
+        原因：HuggingFace from_pretrained(torch_dtype=bfloat16) 对新增（非 checkpoint）参数
+        使用未初始化的 bfloat16 内存，即使调用了 post_init() 也无法保证正确初始化。
+        验证：check_dtypes.py 确认所有参数 dtype=bfloat16，但 LN weight norm=nan, bias norm=nan。
+      方案：新增 UITARSRetrofitModel.reinit_grounding_head() 方法：
+        - 遍历 layerwise_grounding_head 中所有 LayerNorm：ones_(weight), zeros_(bias)
+        - 遍历所有 LoRA adapter：A xavier_uniform_(gain=0.1), B zeros_()
+        - 在 setup_special_token_ids() 末尾自动调用
+
+    【验证结果】
+      debug_quick.py: loss=7.36, grounding_loss=7.36, has_nan=False → PASS ✅
+      本地 2-GPU debug 训练（30 steps, sdpa, bfloat16）：
+        train_loss=6.745, grad_norm收敛（90→4-6），无 NaN ✅
+        checkpoint 完整产生于 .hdd/ckpt/zwerge/uitars7b_grounding50k_20260508_151815/
+
+    【代码变更摘要】
+      modeling_uitars.py:
+        (1) LayerGroundingProbe.forward(): 新增 Stage 1 (pre-scale before adapter)
+        (2) UITARSRetrofitModel.reinit_grounding_head(): 新增方法，强制正确初始化所有 LN
+        (3) setup_special_token_ids(): 末尾调用 reinit_grounding_head()
+
+    【后续】
+      下一步：提交 AFO job 队列，用 8×A100-80G + FA2 正式训练 3 epoch。
+      训练脚本：scripts/train_zwerge_uitars.sh（job 模式自动切换到 FA2 + 8 卡）
+
+  - [2026-05-09 03:00] 【AFO Job MASTER_PORT 修复 + WandB 可视化增强】
+
+    【Bug 修复】train_zwerge_uitars.sh：MASTER_PORT 解析失败
+      错误现象：torchrun: error: invalid int value: 'psx4srkxrlkpndoc-worker-0...svc.cluster.local'
+      根因：AFO K8s job 里 jq '.worker[0]' 返回纯域名（无 :port 后缀），
+        ${master##*:} 把整个域名当端口传给 torchrun。
+      修复策略（参考项目内 overlapper 脚本）：
+        (1) 用 ip route get 1.0.0.0 探测本机真实内网 IP 作为 MASTER_ADDR
+            三级兜底：ip route → hostname -I grep 10.x → hostname -I 第一个非127
+        (2) MASTER_PORT 解析加数字校验：
+            [[ "$_W0_PORT" =~ ^[0-9]+$ ]] && 1024<=port<=65535 → 用解析值
+            否则 → 固定 29500
+        (3) MASTER_ADDR：rank-0 用探测 IP，非 rank-0 尝试从 worker[0] 取 IP 段，
+            若 worker[0] 是非 IP 格式则也 fallback 探测 IP
+
+    【WandB 可视化增强】trainer.py：
+      WandbRetrofitCallback.on_log() 新增：
+        - train/grad_norm   （之前只在控制台打印）
+        - train/lr          （学习率曲线）
+        - layer_omega/L{xx} （每个 probe layer 的 omega 权重，共 9 条曲线）
+      RetrofitTrainer.compute_loss() 新增 layer_weights 累积逻辑：
+        - 每次 forward 取 outputs.layer_weights（每样本的 omega tensor）
+        - batch 内平均 → running mean 跨 grad_accum steps
+        - log() 时以 list[float] 形式传出，WandbRetrofitCallback 解包并上报
+      RetrofitTrainer.log() 新增 _custom_counts 辅助字典（配合 running mean）
+
+    【代码文件清理】
+      删除：debug_final.py, debug_final2.py, test_anchor_logic.py,
+             test_debug_item.py, test_e2e.py, test_nan_debug.py, test_patch_size.py,
+             src/zwerge_retrofit/modeling_uitars.py.bak, wandb/（本地缓存目录）
+      保留：debug_quick.py（端到端快速验证），test_head.py，test_dataset.py
+
+  - [2026-05-17] 【竞品调研 + 论文叙事边界全面更新】
+      通过 4 个并发子 agent（arxiv×2 + github×2）完成竞品调研，重写 §六。
+      核心新发现：
+        (1) Re-Prefill（arXiv:2605.12549，2026-05-10）：与 ZwerGe claim 高度重叠但有本质区别，
+            必须在 Related Work 中明确区分（training-free vs. trained；attention vs. hidden-state；
+            FA2 不兼容 vs. FA2 兼容）。
+        (2) AutoFocus（arXiv:2605.02630）：uncertainty 在解码时产生（perplexity），是 ZwerGe
+            "Grounding Emerges Before Decoding" claim 的完美对照组。
+        (3) UI-Zoomer（arXiv:2604.14113）：multi-pass 采样 consensus，与 ZwerGe single-pass 形成
+            计算效率对比。
+        (4) ScreenSpot-Pro 主战场数字（截至 2026-05）：UI-TARS-1.5 61.6%，GUI-AIMA-3B 61.5%，
+            POINTS-GUI-G-8B 59.9%；SS-v2 已趋饱和（POINTS-GUI-G-8B 95.7%）。
+        (5) GUI-AIMA 2-step zoom 已达 61.5% SS-Pro / 68.1% OSWorld-G，是 ZwerGe 需超越的直接 baseline。
+      §六 重构为：6.1禁用表达 / 6.2正确定位 / 6.3竞品区分（7个方向）/ 6.4三维坐标系 /
+                  6.5 differentiator 表达 / 6.6 SOTA 数字参考。
+
+  - [2026-05-17] 【Leaderboard 全面更新（browser agent 实时爬取）】
+      数据来源：gui-agent.github.io/grounding-leaderboard（SS-Pro 截至 Apr 14, 2026；SS-v2 截至 2025 底）
+      §6.6 完整重写，主要变化：
+      ① SS-Pro 上格局已大变：旧参考 UI-TARS-1.5(61.6%) / GUI-AIMA-3B(61.5%) 已滑落至 #30/#33，
+         8B 单模型新 SOTA 为 KV-Ground-GuiOwl1.5-0315-8B-ZoomIn(80.5%)，
+         无 ZoomIn 8B 单模型为 KV-Ground-GuiOwl1.5-0315-8B(73.2%)。
+      ② 大量新竞品涌现（2026年 Q1-Q2）：MAI-UI-8B(71.9%), Holo2-8B(71.4%),
+         AdaZoom-GUI-4B+zoom(70.6%), UI-Venus-1-5-8B(68.4%), GUI-ARP-7B(60.8%)。
+      ③ SS-v2 上 SS-v2 leaderboard 未纳入最新模型，UI-Venus-7B(94.1%) 和 Holo2-8B(93.2%)
+         是提交过的最高值；GUI-AIMA/UI-TARS-1.5 数字来自各自论文自报。
+      ④ OSWorld-G 无公开 leaderboard，以 GUI-AIMA-3B(68.1%) 为当前 baseline 参考点。
+      ⑤ ZwerGe 竞争目标重新校准：
+         - 最低线：超过 GUI-AIMA-3B 单模型(59.6%，SS-Pro leaderboard 实测)
+         - 合理目标：超过 UI-TARS-1.5/AdaZoom-GUI-4B 基础版(61.6%)
+         - 进取目标：超过 UI-Venus-8B(68.4%) 或 MAI-UI-8B zoom-in(71.9%)
+
+  - [2026-05-18] 【评测数据集标准化整理（eval.json 统一格式）】
+
+    数据位置：/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation/
+    脚本：build_eval_jsons.py（生成各 bench eval.json + eval_all.json）
+    可视化：vis_gt_bbox.py → data_report/gt_icon_vis/ 供 bbox 正确性目视核查
+
+    ─── 各数据集原始格式 ───────────────────────────────────────────────
+
+    数据集          | 原始 bbox 格式              | img_size | 图片路径格式
+    --------------- | --------------------------- | -------- | ----------------------------
+    OSWorld-G       | [x1,y1,w,h] 绝对像素        | JSON 有   | benchmark/images/<file>
+                    | （另有 polygon 平铺坐标、    |          |
+                    |  refusal 类型 [0,0,0,0]）   |          |
+    ScreenSpot-Pro  | [x1,y1,x2,y2] 绝对像素      | JSON 有   | images/<app_subdir>/<file>
+    ScreenSpot-v2   | [x1,y1,w,h] 绝对像素        | JSON 无！ | images/<file>（basename）
+                    | （注：HuggingFace 版本已是   | PIL 读取  | 原 JSON img_filename 是绝对路径
+                    |  x1y1x2y2，本地 JSON 是 wh）|          |
+    MMBench-GUI L2  | [x1n,y1n,x2n,y2n] 归一化    | JSON 有   | offline_images/<platform>/<file>
+                    | 0-1 浮点 x1y1x2y2           |          | （原 image_path 无 platform 前缀）
+    UI-Vision       | [x1,y1,x2,y2] 绝对像素      | JSON 有   | images/<task_type>/<file>
+                    | （element + layout 均同格式）|          |
+
+    统一输出格式（eval.json 各条目）：
+      image_path    : 相对于该 bench eval.json 目录的路径
+      image_size    : [W, H] 原图尺寸（不 resize）
+      gt_bbox       : [x1,y1,x2,y2] 绝对像素坐标（已统一转换）
+      gt_bbox_norm  : [x1n,y1n,x2n,y2n] 归一化到 [0,1000] 整数
+      instruction   : 原始指令
+
+    ─── 数量不一致说明 ──────────────────────────────────────────────────
+
+    数据集          | 之前估计  | 本地JSON | eval.json | 差异原因
+    --------------- | --------- | -------- | --------- | ----------------------------
+    OSWorld-G       | 564       | 564      | 510       | 54条 box_type='refusal' 跳过
+                    |           |          |           | （指令对应元素不在截图中）
+    ScreenSpot-Pro  | 1,581     | 1,581    | 1,581     | 完全匹配
+    ScreenSpot-v2   | 1,272(误) | 1,271    | 1,271     | 之前估计多1，实测就是1271
+    MMBench-GUI L2  | 3,574(论文)| 3,594   | 3,594     | 数据集发布后小幅更新+20条
+    UI-Vision       | ~5,479    | 5,790    | 5,790     | 原估计漏计 layout_grounding(311条)
+    全量 eval_all   | —         | —        | 12,746    | 五 bench 合并
+
+    详细报告：data_report/standardization_report.txt
+              data_report/count_discrepancy_report.txt
+
+  - [2026-05-18] 【评测脚本完成 + 端到端 dry-run 通过】
+
+    新增文件：
+      zwerge/eval/inference_zwerge.py   — prefill-only 推理工具函数
+      zwerge/eval/eval_zwerge.py        — 主评测脚本（5个 bench，支持分片/聚合）
+      zwerge/eval/run_eval.sh           — shell 入口（Python 环境：qwen25 conda）
+
+    推理链路已验证（2条 SS-Pro 样本 dry-run）：
+      - 模型加载正常，probe_layers=[10..27]，grounding_proj_dim=1024
+      - 端到端：图片 → prefill → grounding head → 坐标 → hit@1=50%
+      - Python 环境：qwen25 conda（torch 2.7, transformers 4.51），gui_aima 环境有 triton 编译问题
+
+  - [2026-05-18] 【推理机制、Token 设计、Embedding 训练状态完整梳理】
+
+    ─── 一、新增 Token 全貌 ───────────────────────────────────────────────────
+
+    原始 UI-TARS-1.5-7B 有 22 个 added_tokens（id 151643-151664）。
+    ZwerGe 训练时在末尾追加 4 个新 token：
+
+      id=151665  <|ground|>         ← anchor token（核心）
+      id=151666  <|pointer_start|>
+      id=151667  <|pointer_end|>
+      id=151668  <|pointer_pad|>
+
+    共 26 个 added_tokens。token 扩展在 train_retrofit.py 的
+    smart_tokenizer_and_embedding_resize() 中完成。
+
+    ─── 二、Anchor Token 的选取逻辑（_find_ground_anchor，优先级 P1→P5）────────
+
+    P1（主方案，当前）：<|ground|>（id=151665），取序列里最后一个出现位置
+      - 注意取最后一个：system prompt 里的示例会造成第一个 <|ground|> 是假阳性，
+        真正的 anchor 在 assistant 回答里
+    P2：<|pointer_start|> 前一个 token（等效的 pre-coordinate 位置）
+    P3：<|vision_end|> 后第一个 token（fallback）
+    P4：外部 hint index（接口预留）
+    P5：最后一个 non-pad token（兜底，有 label leakage 风险，打 WARNING）
+
+    训练时 prompt 模板（GROUND_RESPONSE_CLICK）：
+      pyautogui.click(<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)
+
+    <|ground|> 的语义位置：位于 "click(" 之后、任何坐标数字之前，天然无 label leakage。
+
+    ─── 三、完整推理流程（仅 1 次 prefill forward，无 decode）───────────────────
+
+    输入序列（N≈2400 tokens，以 1920×1080 截图为例）：
+      <|im_start|>system\n {GROUNDING_SYSTEM_MESSAGE} <|im_end|>
+      <|im_start|>user\n
+        <|vision_start|> [N_vis=2340个 <|image_pad|>] <|vision_end|>
+        {instruction}
+      <|im_end|>
+      <|im_start|>assistant\n
+        pyautogui.click(<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)
+
+    Step 1: 整个序列一次性 prefill，model.model() 输出 all_hidden_states（29个tensor）
+    Step 2: 定位 anchor_idx（最后一个 <|ground|> 的位置）
+    Step 3: 定位 visual_indices（所有 <|image_pad|> 的位置，共 N_vis 个）
+    Step 4: LayerWiseGroundingHead（18层 probe，最新 ckpt 使用 layers 10-27）
+            每层：h_query[anchor_idx], h_vis[visual_indices] → p_l [N_vis]
+            LayerFusionScorer → omega [18] → p_final = Σ omega_l · p_l
+    Step 5: get_prediction_region_point(p_final, n_width, n_height)
+            → 阈值化 → BFS聚类 → max-score 选区域 → score 加权质心 → (px, py)
+
+    前向次数：1 次（只有 prefill，无任何自回归 decode）
+    推理速度对比：GUI-Actor 需要 generate()（自回归若干 token）；ZwerGe 只需 prefill。
+
+    ─── 四、get_prediction_region_point 与 GUI-Actor/AIMA 的对齐细节 ──────────
+
+    三者共同点（完全一致）：
+      ① 阈值化：p > p_max × 0.3（threshold_ratio=0.3）
+      ② BFS 4连通聚类
+      ③ score 加权质心（weighted centroid）
+
+    唯一差异——Region Score 聚合方式：
+      GUI-Actor：avg_score = sum(scores) / len(region)     ← 均值
+      GUI-AIMA：avg_score = max(scores in region)          ← 峰值
+      ZwerGe：  avg_score = max(scores in region)          ← 与 AIMA 对齐
+
+    待做 ablation：在 SS-Pro 上对比 avg vs. max 的效果差异，一行代码可切换。
+
+    ─── 五、GUI-Actor vs ZwerGe 的推理范式对比 ──────────────────────────────────
+
+    GUI-Actor 推理（需要自回归 decode）：
+      model.generate() → 自回归生成若干 token → 模型生成 <ACTOR_START>
+        → ForceFollowTokensLogitsProcessor 强制插入 <ACTOR_PAD><ACTOR_END>
+        → 取 <ACTOR_PAD> 处 hidden state → grounding head → 坐标
+      要求：模型必须"会"生成 <ACTOR_START> token → 必须开 LM loss 训练
+
+    ZwerGe 推理（纯 prefill）：
+      把 "pyautogui.click(<|ground|>...)" 整体 prefill 进去
+        → 1 次 forward → 读 <|ground|> 处 hidden state → grounding head → 坐标
+      优势：① 不需要模型"会"生成任何新 token → 可完全冻结 backbone + lm_loss=0
+             ② 不需要 LogitsProcessor 强制机制
+             ③ 规避了小模型指令跟随能力不稳定生成新 token 的风险
+
+    ─── 六、Backbone 权重验证（比特级完全一致）──────────────────────────────────
+
+    比对结果（safetensors 直接对比，bfloat16 精度下）：
+      ZwerGe ckpt 中 727 个 backbone key，727/727 与 UI-TARS-1.5-7B 原始权重完全相同
+      （原始为 fp32，ckpt 为 bf16，bf16(fp32) == ckpt_bf16，bit 级一致）
+      新增的 229 个 key 全部是 layerwise_grounding_head.*
+
+    结论：backbone 经 3 epoch 训练后零更新，证明冻结设置完全正确。
+
+    ─── 七、新 Token Embedding 的训练状态 ────────────────────────────────────────
+
+    初始化方式（smart_tokenizer_and_embedding_resize，train_retrofit.py 第 233-238 行）：
+      新增 4 个 token 的 embedding = 原有 151664 个 token embedding 的均值（mean init）
+      这是 GUI-Actor / GUI-AIMA 的标准做法（"from GUI-Actor/GUI-AIMA recipe"）
+
+    训练方式（unfreeze_new_tokens=True，默认开启）：
+      embed_tokens.weight.requires_grad = True
+      + gradient hook（mask_grad）：只允许最后 4 行（新 token）有梯度，前 151664 行梯度清零
+      学习率：learning_rate_new_tokens=2e-4（单独 optimizer group）
+
+    为什么 mean init + 训练是正确选择：
+      ① 随机初始化 + 冻结：<|ground|> 的 embedding 是噪声，Transformer 第 1 层就产生噪声
+         hidden state，probe 的 query h_q 毫无语义，grounding head 学习极其困难
+      ② mean init：新 token 以"全局平均语义"为起点，Transformer 能正常处理，
+         hidden state 有合理的初始分布
+      ③ gradient hook 只更新新 token：旧 token embedding 完全不变，无 catastrophic forgetting
+      ④ lm_loss=0，lm_head 不训练：新 token 的 lm_head 输出层不更新（没必要，因为不需要模型自回归生成这些 token）
+
+    参考文献：arXiv:2508.15807（Vocabulary Expansion via KL-Based Self-Distillation）明确指出
+      mean 初始化是词汇扩展的最优冷启动策略，优于随机初始化。
+
+    ─── 八、端到端 Agent 集成设计（OSWorld 等在线场景）────────────────────────────
+
+    当前评测范式：grounding 任务动作类型由数据集外部给定，直接 prefill click 前缀。
+
+    OSWorld 等在线场景的集成方案（待实现）：
+
+    方案 A（Rule-based，推荐）：
+      Phase 1: 让 UI-TARS backbone 正常自回归 generate（CoT + 动作类型）
+               → 生成到 "pyautogui.click(" 时，检测到 click 动作
+      Phase 2: 停止 decode，拼接 "<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)"
+               → 整个序列做 1 次 prefill forward
+               → grounding head 输出精确坐标
+               → 把坐标填回序列，作为最终动作返回
+      优点：不需要修改任何训练代码；backbone 的规划/CoT 能力完整保留；
+            grounding head 只在 click 类动作时激活
+
+    方案 B（Forced token injection，类似 GUI-Actor 的 ForceFollowTokensLogitsProcessor）：
+      在 "click(" 生成后，LogitsProcessor 强制插入 <|ground|>，随后切换到 grounding 模式
+      优点：干净；缺点：需要实现 logits processor 并改动推理代码
+
+    两个方案都不需要修改训练代码，因为 _find_ground_anchor 的 P1 优先级
+    （查找最后一个 <|ground|>）天然兼容：不管 <|ground|> 是外部 prefill 的还是
+    decode 中强制插入的，grounding head 都能正确定位 anchor。
+
+    CoT 支持的扩展路径（需要修改训练）：
+      若要模型自己生成 <|ground|>（CoT 后触发 grounding）：
+        → 需要 lm_loss_weight > 0（开 LM loss）
+        → 需要 unfreeze_lm_head=True（让 lm_head 学会在 click 后输出 <|ground|> 高 logit）
+        → dataset 里的 assistant response 需要含有完整 CoT 路径
+      当前架构完全兼容此扩展，无需改变 grounding head 的任何设计。
+

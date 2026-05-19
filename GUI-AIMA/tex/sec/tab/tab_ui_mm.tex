@@ -1,0 +1,43 @@
+\begin{table*}[!t]
+    \centering
+    \footnotesize
+    \caption{Performance comparison on \textbf{UI-Vision} and \textbf{MMBench-GUI-L2}. ``-'' indicates unreported results in original papers. Methods with $^*$ are Qwen2.5-VL-based.}
+    \resizebox{\linewidth}{!}{
+        \begin{tabular}{clcccc|ccc}
+    \toprule
+    & \multirow{2}{*}{\textbf{Model}} 
+      & \multicolumn{4}{c|}{\textbf{UI-Vision}}& \multicolumn{3}{c}{\textbf{MMBench-GUI-L2}}\\
+      \cmidrule(lr){3-6}\cmidrule(lr){7-9}
+    & & Basic & Func. & Spatial &\bf Avg. &Basic &Advanced&\bf Avg. \\
+    \midrule
+    \multirow{4}{*}{\rotatebox{90}{\bf General}}
+    &Qwen2.5-VL-7B$^*$~\citep{bai2025qwen2} &1.2& 0.8& 0.5& 0.9&38.0   & 29.8    & 33.9\\
+    & Qwen3-VL-2B$^*$~\citep{bai2025qwen3} & 16.4 & 19.1 & 4.6  & 13.1 & 84.3  &54.9 &69.5 \\
+    & Qwen3-VL-8B$^*$~\citep{bai2025qwen3} & 27.8 & 29.6 & 9.4  & 21.9 &90.2&72.7&81.4 \\
+    & Qwen3-VL-30B-A3B$^*$~\citep{bai2025qwen3} & 31.2 & 31.9 & 14.6 & 25.6&91.0&76.5&83.7 \\
+    \midrule
+    \multirow{7}{*}{\rotatebox{90}{\bf SFT}}
+    &OS-Atlas-Base-7B~\citep{wu2024atlas}    &12.2& 11.2& 3.7& 9.0  &       52.8   &   30.1 &      41.4\\
+     &Aguvis-7B~\citep{xu2024aguvis} &17.8& 18.3& 5.1 &13.7&-  &   - &      45.7 \\
+    &UGround-V1-7B~\citep{gou2024navigating} &15.4 &17.1 &6.3 &12.9  &               78.4  &  53.0&     65.7 \\
+    & GUI-Actor-3B$^*$~\citep{wu2025gui} &-&-&-& 19.7&-&-& 69.8\\
+    & GUI-Actor-7B$^*$~\citep{wu2025gui} &-&-&-&21.9 &-&-&70.9\\
+    &JEDI-7B$^*$~\citep{xie2025scaling}&-&-&-&24.8 &-&-&70.4\\
+    &GroundNext-3B (SFT)$^*$~\citep{feizi2025grounding}&70.9& 59.8 &45.1 &58.2 &86.5&64.5&75.5\\
+    \midrule
+     \multirow{8}{*}{\rotatebox{90}{\bf RL}}
+    &UI-TARS-1.5-7B$^*$~\citep{qin2025ui}&- &-  &  -   &  20.8 & 78.4   & 50.4   &  64.3 \\
+    &InfiGUI-G1-3B$^*$~\citep{liu2025infigui}&31.2& 28.0& 8.2& 22.0 &84.1 &  62.9  &  73.4    \\
+    &InfiGUI-G1-7B$^*$~\citep{liu2025infigui}&36.2& 31.9& 11.5& 26.1& 88.3&   73.3&    80.8\\
+    &GTA1-7B$^*$~\citep{yang2025gta1}&- &-  &  -   &  25.7 &-  &  -    & 79.4 \\
+    &GUI-G$^2$-7B$^*$~\citep{tang2025gui} &- &-  &  -   &  25.6 &-  &  -    & 79.5 \\
+    &Holo2-8B~\citep{hcompany2025holo2} & 43.6 & 43.5 & 19.7 & 35.1 & \underline{91.7}   &\underline{77.4} &   \underline{84.5}\\
+    &Holo2-30B-A3B~\citep{hcompany2025holo2}& 51.0 & 50.1 & 23.2 & 40.9&\bf92.8&\bf\bf80.7 &\bf86.8 \\
+    &GroundNext-3B (RL)$^*$~\citep{feizi2025grounding}&\bf72.9 &\bf63.9 &\bf50.6& \bf62.1 &87.3&67.1&77.1\\
+    \midrule
+    & \textbf{\method{}-3B-lite}$^*$ &39.2 & 33.9 & 10.6 & 27.9 &86.2  &66.5 & 76.3 \\
+    & \textbf{\method{}-3B}$^*$ & \underline{70.8}& \underline{63.1}& \underline{46.2} & \underline{60.0}&88.3  &69.9 &  79.1  \\     
+    \bottomrule
+    \end{tabular}}
+    \label{tab:ui_mm}
+\end{table*}

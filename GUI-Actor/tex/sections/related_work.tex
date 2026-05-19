@@ -1,0 +1,56 @@
+% \section{Related Work}
+% \paragraph{LLM/VLM-Powered GUI Agents.}
+% The recent proliferation of LLMs and VLMs has spurred growing interest in developing GUI agents capable of performing challenging tasks across digital devices, such as mobile phones~\citep{rawles2024androidworld}, web applications~\citep{zhou2023webarena, deng2023mind2web}, and desktops~\citep{xie2024osworld}.
+% Early research focused on designing autonomous agent frameworks~\citep{zheng2024gpt, rawles2024androidworld, jia2024agentstore} that prompt commercial models to interact with operating systems via code generation~\citep{sun2024survey} or tool use~\citep{zhang2025appagent}. 
+% UFO~\citep{zhang2024ufo} decomposes user instructions and generates executable Python calls to perform tasks on Windows systems.
+% OS-Copilot~\citep{wu2024copilot} introduces a tool memory mechanism that facilitates agent self-improvement.
+
+% With rising demand for open-source and customizable agents, a parallel line of work aims to train LLMs/VLMs to enhance their agentic capabilities—such as understanding GUI environments, planning and self-reflection~\citep{xu2024aguvis, qin2025ui}, and action execution~\cite{chen2024guicourse, chai2024amex}.
+% Substantial efforts have been devoted to collecting GUI-centric training corpora to enrich model knowledge, including OCR~\citep{lu2024gui}, interface summarization~\citep{you2024ferret}, and question answering on web pages~\citep{chen2024guicourse}, and, crucially, GUI task trajectories for training versatile GUI agents~\citep{deng2023mind2web, rawles2023androidinthewild, zhang2024android, zheng2025vem, sun2024genesis, zhang2025breaking}.
+% A central requirement of agent development is the ability to interact with realistic GUI environments deployed in virtual machines and Chrome-based browsers.
+% Early explorations relied on structured environment metadata—executing actions by selecting elements from HTML or accessibility trees~\citep{zhou2023webarena, deng2023mind2web, he2024webvoyager, zhang2025appagent}. However, this approach is inefficient and difficult to generalize across diverse operating systems and applications~\citep{cheng2024seeclick, xu2024aguvis}.
+% Consequently, recent efforts have shifted toward a unified vision-based paradigm, in which agents interact with GUIs by purely perceiving the screen and executing mouse and keyboard actions~\citep{openai2025operator, anthropic2024cuda}, much like humans do.
+% A key challenge in this paradigm is mapping natural language instructions to on-screen GUI elements for click actions, which we refer to as \textit{Visual Grounding for GUI Agents}.
+
+% \paragraph{Visual Grounding for GUI Agents.}
+% Given a screenshot and a natural language instruction or description, GUI visual grounding aims to identify the location of the corresponding element on the screen.
+% While analogous to visual grounding in natural images, this task poses new challenges, as conventional methods struggle in GUI contexts due to the substantial gap between screenshots and natural images~\citep{cheng2024seeclick, gou2024navigating}.
+% One solution is to fine-tune object detection models on GUI data. For example, OmniParser~\citep{lu2024omniparser} parses interface screenshots into DOM-like structures, enabling seamless integration with SoM-style grounding frameworks~\citep{yang2023set}.
+
+% A more widely adopted approach frames GUI visual grounding as a text-based coordinate generation task, enabling VLMs to directly output the target location in natural language format~\citep{chen2023shikra, wang2024qwen2}.
+% Following the GUI grounding pre-training strategy~\citep{cheng2024seeclick, hong2024cogagent}, extensive efforts have explored scaling data and models, leading to significant performance gains~\citep{lin2024showui, yang2024aria, pawlowski2024tinyclick, tang2025think, bai2025qwen2, qin2025ui}.
+% UGround~\citep{gou2024navigating} introduces a data pipeline for synthesizing diverse and realistic grounding data from webpages.
+% OS-Atlas~\citep{wu2024atlas} develops a multi-platform data infrastructure and builds a foundation action model that unifies the action space for GUI agents.
+% Moreover, \citep{xu2025attention} proposes a training-free approach that performs GUI grounding by leveraging the internal attention of VLMs.
+% In this paper, we propose a compelling alternative to prevailing coordinate-centric methods. Our approach introduces an action token that directly attends to the corresponding image patches, enabling coordinate-free GUI visual grounding.
+
+
+\section{Related Work}
+
+\paragraph{LLM/VLM-Powered GUI Agents.}
+The advent of LLMs and VLMs has catalyzed the development of GUI agents that can understand natural language instructions and perform complex tasks across mobile~\citep{rawles2024androidworld}, web~\citep{zhou2023webarena, deng2023mind2web}, and desktop environments~\citep{xie2024osworld, zhang2024ufo, zhang2025ufo2}. 
+% Early efforts focused on autonomous frameworks that prompt commercial models to execute tasks via code generation~\citep{sun2024survey} or external tool use~\citep{zhang2025appagent}, such as GPT-Engineer~\citep{zheng2024gpt}, AgentStore~\citep{jia2024agentstore}, and AndroidWorld~\citep{rawles2024androidworld}. UFO~\citep{zhang2024ufo} enables structured task decomposition and Python-based execution on Windows, while OS-Copilot~\citep{wu2024copilot} introduces tool memory for iterative refinement. 
+Early research focused on designing autonomous agent frameworks~\citep{zheng2024gpt, wu2024copilot, jia2024agentstore} that prompt commercial models to interact with operating systems via code generation~\citep{sun2024survey, sun2025scienceboard} or tool use~\citep{zhang2025appagent,zhang2025api}. 
+With rising demand for open-source and customizable agents, a parallel line of work focuses on training LLMs/VLMs for enhanced agentic capabilities, including GUI understanding, planning, and execution~\citep{xu2024aguvis, qin2025ui, chen2024guicourse, chai2024amex}. The key to these efforts is collecting GUI-specific training data, such as OCR annotations~\citep{lu2024gui}, interface summaries~\citep{you2024ferret}, QA pairs~\citep{chen2024guicourse}, and large-scale task demonstrations~\citep{deng2023mind2web, rawles2023androidinthewild, zhang2024android, zheng2025vem, sun2024genesis, cheng2024vision, zhang2025breaking}. 
+% These datasets often require executing actions within realistic environments, typically powered by virtual machines or Chrome-based automation.
+
+A central requirement of agent development is the ability to interact with realistic GUI environments deployed in virtual machines and Chrome-based browsers.
+While early agents operated over structured metadata like HTML or accessibility trees~\citep{zhou2023webarena, he2024webvoyager}, such representations are brittle and inconsistent across platforms~\citep{cheng2024seeclick, xu2024aguvis}. Consequently, recent trends have shifted toward a \emph{vision-centric paradigm}, where agents interact with raw screenshots using mouse and keyboard inputs~\citep{openai2025operator, anthropic2024cuda}, closely mimicking human behavior. Within this setting, a central challenge emerges: grounding natural language instructions to specific GUI regions, referring to as \textit{GUI Visual Grounding}.
+
+\paragraph{GUI Visual Grounding.}
+Given a GUI screenshot and a natural language instruction, GUI visual grounding aims to locate the target region for interaction. 
+Although conceptually related to grounding in natural images, this task presents unique challenges due to the semantic density and structural regularity of GUI layouts~\citep{cheng2024seeclick, gou2024navigating}. A common approach frames GUI grounding as a text-based coordinate prediction task, where models generate point positions (\eg, \texttt{x=..., y=...}) as output language tokens~\citep{chen2023shikra, wang2024qwen2}. This formulation has led to widespread adoption due to its simplicity and compatibility with existing LLMs/VLMs. To improve performance, prior works have scaled both models and training data~\citep{lin2024showui, yang2024aria, pawlowski2024tinyclick, tang2025think, bai2025qwen2, qin2025ui, xie2025scaling}. UGround~\citep{gou2024navigating} proposes a data pipeline for synthesizing diverse GUI grounding examples, while OS-Atlas~\citep{wu2024atlas} offers a multi-platform dataset and a unified GUI action model. More recently, \citet{xu2025attention} introduced a training-free approach that performs GUI grounding by leveraging the internal attention of VLMs.
+
+Despite their success, coordinate-based methods suffer from key limitations,
+including weak spatial inductive bias, ambiguous point supervision, and resolution mismatches between visual features and action targets.
+% they lack spatial inductive bias, struggle with ambiguous supervision, and suffer from resolution mismatches between visual features and action targets.
+This paper presents a compelling alternative to the prevailing coordinate-based method: GUI-Actor, a novel \textit{coordinate-free grounding framework} for GUI agents.
+It introduces an \texttt{<ACTOR>} token that attends directly to relevant image patches via an attention-based action head, enabling more human-like grounding while mitigating the limitation of coordinate-based methods.
+% In contrast, our work proposes a novel, \textit{coordinate-free grounding approach} by introducing an \texttt{[ACTOR]} token that attends directly to relevant image patches via an attention-based action head. 
+% This design enables more human-like grounding behavior, improves spatial-semantic alignment, and handles ambiguous supervision more gracefully. 
+
+% Some works attempt to mitigate this by predicting bounding boxes~\citep{lu2024omniparser}, but they still rely on raw coordinate outputs without spatially grounded representations.
+
+
+
+% A grounding verifier further refines predictions by selecting the most plausible region, resulting in more robust and generalizable GUI action execution.

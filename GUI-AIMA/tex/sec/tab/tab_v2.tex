@@ -1,0 +1,47 @@
+\begin{table*}[!t]
+    \centering
+    \footnotesize
+    \caption{Performance comparison on \textbf{ScreenSpot-v2}. ``-'' indicates unreported results in original papers. Methods with $^*$ are Qwen2.5-VL-based.}
+    \resizebox{\linewidth}{!}{
+        \begin{tabular}{clccccccc}
+    \toprule
+    & \multirow{3}{*}{\textbf{Model}} 
+      & \multicolumn{2}{c}{\textbf{Mobile}}
+      & \multicolumn{2}{c}{\textbf{Desktop}}
+      & \multicolumn{2}{c}{\textbf{Web}}
+      & \multirow{2.5}{*}{\textbf{Avg.}} \\
+    \cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
+    & & Text & Icon & Text & Icon & Text & Icon &  \\
+    \midrule
+    \multirow{6}{*}{\rotatebox{90}{\bf General}}
+    & Operator~\citep{cua2025}  & 47.3 & 41.5 & 90.2 & 80.3 & 92.8 & 84.3 & 70.5\\
+    & GPT-4o~\citep{openai2024gpt4o} + OmniParser-v2~\citep{yu2025omniparserv2structuredpointsofthoughtunified} & 95.5 & 74.6 & 92.3 & 60.9 & 88.0 & 59.6 & 80.7 \\
+    & Qwen2.5-VL-3B~\citep{bai2025qwen2} & 93.4 & 73.5 & 88.1 & 58.6 & 88.0 & 71.4 & 80.9 \\
+    & Qwen2.5-VL-7B~\citep{bai2025qwen2} &97.6 & 87.2 & 90.2 & 74.2 & 93.2 & 81.3 & 88.8   \\
+    &Qwen3-VL-8B~\citep{bai2025qwen3} &\bf 99.7 &87.7 &94.8 &83.6& \underline{95.3}& 85.7& \underline{92.1}\\
+    &Qwen3-VL-30B-A3B~\citep{bai2025qwen3}& 99.0& 87.7& 95.4& 82.9& \underline{95.3} &83.7 &91.7\\
+    \midrule
+    \multirow{7}{*}{\rotatebox{90}{\bf SFT}}
+    & OS-Atlas-7B~\citep{wu2024atlas} & 95.2 & 75.8 & 90.7 & 63.6 & 90.6 & 77.3 & 84.1\\
+    & UGround-V1-7B~\citep{gou2024navigating} & 95.0 & 83.3 & 95.0 & 77.8 & 92.1 & 77.2 & 87.6 \\
+    & UI-TARS-7B~\citep{qin2025ui} & 96.9 & \underline{89.1} & 95.4 & 85.0 & 93.6 & 85.2 & 91.6\\
+    & \textsc{Jedi}-3B$^*$~\citep{xie2025scaling}  & 96.6 & 81.5 & \bf96.9 & 78.6 & 88.5 & 83.7 & 88.6\\
+    & \textsc{Jedi}-7B$^*$~\citep{xie2025scaling} & \bf96.9 & 87.2 & 95.9 & 87.9 & 94.4 & 84.2 & 91.7 \\
+    & GUI-Actor-3B~\citep{wu2025gui}& 97.6& 83.4& \bf96.9& 83.6& 94.0& 85.7& 91.0 \\
+    &GUI-Actor-3B + Verifier& 98.3 & 85.3&\bf96.9 & 87.9 & 95.3 & \bf86.7 & \bf92.4\\
+    \midrule
+    \multirow{7}{*}{\rotatebox{90}{\bf RL}}
+    & GUI-G$^2$-3B$^*$~\citep{tang2025gui} &96.5 &82.5&95.4&75.0&88.4&72.4&86.3\\
+    &InfiGUI-R1-3B$^*$~\citep{liu2025infiguig1advancingguigrounding} &97.1 &81.2 &94.3& 77.1& 91.7& 77.6 &87.5\\
+    &GroundNext-3B (RL)$^*$~\citep{feizi2025grounding} &94.8& \bf96.4 &93.9 &87.1 &90.6 &79.3& 88.5\\
+    & UI-R1-E-3B$^*$~\citep{lu2025ui}  &98.2 &83.9& 93.2 &83.7& 94.8 &75.0 &89.5\\
+    & UI-TARS-1.5-7B$^*$~\citep{qin2025ui} &95.9 &84.8 &94.9& 80.7& 90.6& \underline{86.2}& 89.7\\
+    &GroundNext-7B (RL)$^*$~\citep{feizi2025grounding}& 96.6 &88.2& 95.4 &87.9& 94.9& 75.9 &90.4\\
+    &InfiGUI-G1-3B$^*$~\citep{liu2025infigui} & 99.3 &88.2 &94.8& 82.9 &94.9& 80.3& 91.1\\ 
+    \midrule
+    & \textbf{\method{}-3B-lite}$^*$ &99.2&85.9&\underline{96.1}&\underline{88.9}&\bf96.1&80.2&91.5\\
+    & \textbf{\method{}-3B}$^*$ &\underline{99.6}&84.8&95.6&\bf91.3&94.3&84.8&\underline{92.1}\\
+    \bottomrule
+    \end{tabular}}
+    \label{tab:screenspot_v2}
+\end{table*}

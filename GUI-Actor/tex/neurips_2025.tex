@@ -1,0 +1,1365 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+\PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2025
+
+
+% ready for submission
+% \usepackage{neurips_2025}
+
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+\usepackage[preprint]{neurips_2025}
+
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2025}
+
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2025}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage[table]{xcolor}         % colors
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{subfig}
+\usepackage{bm}
+\usepackage{amssymb}
+% package kz
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{cleveref}
+\usepackage{tablefootnote}
+\definecolor{lightblue}{RGB}{220,235,255}
+\usepackage{enumitem}
+\usepackage{graphicx}  % 支持 \includegraphics
+\usepackage[export]{adjustbox} % for valign in \includegraphics
+
+% add
+\usepackage{wrapfig}
+\usepackage{listings}
+
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue},
+  stringstyle=\color{red},
+  commentstyle=\color{gray},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=5pt,
+  backgroundcolor=\color{white},
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  frame=single,
+  tabsize=2,
+  captionpos=b,
+  breaklines=true,
+  breakatwhitespace=false,
+  escapeinside={(*@}{@*)}
+}
+
+\usepackage{xspace}
+\newcommand{\citehere}{\textcolor{red}{[cite]}\xspace}
+\newcommand{\qh}[1]{\textcolor{blue}{[Qianhui: #1]}}
+\newcommand{\kz}[1]{\textcolor{orange}{[Kanzhi: #1]}}
+\newcommand{\cz}[1]{\textcolor{purple}{[#1]}}
+\newcommand{\huan}[1]{\textcolor{brown}{[Huan: #1]}}
+\newcommand{\eg}{\textit{e.g.}}
+\newcommand{\ie}{\textit{i.e.}}
+\newcommand{\sys}{\texttt{GUI-Actor}\xspace}
+
+\usepackage{authblk}          % nice, footnote-style affiliations
+\usepackage{setspace}                   % only if you also want line-spacing control
+
+% ---------- tune horizontal separation between author names ----------
+\makeatletter
+\renewcommand\Authsep{\hspace{0.8em}}   % default ≈1.5 em → shrink to 0.8 em
+\renewcommand\Authand{\hspace{0.8em}}   % gap before ‘and’
+\renewcommand\Authands{\hspace{0.8em}}  % gap before last author
+\makeatother
+\renewcommand\Authfont{\small}
+
+% ---------- tune vertical separation inside / below the block ----------
+\setlength{\affilsep}{8pt}              % default ≈6 pt  – between each author row
+
+% ---------- make ALL affiliations run on one line ----------
+\makeatletter
+\renewcommand\AB@affilsepx{\quad\quad\protect\Affilfont}
+\makeatother
+
+\renewcommand\Affilfont{\normalfont\small} % \renewcommand\Affilfont{\itshape\normalsize}
+
+% ---- 
+\makeatletter
+\def\@fnsymbol#1{\ensuremath{\ifcase#1\or \text{*} \or \dagger \or  \ddagger\or
+   \mathsection\or \mathparagraph \or  \| \or **\or \dagger\dagger
+   \or \ddagger\ddagger \else\@ctrerr\fi}}
+\makeatother
+
+\renewcommand{\thefootnote}{\fnsymbol{footnote}}
+
+
+\title{\mbox{\protect\includegraphics[scale=.035, valign=c]{figures/logo_new.png} GUI-Actor: Coordinate-Free Visual Grounding} \\for GUI Agents}
+
+\author[1]{Qianhui~Wu\textsuperscript{*}}
+\author[2]{Kanzhi~Cheng\textsuperscript{*}}
+\author[3]{Rui~Yang\textsuperscript{*}}
+\author[1]{Chaoyun~Zhang}
+\author[1]{Jianwei~Yang\vspace{4pt}}
+\author[1]{\\Huiqiang~Jiang}
+\author[2]{Jian~Mu}
+\author[1]{Baolin~Peng}
+\author[1]{Bo~Qiao}
+\author[1]{Reuben~Tan}
+\author[1]{Si~Qin}
+\author[1]{Lars~Liden\vspace{4pt}}
+\author[1]{\\Qingwei~Lin}
+\author[3]{Huan~Zhang}
+\author[3]{Tong~Zhang}
+\author[2]{Jianbing~Zhang}
+\author[1]{Dongmei~Zhang}
+\author[1]{Jianfeng~Gao\textsuperscript{$\dagger$}}
+
+\affil[1]{Microsoft}
+\affil[2]{Nanjing University}
+\affil[3]{University of Illinois Urbana-Champaign}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+% \author{
+%   Qianhui~Wu\thanks{First authors.}\And
+%   Kanzhi~Cheng\textsuperscript{*}\thanks{Work was done during internship at Microsoft.}\And
+%   Rui~Yang\textsuperscript{*}\textsuperscript{$\dagger$} \And
+%   Chaoyun~Zhang\And
+%   Jianwei~Yang\And
+%   Huiqiang~Jiang\And
+%   Jian~Mu \And
+%   Baolin~Peng \And
+%   Bo~Qiao \And
+%   Reuben~Tan \And
+%   Si~Qin \And
+%   Lars~Liden \And
+%   Qingwei~Lin \And
+%   Huan~Zhang \And
+%   Tong~Zhang \And
+%   Jianbing~Zhang \And
+%   Dongmei~Zhang \And
+%   Jianfeng~Gao\thanks{Leadership}
+% }
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+    % We propose GUI-Actor, powered by VLM, apply to web navigation, computer use scenarios where we only have access to GUI) for navigation tasks in digital world. the actor is powered by VLM with a newly designed action head. Compared with traditional actors (e.g., VLM-powered policy models), our actor can more precisely ground high-level action plan (e.g., clicking a button on a UI) in executable actions. As a result, we create new SOTA on a few challenging public benchmarks. We also propose a light weighted training method, where we freeze VLM parameters, for the scenarios that require fast adaptation with limited compute resource 
+    One of the principal challenges in building VLM-powered GUI agents is visual grounding—localizing the appropriate screen region for action execution based on both the visual content and the textual plans. Most existing work formulates this as a text-based coordinate generation task. However, these approaches suffer from several limitations: weak spatial-semantic alignment due to lack of explicit spatial supervision; inability to handle ambiguous supervision targets, as single-point predictions penalize valid variations; and a mismatch between the dense nature of screen coordinates and the coarse, patch-level granularity of visual features extracted by models like Vision Transformers. In this paper, we propose \sys, a VLM-based method for coordinate-free GUI grounding. At its core, \sys introduces an attention-based action head that learns to align a dedicated \texttt{<ACTOR>} token with all relevant visual patch tokens, enabling the model to propose one or more action regions in a single forward pass. In line with this, we further design a grounding verifier to evaluate and select the most plausible action region from the candidates proposed for action execution.
+    Extensive experiments show that \sys outperforms prior state-of-the-art methods on multiple GUI action grounding benchmarks, with improved generalization to unseen screen resolutions and layouts.
+    % Notably, the 2B version of \sys even surpasses several competing 7B models.
+    Notably, \textbf{GUI-Actor-7B} achieves scores of \textbf{40.7} with Qwen2-VL and \textbf{44.6} with Qwen2.5-VL as backbones, outperforming \textbf{UI-TARS-72B} (\textbf{38.1}) on ScreenSpot-Pro, with significantly fewer parameters and training data.
+    Furthermore, by incorporating the verifier, we find that fine-tuning only the newly introduced action head ($\sim$100M parameters for 7B model) while keeping the VLM backbone frozen is sufficient to achieve performance comparable to previous state-of-the-art models, highlighting that \sys can endow the underlying VLM with effective grounding capabilities without compromising its general-purpose strengths. Project page: \url{https://aka.ms/GUI-Actor}.
+    \footnotetext[1]{Equal contribution: \href{mailto:qianhuiwu@microsoft.com}{qianhuiwu@microsoft.com}, \href{mailto:chengkz@smail.nju.edu.cn}{chengkz@smail.nju.edu.cn}, \href{mailto:yr21@illinois.edu}{ry21@illinois.edu}.}
+    \footnotetext[2]{Leadership.}
+    % Extensive experiments show that our approach outperforms existing coordinate generation-based models trained with similar data scale \textcolor{red}{on..}. We also show that \sys generalizes better to screen resolutions not seen during training, and is far more sample-efficient by leveraging dense and spatially structured learning signals from bounding-box supervision. 
+\end{abstract}
+\renewcommand{\thefootnote}{\arabic{footnote}}  % Change footnote symbol to numbers
+
+
+% \section{Submission of papers to NeurIPS 2025}
+
+
+% Please read the instructions below carefully and follow them faithfully.
+
+
+% \subsection{Style}
+
+
+% Papers to be submitted to NeurIPS 2025 must be prepared according to the
+% instructions presented here. Papers may only be up to {\bf nine} pages long,
+% including figures.
+% % Additional pages \emph{containing only acknowledgments and references} are allowed.
+% Additional pages \emph{containing references, checklist, and the optional technical appendices} do not count as content pages.
+% Papers that exceed the page limit will not be
+% reviewed, or in any other way considered for presentation at the conference.
+
+
+% The margins in 2025 are the same as those in previous years.
+
+
+% Authors are required to use the NeurIPS \LaTeX{} style files obtainable at the
+% NeurIPS website as indicated below. Please make sure you use the current files
+% and not previous versions. Tweaking the style files may be grounds for
+% rejection.
+
+
+% \subsection{Retrieval of style files}
+
+
+% The style files for NeurIPS and other conference information are available on
+% the website at
+% \begin{center}
+%   \url{https://neurips.cc}
+% \end{center}
+% The file \verb+neurips_2025.pdf+ contains these instructions and illustrates the
+% various formatting requirements your NeurIPS paper must satisfy.
+
+
+% The only supported style file for NeurIPS 2025 is \verb+neurips_2025.sty+,
+% rewritten for \LaTeXe{}.  \textbf{Previous style files for \LaTeX{} 2.09,
+%   Microsoft Word, and RTF are no longer supported!}
+
+
+% The \LaTeX{} style file contains three optional arguments: \verb+final+, which
+% creates a camera-ready copy, \verb+preprint+, which creates a preprint for
+% submission to, e.g., arXiv, and \verb+nonatbib+, which will not load the
+% \verb+natbib+ package for you in case of package clash.
+
+
+% \paragraph{Preprint option}
+% If you wish to post a preprint of your work online, e.g., on arXiv, using the
+% NeurIPS style, please use the \verb+preprint+ option. This will create a
+% nonanonymized version of your work with the text ``Preprint. Work in progress.''
+% in the footer. This version may be distributed as you see fit, as long as you do not say which conference it was submitted to. Please \textbf{do
+%   not} use the \verb+final+ option, which should \textbf{only} be used for
+% papers accepted to NeurIPS.
+
+
+% At submission time, please omit the \verb+final+ and \verb+preprint+
+% options. This will anonymize your submission and add line numbers to aid
+% review. Please do \emph{not} refer to these line numbers in your paper as they
+% will be removed during generation of camera-ready copies.
+
+
+% The file \verb+neurips_2025.tex+ may be used as a ``shell'' for writing your
+% paper. All you have to do is replace the author, title, abstract, and text of
+% the paper with your own.
+
+
+% The formatting instructions contained in these style files are summarized in
+% Sections \ref{gen_inst}, \ref{headings}, and \ref{others} below.
+
+
+% \section{General formatting instructions}
+% \label{gen_inst}
+
+
+% The text must be confined within a rectangle 5.5~inches (33~picas) wide and
+% 9~inches (54~picas) long. The left margin is 1.5~inch (9~picas).  Use 10~point
+% type with a vertical spacing (leading) of 11~points.  Times New Roman is the
+% preferred typeface throughout, and will be selected for you by default.
+% Paragraphs are separated by \nicefrac{1}{2}~line space (5.5 points), with no
+% indentation.
+
+
+% The paper title should be 17~point, initial caps/lower case, bold, centered
+% between two horizontal rules. The top rule should be 4~points thick and the
+% bottom rule should be 1~point thick. Allow \nicefrac{1}{4}~inch space above and
+% below the title to rules. All pages should start at 1~inch (6~picas) from the
+% top of the page.
+
+
+% For the final version, authors' names are set in boldface, and each name is
+% centered above the corresponding address. The lead author's name is to be listed
+% first (left-most), and the co-authors' names (if different address) are set to
+% follow. If there is only one co-author, list both author and co-author side by
+% side.
+
+
+% Please pay special attention to the instructions in Section \ref{others}
+% regarding figures, tables, acknowledgments, and references.
+
+
+% \section{Headings: first level}
+% \label{headings}
+
+
+% All headings should be lower case (except for first word and proper nouns),
+% flush left, and bold.
+
+
+% First-level headings should be in 12-point type.
+
+
+% \subsection{Headings: second level}
+
+
+% Second-level headings should be in 10-point type.
+
+
+% \subsubsection{Headings: third level}
+
+
+% Third-level headings should be in 10-point type.
+
+
+% \paragraph{Paragraphs}
+
+
+% There is also a \verb+\paragraph+ command available, which sets the heading in
+% bold, flush left, and inline with the text, with the heading followed by 1\,em
+% of space.
+
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=1.\linewidth]{figures/fig1_version2.pdf}
+  \caption{\textbf{Left}: Model performance vs. training data scale on the ScreenSpot-Pro benchmark. Higher and more left is better; larger points indicate models with more parameters. We only show GUI-Actor models built upon Qwen2-VL here for fair comparison. With Qwen2.5-VL as the backbone, GUI-Actor-3B/7B reaches scores up to 42.2/44.6 (without Verifier). \textbf{Right}: Illustration of action attention. GUI-Actor grounds target elements by attending to the most relevant visual regions.}
+  \label{fig:main_figure}
+\end{figure}
+
+\input{sections/introduction}
+
+\input{sections/related_work}
+
+\section{The Design of GUI-Actor}
+\label{sec:method}
+% In this section, we present \sys, a coordinate-free visual grounding approach for GUI agents. 
+% We begin by introducing the attention-based action head (\Cref{sec:arch}) that enables the VLM to locate screen elements by attending to image patches, which supports the multi-patch supervision strategy for efficient grounding training. 
+% Next, we detail how the grounding verifier seamlessly integrates into our \sys framework, further enhancing grounding capability (\Cref{sec:verifier}).
+% \textcolor{red}{Finally, we overview the workflow of GUI-Actor as an agentic model during the inference phase (\Cref{sec:inference}).}
+% The overall framework of GUI-Actor is illustrated in \Cref{fig:mainfig}.
+
+% \subsection{Attention-Based Action Head}
+% \label{sec:arch}
+
+Considering the limitations of text-based coordinate generation, \eg, weak spatial-semantic alignment and ambiguous supervision targets, we draw inspiration from how humans interact with GUIs.
+Rather than computing precise coordinates, humans typically visually identify the intended element and then directly act on it, by tapping with a finger or positioning a mouse cursor.
+Motivated by this, \sys explores a novel architecture for GUI visual grounding: we first introduce a special token \texttt{<ACTOR>} as the contextual anchor, and then train an action attention head to attend from this anchor to image patches corresponding to the target element. Finally, we present a grounding verifier to select the most semantically appropriate target among the multiple candidates derived from the attention map.
+% \huan{Use either [ACTOR] or <ACTOR> (I saw both versions). Also we actually introduced three tokens? <ACTOR\_START>, <ACTOR>, <ACTOR\_END>?}
+
+\begin{figure*}
+    \centering
+    \subfloat[Illustration of attention-based action head.]{
+\includegraphics[width=0.68\columnwidth]{figures/overview.pdf}
+    \label{fig:overview}
+  }
+  \hfill
+  \subfloat[Image Patch Labels]{
+\includegraphics[width=0.27\columnwidth]{figures/multipatch_v1.pdf}
+    \label{fig:multipatch}
+  }
+    \caption{Overview of GUI-Actor. (a) Illustration of how the action head works with a VLM for coordinate-free GUI grounding. (b) Illustration of the spatial-aware multi-patch supervision for model training. We label all image patches that are partially or fully covered by the ground-truth bounding box as positive (\texttt{1}) and all others as negatives (\texttt{0}).
+    % A binary $W \times H$ mask is generated based on the overlap between image patches and the target bounding box. \cz{(b) It needs some labels/tags to each component.\huan{The figure shows a bunch of ``1'' as masks, however in the methodology section I did not find which part describes it. Maybe I missed it?}
+    }
+    \label{fig:mainfig}
+\end{figure*}
+
+\paragraph{\texttt{<ACTOR>} Token as a Contextual Anchor}
+Given a screenshot image $\mathcal{I}$ and an instruction $q$, coordinate generation based methods typically train the VLM to produce a sequence of $\{\bm{x}_{1:i-1}, \bm{x}_{i:i+m}, \bm{x}_{i+m+1:j-1}, \bm{x}_{j:j+n}, \bm{x}_{j+n+1:N}\}$, where $m, n >0 $, $N$ is the total length of the output sequence, $i > 1$, and $j-1 > i+m+1$.
+For example, in \texttt{pyautogui.click(x=0.123, y=0.234)} \citet{xu2024aguvis}, the segments $\bm{x}_{i:i+m}$ and $\bm{x}_{j:j+n}$ correspond to the tokenized x- and y-coordinates, respectively.
+The segment $\bm{x}_{i+m+1:j-1}$ represents the separator between them, while the rest captures the surrounding context.
+In this work, we replace the coordinate span $\{\bm{x}_{i:i+m}, \bm{x}_{i+m+1:j-1}, \bm{x}_{j:j+n}\}$ with three special tokens to facilitate coordinate-free grounding and better context integration from both the visual input and textual instruction:
+\begin{equation}
+    \text{VLM}(\mathcal{I}, q) = \{\bm{x}_{1:i-1}, \texttt{<ACTOR\_START>}, \texttt{<ACTOR>}, \texttt{<ACTOR\_END>}, \bm{x}_{i+3:N}\}.
+\end{equation}
+We use the final-layer hidden state of \texttt{<ACTOR>}, \ie, $h_{\texttt{<ACTOR>}}$, as a contextual anchor for computing action attention over the visual patch tokens.
+
+
+\paragraph{Attention-Based Action Head}
+Let ${v_1, \dots, v_M}$ denote the visual patch features extracted by the Vision Encoder of the VLM from the input screenshot, where each $v_i \in \mathbb{R}^d$. % \kz{should explain M here? i.e., the grid}
+The action head computes an attention distribution from the \texttt{<ACTOR>} token over these visual patches to identify the target action region.
+% Given a screenshot image $I$ and an instruction $q$, the VLM encodes the image through a visual encoder into patch features $\{v_1, \dots, v_M\}$, where $M = W \times H$ is the total number of patches from a $W$-by-$H$ grid partitioning of the image.
+
+% In standard coordinate-based approaches, the VLM is tasked with generating an action along with its associated coordinates, conditioned on the screenshot and instruction:
+% \begin{equation}    
+% \text{VLM}(I, q) = \texttt{<action tokens>} \;\; \texttt{<coordinate tokens>},
+% \end{equation}
+% where \texttt{<coordinate tokens>} refers to the predicted $(x, y)$ position of the target element.
+% Instead of directly generating text-based coordinates, GUI-Actor guides the model to produce a special \texttt{[ACTOR]} token that serves as a placeholder for grounding the target element:
+% \begin{equation}
+% \text{VLM}(I, q) = \texttt{<action tokens>} \;\; \texttt{<[ACTOR]>}.
+% \end{equation}
+% Then, the VLM's decoder hidden states corresponding to the output tokens are denoted as $\{h_1, h_2, \dots, h_L\}$, from which we extract the hidden state $h_{\texttt{[ACTOR]}}$ associated with the \texttt{[ACTOR]} token for subsequent use by the action head to attend to image patch features.
+
+% Given the extracted \texttt{[ACTOR]} token representation $h_{\texttt{[ACTOR]}} \in \mathbb{R}^d$ and a set of visual patch features $\{v_1, \dots, v_M\}$ with $v_i \in \mathbb{R}^d$, the action head predicts an attention distribution over patches to identify the grounding region.
+
+To incorporate GUI-aware contextual information, we first apply a self-attention layer over the visual patch features. This allows the model to aggregate semantics across spatially related patches, enabling patches that belong to the same GUI element to share coherent representations:
+\begin{equation}
+\tilde{v}_1, \dots, \tilde{v}_M = \text{SelfAttn}(v_1, \dots, v_M),
+\end{equation}
+where $\tilde{v}_i \in \mathbb{R}^d$ denotes the contextualized feature for the $i$-th patch after self-attention module.
+
+Next, we project both the \texttt{<ACTOR>} token representation $h_{\texttt{<ACTOR>}}$ and the contextualized patch features ${\tilde{v}_1, \dots, \tilde{v}_M}$ into a shared embedding space via two separate MLPs, 
+and obtain $z$ and $z_i \in \mathbb{R}^d$:
+\begin{equation}
+z = \text{MLP}_{\text{T}}(h_{\texttt{<ACTOR>}}), \quad z_i = \text{MLP}_{\text{V}}(\tilde{v}_i).
+\end{equation}
+Finally, we compute attention scores between the \texttt{<ACTOR>} token and each visual patch. Let $M$ denote the total number of image features that are input to the LM backbone, the resulting attention weights ${a_1, \dots, a_M}$ form an attention map over the screen, indicating the most relevant region for grounding the action.
+
+\begin{equation}
+\begin{array}{ll}
+\displaystyle \alpha_i = \frac{z^\top z_i}{\sqrt{d}}, &
+\displaystyle a_i = \frac{\exp(\alpha_i)}{\sum_{j=1}^M \exp(\alpha_j)}, \quad \text{for } i = 1, \dots, M.
+\end{array}
+\end{equation}
+
+\paragraph{Spatial-Aware Multi-Patch Supervision}
+% \begin{wrapfigure}{r}{0.30\textwidth}
+%   \centering
+%   \includegraphics[width=0.30\textwidth]{figures/multipatch.pdf}
+%   \caption{An illustration of dense multi-patch supervision. A binary $W \times H$ mask is generated based on the overlap between image patches and the target bounding box.}
+%   \label{fig:multipatch}
+% \end{wrapfigure}
+A key advantage of our approach is the ability to leverage dense and spatially structured learning signals from bounding-box supervision. Rather than relying on a single, potentially ambiguous click point as in traditional coordinate-based methods, \sys treats all image patches that are partially or fully covered by the ground-truth bounding box as positive examples ($y_i$=1) and all others as negatives ($y_i=0$), where $y_i$ denotes the label associated with $v_i$. This allows the model to more effectively capture the full spatial extent of actionable elements. An illustration is provided in \Cref{fig:multipatch}. For more details, please refer to Appendix~\ref{appendix:multi_path_supervision}.
+
+% Specifically, we convert each ground-truth bounding box into a binary mask over the $W \times H$ image patch grid.
+% Given a normalized bounding box $b = [\text{left}, \text{top}, \text{right}, \text{bottom}] \in [0,1]^4$, we scale the normalized coordinates to the patch grid resolution:
+% \begin{equation}
+% \left( \lfloor \text{left} \cdot W \rfloor,\; \lfloor \text{top} \cdot H \rfloor,\; \lceil \text{right} \cdot W \rceil,\; \lceil \text{bottom} \cdot H \rceil \right).
+% \end{equation}
+% This rounding ensures that all patches partially or fully covered by the bounding box are included in the supervision region.
+% All patches whose indices fall within the resulting grid-aligned region are labeled as positives (i.e., mask value 1), while all others are assigned a value of 0.
+% This yields a binary vector $\mathbf{y} \in \{0, 1\}^M$ aligned with the image patch sequence, where $M = W \times H$.
+
+
+% We then define the loss as the divergence between the predicted attention distribution and the ground-truth multi-patch mask. We first normalize the binary supervision vector $\mathbf{y} \in \{0,1\}^M$ into a target distribution $\mathbf{p} \in [0,1]^M$:
+% \begin{equation}
+% p_i = \frac{y_i}{\sum_{j=1}^M y_j + \epsilon}, \quad \text{for } i = 1, \dots, M,
+% \end{equation}
+% where $\epsilon$ is a small constant for numerical stability.
+
+% Finally, the loss for the action head is computed as the KL divergence between the predicted attention distribution $\{a_1, \dots, a_M\}$ and the target distribution $\mathbf{p}$:
+% \begin{equation}
+% \mathcal{L}_{\text{[ACTOR]}} = \sum_{i=1}^{M} p_i \log \frac{p_i}{a_i}.
+% \end{equation}
+
+% \paragraph{Loss Function}
+% The attention-based action head enables coordinate-free GUI visual grounding by attending from the \texttt{[ACTOR]} token to image patches, trained with dense multi-patch supervision that provides rich spatial learning signals.
+We train the model using a combination of next-token prediction (NTP) loss and action attention loss: 
+\begin{equation}
+\mathcal{L} = \mathcal{L}_{\text{NTP}} + \mathcal{L}_{\text{Action\_Attn}},
+\end{equation}
+The action attention loss is defined as:
+% We define the action head loss as the KL divergence between the predicted attention distribution $\{a_1, \dots, a_M\}$ and a normalized target distribution $\mathbf{p}$ derived from the binary mask $\mathbf{y} \in \{0, 1\}^M$:
+\begin{equation}
+% \displaystyle p_i &= \frac{y_i}{\sum_{j=1}^M y_j + \epsilon}, \: \text{for } i = 1, \dots, M; \quad
+% \displaystyle \mathcal{L}_{\texttt{[ACTOR]}} &= \sum_{i=1}^M p_i \log \frac{p_i}{a_i},
+\mathcal{L}_{\text{Action\_Attn}} = \sum_{i=1}^M p_i \log \frac{p_i}{a_i}, \quad p_i = \frac{y_i}{\sum_{j=1}^M y_j + \epsilon}, ~i = 1, \dots, M,
+\end{equation}
+where $\epsilon$ is a small constant for numerical stability.
+
+\section{Grounding Verifier}
+% \paragraph{Grounding Verifier}
+% \label{sec:verifier}
+% The attention mechanism in \sys produces a distribution over visual patches, highlighting regions that are likely to be relevant for grounding GUI actions. A simple approach is to select the patch with the highest attention weight and use its center as the predicted action location. However, this strategy can be unreliable: the highest-scoring patch may not precisely align with the intended target due to visual ambiguity, instruction vagueness, or the coarse resolution of the patch grid. In such cases, relying solely on attention maxima may yield suboptimal results.
+% The attention mechanism in GUI-Actor naturally identifies a set of patch candidates that serve as potential targets for GUI grounding tasks or support high-level GUI action locations. A straightforward approach is to select the center of the patch with the highest attention weight. However, this can be suboptimal: the top-weighted patch may not correspond precisely to the intended target due to noise, visual ambiguity, or the coarse resolution of the patch grid. As a result, grounding based solely on attention maxima can be inaccurate, particularly in complex interfaces.
+A key advantage of our attention based action grounding model is its ability to produce multiple candidate action regions in a single forward pass, without incurring additional inference cost. This is a natural consequence of the attention-based design, where the model assigns scores to all visual patches simultaneously. This efficiency creates an opportunity: rather than relying solely on the top-scoring patch, we can introduce a lightweight verification step to select the most semantically appropriate target among the candidates.
+
+With the insight that verification is often easier than generation~\citep{cobbe2021training}, we propose a \textit{Grounding Verifier}, a lightweight VLM module which takes as input the instruction and a screenshot with a visual marker placed at the proposed location, and predicts whether the marked region correctly fulfills the task intent. This verifier serves as a decision refinement layer, allowing the system to reflect on its action before execution. 
+
+% \paragraph{Data and Training Objective}
+\paragraph{Data \& Training} Training data for the verifier is constructed from the OS-Atlas dataset~\cite{wu2024atlas}, which spans desktop, mobile, and web domains.
+This dataset provides triplets of the form $(\text{image}, \text{query}, \text{bounding box})$, where each image is associated with multiple queries and their corresponding bounding boxes. For each triplet, we generate a \textit{positive example} by placing a visual marker (\ie, a hollow red circle) at the center of the bounding box, treating it as the correct grounding point for the given query.
+To create \textit{negative examples}, we apply two strategies:
+(1) selecting the center of an incorrect bounding box from the same image; (2) randomly sampling a point outside the target region. Each resulting training instance is formatted as a tuple $(\mathcal{I}, \mathbf{x}, y)$, where $\mathcal{I}$ is an image with a marked point, $\mathbf{x}$ is the corresponding language instruction, and $y \in \{\texttt{`True'}, \texttt{`False'}\}$ is the ground-truth label indicating whether the point correctly satisfies the instruction. More details are deferred to Appendix~\ref{appendix:data_verifier}.
+
+% \paragraph{Training.}
+We fine-tune the verifier from a lightweight VLM using standard supervised learning. The model takes $(\mathcal{I}, \mathbf{x})$ as input and is trained to generate the correct token $y$. The training objective is the cross-entropy loss:
+\[
+\mathcal{L}_{\text{Verifier}} = - \log P_{\theta_v}(y \mid \mathbf{I}, \mathbf{x}),
+\]
+where $P_{\theta_v}$ denotes the output probability from the verifier model with parameters $\theta_v$.
+% This objective trains the verifier to accurately distinguish correct grounding points from incorrect ones.
+
+\paragraph{Inference} At inference time, \sys predicts the final action location by combining natural language generation with visual grounding. Given the current GUI state and a user instruction, \sys first generates an agent response via standard decoding, for example, producing a string like \texttt{pyautogui.click(<ACTOR\_START><ACTOR><ACTOR\_END>)} that includes the special \texttt{<ACTOR>} token. We then extract the hidden state corresponding to \texttt{<ACTOR>} and use the action head to compute attention over all visual patches. This attention distribution serves as a spatial activation map, identifying the most relevant screen region for executing the predicted action.
+
+To identify the most semantically appropriate region among the top-$K$ attention-weighted patches, we use the verifier $\theta_v$ to score each candidate by marking it on the image $\mathcal{I}$ and evaluating its alignment with the instruction $x$. For each marked image, the verifier outputs probabilities for \texttt{`True'} and \texttt{`False'} tokens, and we define the selection score as:  
+\begin{equation}
+\texttt{s}(\mathcal{I}, x) = \frac{P_{\theta_v}(\texttt{`True'} \mid \mathcal{I}, x)}{P_{\theta_v}(\texttt{`True'} \mid \mathcal{I}, x) + P_{\theta_v}(\texttt{`False'} \mid \mathcal{I}, x)}.
+\end{equation}
+
+Candidates are evaluated in descending order of attention weights, and we return the first one exceeding a confidence threshold (e.g., $\texttt{s}(\mathcal{I}, x) > \gamma$) without further evaluation.
+
+% \subsection{Inference Pipeline}
+% \label{sec:inference}
+% This section describes the inference pipeline of GUI-Actor, detailing how it derives the final action prediction to complete tasks given the GUI state and user instruction.
+% During inference, the fine-tuned VLM first generates an agent response containing \texttt{[ACTOR]} tokens through the standard decoding process, such as '\texttt{pyautogui.click([ACTOR])}'.
+% Next, we obtain the hidden state corresponding to \texttt{[ACTOR]} and compute its attention over all image patches through the action head, representing the activation of all screen regions for the current action step.
+
+% To select the most semantically appropriate region from the top-K attention-weighted patches, we use the verifier $\theta_v$ to evaluate each candidate location by marking it on the image $\mathcal{I}$ and scoring its alignment with the instruction $x$. We compute the probability of predicting tokens \texttt{`True'} or \texttt{`False'}: 
+% $P_{\texttt{true}} = P_{\theta_v}(\texttt{`True'}|I,x)$ and $P_{\texttt{false}} = P_{\theta_v}(\texttt{`False'}|I,x)$, and define the score for each position as the normalized probability of the \texttt{`True'} token: $\texttt{s}(I,x)=\frac{P_{\texttt{true}}}{P_{\texttt{true}} + P_{\texttt{false}}}$. 
+% We rank the candidates with their attention scores and evaluate them with the verifier one by one. If a candidate achieves a high confidence score (i.e., $\texttt{s}(I,x) > 0.95$), we immediately return that position without evaluating the rest.
+
+% \paragraph{Patch Selection} Given the top $M$ candidate patches from the attention map, our goal is to select the one that best aligns with the user instruction in the image. A straightforward approach is to draw a marker at the center of each patch and use a verifier to score how well each position satisfies the instruction $x$. Specifically, for each candidate image $I$ with a marked point, we use the verifier $\theta_v$ to compute the probability of predicting tokens \texttt{`True'} or \texttt{`False'}: 
+% $P_{\texttt{true}} = P_{\theta_v}(\texttt{`True'}|I,x)$ and $P_{\texttt{false}} = P_{\theta_v}(\texttt{`False'}|I,x)$. We then define the score for each position as the normalized probability of the \texttt{`True'} token: $\texttt{s}(I,x)=\frac{P_{\texttt{true}}}{P_{\texttt{true}} + P_{\texttt{false}}}$.
+
+% A key limitation of this approach is that each patch (typically $28 \times 28$ pixels) may miss small icons located between two neighboring patches, leading to inaccurate target localization. To address this, we introduce a simple yet effective refinement. We first cluster 4-connected neighboring patches and compute a weighted center based on the verifier scores of the individual patches. This enables the generation of candidate points that lie between adjacent patches and improves localization accuracy without directly modifying the patch size and introduce more computational cost.
+
+% In our implementation, we use up to $M=20$ top-scoring patches, filtering out those with attention weights below 20\% of the maximum attention weight. We then apply clustering to the neighboring patches, compute the weighted centers of these clusters, and add them to the set of $M$ candidate positions. Each candidate position is scored using $\texttt{s}(I,x)$, and we select the one with the highest score. In practice, if a candidate achieves a high confidence score (i.e., $\texttt{s}(I,x) > 0.95$), we immediately return that position without evaluating the rest.
+
+\section{Experiments}
+% In this section, we comprehensively evaluate the performance of GUI-Actor across a diverse set of GUI agent benchmarks, demonstrating its effectiveness under various platforms and agent configurations.
+% The main results are presented in \Cref{sec:main}.
+% We conduct a rigorous ablation study in \Cref{sec:ablation} to assess the contribution of each component in GUI-Actor.
+% Furthermore, \Cref{sec:analyse} and \Cref{sec:visualization} provide deeper analyses of the advantages and potential of our method.
+
+% \subsection{Settings}
+% \label{sec:main}
+
+\paragraph{Implementation Details}
+% We implement \sys based on PyTorch\footnote{\url{https://pytorch.org/}} and Huggingface Transformers\footnote{\url{https://github.com/huggingface/transformers}}.
+We implement \sys using PyTorch and Huggingface Transformers.
+Unless otherwise specified, we adopt Qwen-2-VL-7B-Instruct \cite{wang2024qwen2} as the backbone VLM for both \sys and the baselines to ensure a fair comparison with previous state-of-the-art methods.
+For the re-implementation of baseline Aguvis-7B with both point supervision \textit{(point sup.)} and bounding-box supervision \textit{(bbox sup.)}, we directly use the official source code provided by Aguvis \cite{xu2024aguvis}.
+We use the same dimensionality as the backbone VLM for all configurations of the action head.
+The grounding verifier is finetuned from UI-TARS-2B-SFT \cite{qin2025ui}. During inference, we construct a pool of $K=20$ candidates and apply a confidence threshold of $\gamma=0.95$ for tasks in ScreenSpot-Pro and $\gamma=0.8$ for ScreenSpot and ScreenSpot-v2.
+Following Aguvis~\citep{xu2024aguvis}, we structure our training data as sequences of \texttt{pyautogui}-style operations, but replace the original coordinates with the special tokens, as described in Section~\ref{sec:method}.
+Our full training recipe is built from several public GUI datasets, comprising $\sim$1M screenshots.
+Both \sys and the two baseline models are trained using the data recipe summarized in Table~\ref{tab:train-data} for 1 epoch. Additional dataset details are provided in \Cref{app:datasets}.
+To train \sys, we begin by freezing all backbone VLM parameters and training only the newly introduced components of the action head ($\sim$20M/$\sim$100M parameters for 2B/7B backbone). After this warm-up phase, we finetune the entire model using standard supervised learning.
+% For the \textit{GUI-Actor-LiteTrain} variant, we freeze all backbone VLM parameters and train only the newly introduced components for the action head ($\sim$100M parameters). The full \textit{GUI-Actor-7B} model is initialized from \textit{GUI-Actor-7B w/ LiteTrain} and then finetuned with standard supervised learning.
+
+\paragraph{Evaluation Benchmarks \& Metric} We evaluate \sys and other baseline methods on three well-established GUI visual grounding benchmarks: ScreenSpot \cite{cheng2024seeclick}, ScreenSpot-v2 \cite{wu2024atlas}, and ScreenSpot-Pro \cite{li2025screenspot}, with the last featuring higher-resolution interfaces and greater domain shift (e.g., industrial software, multi-window layouts), serving as a practical testbed for generalization.
+For the evaluation metric, we use \textit{Element Accuracy}, which measures the proportion of predictions where the click point falls within the ground-truth bounding box of the target element. Please refer to Appendix~\ref{sec:grounding_benchmark} for more details on the benchmark information.
+% \kz{offline benchmarks mention here? do we need verifier in offline benchmarks}
+
+\input{tables/screenspot-pro}
+\input{tables/screenspot}
+\input{tables/screenspot-v2}
+\input{tables/qwen25vl}
+
+\paragraph{Baselines}
+We primarily compare our approach against models of comparable scale ($\sim$7B parameters). The baselines include (i) closed-source models like GPT-4o \cite{openai2024gpt4o}, Claude  for Computer Use \cite{hu2024dawnguiagentpreliminary}, and Gemini 2.0 \cite{google2024gemini}, as well as (ii) open-source models like SeeClick \cite{cheng2024seeclick}, ShowUI \cite{lin2024showui}, and Magma \cite{yang2025magma}. We particularly highlight several baselines that share the same backbone as ours, including the backbone Qwen2-VL \cite{wang2024qwen2}, Aguvis-7B \cite{xu2024aguvis}, UGround-v1-7B \cite{gou2024navigating}, and UI-TARS-7B \cite{qin2025ui}. We also conduct performance comparison among Qwen-2.5-VL and models using it as backbone like Jedi~\cite{xie2025scaling}.
+Unless otherwise specified, all numbers are reported from the original paper or from the UI-TARS benchmark\cite{qin2025ui}.
+
+\paragraph{Main Results} Table~\ref{tab:screenspot_pro},~\ref{tab:screenspot},~\ref{tab:screenspot_v2}, and~\ref{tab:qwen25vl} present performance comparisons on ScreenSpot-Pro, ScreenSpot, and ScreenSpot-v2 benchmarks.
+Our models, \textit{GUI-Actor-2B} and \textit{GUI-Actor-7B}, consistently outperform existing state-of-the-art methods across all benchmarks, with the 2B model even surpassing many competing 7B models.
+While there is one exception UI-TARS-7B achieving stronger performance, it benefits from training on a significantly larger dataset that includes both public and proprietary data (see \Cref{fig:main_figure}). Additionally, it undergoes a more extensive training pipeline, including continual pre-training, an annealing phase, and a final stage of direct preference optimization (DPO). Although our models are trained solely with supervised fine-tuning, they achieve competitive or even superior results on ScreenSpot-Pro, demonstrating its strong capability and potential.
+% \huan{To highlight our method, maybe it is beneficial to add a column to compare the training cost (either using time/data metrics, or just report low/medium/high) in the table.}
+% \textcolor{red}{We note that \sys remains well-suited for further enhancement through reinforcement learning techniques, which we leave as promising future work.}
+
+\paragraph{Robust Out-of-Distribution Generalization}
+As shown in Table~\ref{tab:screenspot_pro}, both \textit{GUI-Actor-2B} and \textit{GUI-Actor-7B} demonstrate strong performance on ScreenSpot-Pro—an out-of-distribution benchmark characterized by higher resolutions and substantial domain shifts from the training data—surpassing the previous state-of-the-art UI-TARS model by +9.0 and +5.0 points with 2B and 7B parameters, respectively.
+We attribute this gain to explicit spatial-semantic alignment: unlike coordinate-based approaches such as UI-TARS, \sys leverages an attention-based action head that grounds semantic cues directly in discrete visual regions. This design embeds a stronger spatial inductive bias and naturally aligns with the patch-based representations of modern vision backbones. As a result, \sys is better equipped to reason over localized visual content, enabling robust generalization across diverse screen resolutions and UI layouts.
+Further evidence of this robustness is shown in the Figure~\ref{fig:acc_training}(c): as training progresses, \textit{GUI-Actor-2B} and \textit{GUI-Actor-7B} show no sustained overfitting on the out-of-domain ScreenSpot-Pro benchmark: its accuracy recovers from early dips, then gradually increases before stabilizing. In contrast, baseline performance steadily declines after peaking early in training.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=1.\columnwidth]{figures/data_eff.pdf}
+  % \subfloat[ScreenSpot Top-3 Accuracy]{
+  %   \includegraphics[width=0.48\columnwidth]{figures/screenSpot_top3_accuracy.pdf}
+  %   \label{fig:screenSpot_top3}
+  % }
+  % \hfill
+  % \subfloat[ScreenSpot-Pro Top-3 Accuracy]{
+  %   \includegraphics[width=0.48\columnwidth]{figures/screenSpot-Pro_top3_accuracy.pdf}
+  %   \label{fig:screenSpotPro_top3}
+  % }
+  \caption{Accuracy Progression Over Training Steps.
+  }
+  \label{fig:acc_training}
+\end{figure}
+
+\paragraph{Improved Sample Efficiency}
+Figure~\ref{fig:acc_training} illustrates how \sys’s design leads to improved sample efficiency compared to coordinate-based baselines. \sys reaches its final accuracy on both ScreenSpot and ScreenSpot-v2 using only $\sim$60\% of the training data, outperforming the point and box-supervised models of AGUVIS, which plateau after 80-90\% of the data. This efficiency stems from \sys’s explicit spatial-semantic alignment through its action head, which enables grounding directly at the vision backbone’s native patch resolution, avoiding the granularity mismatch that hampers baseline methods. Additionally, our multi-patch supervision strategy gracefully handles the supervision ambiguity in coordinate generation based methods, offering dense, spatially structured supervision signals.
+
+\paragraph{Enabling backbone VLM grounding on GUIs without sacrificing general-purpose strengths.}
+We introduce a variant, \textit{GUI-Actor-LiteTrain}, where we freeze all backbone VLM parameters and train only the newly introduced components for the action head and special tokens. This setup explores how \sys can impart GUI grounding capabilities without diminishing the VLM's general-purpose strengths.
+As shown in Table~\ref{tab:lite_train}, \textit{GUI-Actor-LiteTrain} yields substantial performance improvements over the unmodified backbone VLM. With the help of a grounding verifier, it even rivals fully fine-tuned coordinate generation models. These results suggest that the backbone VLM already exhibits strong perceptual understanding of UI screenshots. As such, training the model to generate coordinates in text format may primarily focus on coordinate mapping, offering limited contribution to the semantic understanding of UI elements. More importantly, \textit{GUI-Actor-LiteTrain} retains the backbone's original language and vision-language capabilities, demonstrating that lightweight integration can enable grounding without compromising generality.
+\input{tables/liteTrain}
+
+
+\paragraph{Boosting Performance via Grounding Verifier} The results in Tables~\ref{tab:screenspot_pro}, \ref{tab:screenspot}, \ref{tab:screenspot_v2}, and \ref{tab:lite_train} demonstrate that the grounding verifier consistently improves performance, highlighting its effectiveness in enhancing grounding accuracy. The improvement is especially significant on ScreenSpot-Pro, where it boosts GUI-Actor-7B by nearly 4 points and GUI-Actor-7B-LiteTrain by an impressive 13 points. Additionally, we investigate the benefits of the Verifier Self-Aggregation strategy in Appendix \ref{app:verifier_agg} and evaluate the verifier's applicability to other baseline models in Appendix~\ref{app:baseline_w_verifier}. Our findings suggest that our verifier is highly robust and well-suited to GUI-Actor, as it requires only a single forward pass to generate diverse region proposals.
+
+
+
+\paragraph{Ablation Study}
+\label{sec:ablation}
+Table~\ref{tab:ablation} present the results of our ablation study, where “bbox sup.” and “point sup.” denote models trained to predict the ground-truth bounding box or action point coordinates in natural language format, respectively. The results show that models trained with coordinate generation (both bounding box and point supervision) consistently underperform compared to \textit{GUI-Actor-7B} across the benchmarks, highlighting the effectiveness and necessity of explicit spatial-semantic alignment achieved through our proposed action head. Interestingly, despite having access to more spatial information, \textit{Aguvis-7B (bbox sup.)} performs similarly to or worse than \textit{Aguvis-7B (point sup.)}, suggesting that without architectural mechanisms or spatial inductive bias, these coordinate generation based methods remain disconnected from the underlying visual representation, limiting their generalization and grounding capabilities.
+
+\input{tables/ablation}
+% \input{tables/ablation_ss_pro}
+% \input{tables/ablation_ss_ssv2}
+
+
+\paragraph{Multi-Region Prediction Without Extra Inference Cost}
+Due to its attention-based grounding mechanism, \sys can generate multiple candidate action regions in a single forward pass, incurring no extra inference cost. To evaluate the effectiveness of these high-probability regions, we use the Hit@k metric, where k represents the number of top-ranked predictions considered.
+Figure~\ref{fig:hit3} shows that \sys exhibits a substantial improvement from Hit@1 to Hit@3, whereas the gap for baselines is relatively marginal. In our analysis, we observed that for coordinate-generation-based baselines, even when multiple predictions are sampled, the outputs are mostly identical, \eg, shifting slightly from (0.898, 0.667) to (0.899, 0.666). In contrast, our model simultaneously produces multiple candidate regions from the attention distribution in a single forward pass. These candidates are mutually exclusive, naturally promoting diversity and increasing the chance of capturing all valid action regions. Figure~\ref{fig:multi_preds} provides a qualitative example where our approach successfully identifies all ground-truth regions required for action execution.
+
+\begin{figure}[ht]
+  \centering
+  \subfloat[Hit@1 and Hit@3 for different models.]{
+    \includegraphics[width=0.48\columnwidth,height=0.29\columnwidth]{figures/hit3.pdf}
+    \label{fig:hit3}
+  }
+  \subfloat[GUI-Actor can capture multiple potential regions.]{
+    \includegraphics[width=0.48\columnwidth,height=0.28\columnwidth]{figures/attention_weight_multiple.png}
+    \label{fig:multi_preds}
+  }
+  \caption{(a) Hit@1 and Hit@3 for different methods. For Aguvis baselines, we run inference 3 times with temperature = 1.0, top\_p = 0.95. (b) Illustration of multi-region prediction. In this example, the instruction is ``check shopping cart'' and the central ``shopping cart'' text is clickable, while the ground truth is only the top-right icon.}
+  \label{fig:action_attention}
+\end{figure}
+
+\paragraph{Online Evaluation on OS-World-W}
+To assess the real-world effectiveness of our proposed system, we conducted online evaluations on OS-World-W, a curated subset of the OS-World benchmark focused on 49 Windows-specific tasks involving complex, multi-step interactions across office and multi-application scenarios. We use GPT-4o as the planner and use GUI-Actor-7B for action grounding. Compared with the leading visual grounding baselines Aguvis-7B, NAVI \cite{bonatti2024windows}, and OmniAgent \cite{lu2024omniparser}, \textit{GUI-Actor-7B} demonstrates promising performance with a task success rate of 12. 2\%, outperforming OmniAgent and NAVI (both 10. 2\%) and significantly surpassing \textit{Aguvis-7B (point sup.)} (4.0\%). More details can be found in Appendix~\ref{sec:online_eva}.
+
+\section{Conclusion}
+% \label{others}
+We present \sys, a novel coordinate-free visual grounding framework for GUI agents. %, designed to bridge natural language instructions with actionable screen regions.
+Departing from prevailing text-based coordinate generation paradigms, \sys introduces a dedicated \texttt{<ACTOR>} token that attends to target visual patches to directly localize GUI elements on the screen.
+% It explicitly aligns spatial visual features with semantic signals from instructions, while naturally supporting bounding-box–based multi-patch supervision to reduce the ambiguity inherent in single-point predictions.
+This mechanism explicitly aligns spatial visual features with the semantic signals from instructions, and naturally supports bounding-box–based multi-patch supervision, which helps mitigate the ambiguity inherent in single-point predictions.
+Benefiting from its ability to propose multiple candidate regions in a single pass, \sys further employs a lightweight verifier to select the most plausible target at inference time.
+Experiments across diverse benchmarks demonstrate that \sys outperforms state-of-the-art methods and exhibits stronger generalization to unseen layouts and screen resolutions.
+We conduct extensive analyses to understand the effectiveness of each component in our framework, highlighting its promising potential for advancing visual GUI agents.
+% \huan{Can also briefly discuss limitations here since it is required by the NeurIPS checklist.}
+
+
+\section*{Acknowledgments}
+We would like to thank Boyu Gou for providing the bounding box training data, and Yiheng Xu, Qiushi Sun, Zichen Ding, and Fangzhi Xu for their valuable discussions and insightful suggestions.
+
+% These instructions apply to everyone.
+
+
+% \subsection{Citations within the text}
+
+
+% The \verb+natbib+ package will be loaded for you by default.  Citations may be
+% author/year or numeric, as long as you maintain internal consistency.  As to the
+% format of the references themselves, any style is acceptable as long as it is
+% used consistently.
+
+
+% The documentation for \verb+natbib+ may be found at
+% \begin{center}
+%   \url{http://mirrors.ctan.org/macros/latex/contrib/natbib/natnotes.pdf}
+% \end{center}
+% Of note is the command \verb+\citet+, which produces citations appropriate for
+% use in inline text.  For example,
+% \begin{verbatim}
+%    \citet{hasselmo} investigated\dots
+% \end{verbatim}
+% produces
+% \begin{quote}
+%   Hasselmo, et al.\ (1995) investigated\dots
+% \end{quote}
+
+
+% If you wish to load the \verb+natbib+ package with options, you may add the
+% following before loading the \verb+neurips_2025+ package:
+% \begin{verbatim}
+%    \PassOptionsToPackage{options}{natbib}
+% \end{verbatim}
+
+
+% If \verb+natbib+ clashes with another package you load, you can add the optional
+% argument \verb+nonatbib+ when loading the style file:
+% \begin{verbatim}
+%    \usepackage[nonatbib]{neurips_2025}
+% \end{verbatim}
+
+
+% As submission is double blind, refer to your own published work in the third
+% person. That is, use ``In the previous work of Jones et al.\ [4],'' not ``In our
+% previous work [4].'' If you cite your other papers that are not widely available
+% (e.g., a journal paper under review), use anonymous author names in the
+% citation, e.g., an author of the form ``A.\ Anonymous'' and include a copy of the anonymized paper in the supplementary material.
+
+
+% \subsection{Footnotes}
+
+
+% Footnotes should be used sparingly.  If you do require a footnote, indicate
+% footnotes with a number\footnote{Sample of the first footnote.} in the
+% text. Place the footnotes at the bottom of the page on which they appear.
+% Precede the footnote with a horizontal rule of 2~inches (12~picas).
+
+
+% Note that footnotes are properly typeset \emph{after} punctuation
+% marks.\footnote{As in this example.}
+
+
+
+
+
+% \begin{table}
+%   \caption{Sample table title}
+%   \label{sample-table}
+%   \centering
+%   \begin{tabular}{lll}
+%     \toprule
+%     \multicolumn{2}{c}{Part}                   \\
+%     \cmidrule(r){1-2}
+%     Name     & Description     & Size ($\mu$m) \\
+%     \midrule
+%     Dendrite & Input terminal  & $\sim$100     \\
+%     Axon     & Output terminal & $\sim$10      \\
+%     Soma     & Cell body       & up to $10^6$  \\
+%     \bottomrule
+%   \end{tabular}
+% \end{table}
+
+% \subsection{Math}
+% Note that display math in bare TeX commands will not create correct line numbers for submission. Please use LaTeX (or AMSTeX) commands for unnumbered display math. (You really shouldn't be using \$\$ anyway; see \url{https://tex.stackexchange.com/questions/503/why-is-preferable-to} and \url{https://tex.stackexchange.com/questions/40492/what-are-the-differences-between-align-equation-and-displaymath} for more information.)
+
+% \section{Preparing PDF files}
+
+
+% Please prepare submission files with paper size ``US Letter,'' and not, for
+% example, ``A4.''
+
+
+% Fonts were the main cause of problems in the past years. Your PDF file must only
+% contain Type 1 or Embedded TrueType fonts. Here are a few instructions to
+% achieve this.
+
+
+% \begin{itemize}
+
+
+% \item You should directly generate PDF files using \verb+pdflatex+.
+
+
+% \item You can check which fonts a PDF files uses.  In Acrobat Reader, select the
+%   menu Files$>$Document Properties$>$Fonts and select Show All Fonts. You can
+%   also use the program \verb+pdffonts+ which comes with \verb+xpdf+ and is
+%   available out-of-the-box on most Linux machines.
+
+
+% \item \verb+xfig+ "patterned" shapes are implemented with bitmap fonts.  Use
+%   "solid" shapes instead.
+
+
+% \item The \verb+\bbold+ package almost always uses bitmap fonts.  You should use
+%   the equivalent AMS Fonts:
+% \begin{verbatim}
+%    \usepackage{amsfonts}
+% \end{verbatim}
+% followed by, e.g., \verb+\mathbb{R}+, \verb+\mathbb{N}+, or \verb+\mathbb{C}+
+% for $\mathbb{R}$, $\mathbb{N}$ or $\mathbb{C}$.  You can also use the following
+% workaround for reals, natural and complex:
+% \begin{verbatim}
+%    \newcommand{\RR}{I\!\!R} %real numbers
+%    \newcommand{\Nat}{I\!\!N} %natural numbers
+%    \newcommand{\CC}{I\!\!\!\!C} %complex numbers
+% \end{verbatim}
+% Note that \verb+amsfonts+ is automatically loaded by the \verb+amssymb+ package.
+
+
+% \end{itemize}
+
+
+% If your file contains type 3 fonts or non embedded TrueType fonts, we will ask
+% you to fix it.
+
+
+% \subsection{Margins in \LaTeX{}}
+
+
+% Most of the margin problems come from figures positioned by hand using
+% \verb+\special+ or other commands. We suggest using the command
+% \verb+\includegraphics+ from the \verb+graphicx+ package. Always specify the
+% figure width as a multiple of the line width as in the example below:
+% \begin{verbatim}
+%    \usepackage[pdftex]{graphicx} ...
+%    \includegraphics[width=0.8\linewidth]{myfile.pdf}
+% \end{verbatim}
+% See Section 4.4 in the graphics bundle documentation
+% (\url{http://mirrors.ctan.org/macros/latex/required/graphics/grfguide.pdf})
+
+
+% A number of width problems arise when \LaTeX{} cannot properly hyphenate a
+% line. Please give LaTeX hyphenation hints using the \verb+\-+ command when
+% necessary.
+
+% \begin{ack}
+% Use unnumbered first level headings for the acknowledgments. All acknowledgments
+% go at the end of the paper before the list of references. Moreover, you are required to declare
+% funding (financial activities supporting the submitted work) and competing interests (related financial activities outside the submitted work).
+% More information about this disclosure can be found at: \url{https://neurips.cc/Conferences/2025/PaperInformation/FundingDisclosure}.
+
+
+% Do {\bf not} include this section in the anonymized submission, only in the final paper. You can use the \texttt{ack} environment provided in the style file to automatically hide this section in the anonymized submission.
+% \end{ack}
+
+% \section*{References}
+
+
+% References follow the acknowledgments in the camera-ready paper. Use unnumbered first-level heading for
+% the references. Any choice of citation style is acceptable as long as you are
+% consistent. It is permissible to reduce the font size to \verb+small+ (9 point)
+% when listing the references.
+% Note that the Reference section does not count towards the page limit.
+% \medskip
+
+
+{
+\small
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+% [1] Alexander, J.A.\ \& Mozer, M.C.\ (1995) Template-based algorithms for
+% connectionist rule extraction. In G.\ Tesauro, D.S.\ Touretzky and T.K.\ Leen
+% (eds.), {\it Advances in Neural Information Processing Systems 7},
+% pp.\ 609--616. Cambridge, MA: MIT Press.
+
+
+% [2] Bower, J.M.\ \& Beeman, D.\ (1995) {\it The Book of GENESIS: Exploring
+%   Realistic Neural Models with the GEneral NEural SImulation System.}  New York:
+% TELOS/Springer--Verlag.
+
+
+% [3] Hasselmo, M.E., Schnell, E.\ \& Barkai, E.\ (1995) Dynamics of learning and
+% recall at excitatory recurrent synapses and cholinergic modulation in rat
+% hippocampal region CA3. {\it Journal of Neuroscience} {\bf 15}(7):5249-5262.
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\appendix
+
+\section{Limitations}\label{app:limitations}
+Our attention-based action generation is particularly well-suited for GUI environments, where interface elements such as icons and text lines often exhibit regular geometric patterns that align natually with patch-based detection. However, a limitation stems from the base model we employ: the backbone VLM (\eg, Qwen2-VL) adopts a Naive Dynamic Resolution strategy with a fixed patch size of $28\times28$ pixels. This poses challenges when dealing with very small interface elements (e.g., icons smaller than $10\times10$ pixels), as such fine-grained details may be insufficiently represented. Although this challenge is not unique to our method, it can be pronounced in tasks demanding high-precision control, such as those encountered in professional software like CAD tools. While we introduce a simple mitigation strategy in this work, fully addressing this limitation may require more substantial advancements in the future, such as improving the visual encoder’s perceptual resolution or incorporating offset-based spatial refinement.
+
+
+\section{Details on Multi-Patch Supervision}
+\label{appendix:multi_path_supervision}
+% \begin{wrapfigure}{r}{0.30\textwidth}
+%   \centering
+%   \includegraphics[width=0.30\textwidth]{figures/multipatch.pdf}
+%   \caption{An illustration of dense multi-patch supervision. A binary $W \times H$ mask is generated based on the overlap between image patches and the target bounding box.}
+%   \label{fig:multipatch}
+% \end{wrapfigure}
+A key advantage of our approach lies in its ability to leverage dense, spatially structured supervision from bounding boxes. Unlike traditional coordinate-based methods that depend on a single, potentially ambiguous click point, \sys enables supervision over entire target regions, capturing the spatial extent of actionable elements more effectively. An example is illustrated in \Cref{fig:multipatch}.
+% In this part, we describe how dense multi-patch supervision is applied to improve grounding training efficiency, as shown in \Cref{fig:multipatch}.
+
+Specifically, we convert each ground-truth bounding box into a binary mask over the $W \times H$ image patch grid.
+Given a normalized bounding box $b = [\text{left}, \text{top}, \text{right}, \text{bottom}] \in [0,1]^4$, we scale the normalized coordinates to the patch grid resolution:
+\begin{equation}
+\left( \lfloor \text{left} \cdot W \rfloor,\; \lfloor \text{top} \cdot H \rfloor,\; \lceil \text{right} \cdot W \rceil,\; \lceil \text{bottom} \cdot H \rceil \right).
+\end{equation}
+This rounding ensures that all patches partially or fully covered by the bounding box are included in the supervision region.
+All patches whose indices fall within the resulting grid-aligned region are labeled as positives (i.e., mask value 1), while all others are assigned a value of 0.
+This yields a binary vector $\mathbf{y} \in \{0, 1\}^M$ aligned with the image patch sequence, where $M = W \times H$.
+
+We define the action head loss as the KL divergence between the predicted attention distribution $\{a_1, \dots, a_M\}$ and a normalized target distribution $\mathbf{p}$ derived from the binary mask $\mathbf{y} \in \{0, 1\}^M$:
+\begin{equation}
+\begin{aligned}
+\displaystyle p_i &= \frac{y_i}{\sum_{j=1}^M y_j + \epsilon}, \: \text{for } i = 1, \dots, M; \quad
+\displaystyle \mathcal{L}_{\texttt{<ACTOR>}} &= \sum_{i=1}^M p_i \log \frac{p_i}{a_i},
+\end{aligned}
+\end{equation}
+where $\epsilon$ is a small constant for numerical stability.
+
+
+
+\section{Visualization of Attention Maps from GUI-Actor}
+\label{app:attention_maps}
+To better understand the grounding behavior of GUI-Actor, we provide additional examples visualizing its attention maps overlaid on the original input images in Figure \ref{fig:action_attention}. 
+
+The following Python code outlines the visualization process: starting from the raw attention scores, we normalize and reshape them to match the image dimensions, apply a colormap for clearer interpretation, and finally blend the attention heatmap with the original image. This produces an intuitive overlay that highlights regions the model attends to when making decisions.
+
+
+
+\begin{lstlisting}[language=Python, caption={Python code for overlaying the attention score map on the image.}]
+width, height = image.size
+W, H = attention_map_size # This may not equal width // patch_size due to image reshaping, and you may need W // 2 and H // 2 due to the Naive Dynamic Resolution operation in Qwen2-VL 
+
+scores = np.array(json_prediction['attn_scores'][0]).reshape(H, W)
+
+# Normalize the attention weights for coherent visualization
+scores_norm = (scores - scores.min()) / (scores.max() - scores.min())
+
+# Resize the attention map to match the image size. You can choose different resize strategies, such as NEAREST and BILINEAR.
+score_map = Image.fromarray((scores_norm * 255).astype(np.uint8)).resize((width, height), resample=Image.BILINEAR)
+
+# Apply colormap
+colormap = plt.get_cmap('jet')
+colored_score_map = colormap(np.array(score_map) / 255.0)  # returns RGBA
+colored_score_map = (colored_score_map[:, :, :3] * 255).astype(np.uint8)
+colored_overlay = Image.fromarray(colored_score_map)
+
+# Blend with original image
+blended = Image.blend(image, colored_overlay, alpha=0.3)
+\end{lstlisting}
+
+
+
+
+\begin{figure}[ht]
+  \centering
+  \subfloat[ScreenSpot: "click the button to create a new project"]{
+    \includegraphics[width=0.49\columnwidth,height=0.3\columnwidth]{figures/attention_map1.png}
+    \label{fig:action_attention1}
+  }
+  \subfloat[ScreenSpot-Pro: "restart from CD"]{
+    \includegraphics[width=0.49\columnwidth, height=0.3\columnwidth]{figures/attention_map2.png}
+    \label{fig:action_attention2}
+  }
+  
+  \subfloat[ScreenSpot-Pro: "confirm sort"]{
+    \includegraphics[width=0.49\columnwidth, height=0.3\columnwidth]{figures/attentionmap_example_3.png}
+    \label{fig:action_attention3}
+  }
+  \subfloat[ScreenSpot-Pro: "select the legend of the plot"]{
+    \includegraphics[width=0.49\columnwidth, height=0.3\columnwidth]{figures/attentionmap_example4.png}
+    \label{fig:action_attention4}
+  }
+  \caption{Example visualizations from (a) ScreenSpot and (b)(c)(d) ScreenSpot-Pro. Each image shows the original interface with an overlaid attention map indicating regions of interest of GUI-Actor. The attention maps largely overlap with the ground truth areas (red bounding boxes), demonstrating that the model can effectively capture the accurate UI elements.}
+  \label{fig:action_attention}
+\end{figure}
+
+
+
+\section{Training Datasets used for GUI-Actor}
+\label{app:datasets}
+We compile our training data from several publicly available, high-quality GUI datasets.
+Summary statistics are provided in \Cref{tab:train-data}.
+Note that we exclude samples from Wave-UI that overlap with downstream task test sets.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Overview of training datasets used for GUI-Actor.}
+\label{tab:train-data}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Dataset} & \textbf{\# of Elements} & \textbf{\# of Screenshots} & \textbf{Platform} \\
+\midrule
+Uground Web-Hybrid~\citep{gou2024navigating}    & 8M    & 775K  & Web \\
+GUI-Env~\citep{chen2024guicourse}     & 262K  & 70K  & Web \\
+GUI-Act~\citep{chen2024guicourse}          & 42K  & 13K   & Web \\
+AndroidControl~\citep{li2024effects}  & 47K   & 47K   & Android \\
+AMEX~\citep{chai2024amex}          & 1.2M   & 100K    & Android \\
+Wave-UI\tablefootnote{\url{https://huggingface.co/datasets/agentsea/wave-ui}}         & 50K    & 7K    & Hybrid \\
+\midrule
+\textbf{Total}        & 9.6M   & 1M  & - \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{GUI Visual grounding Benchmarks}
+\label{sec:grounding_benchmark}
+In these benchmarks, each screenshot is paired with a natural language instruction written by human annotators, typically describing the content or function of the target element, e.g., “the new project button” or “switch to weekly view in the calendar.”
+The agent is required to identify the location of the corresponding element on the screen based on the given instruction.
+\textbf{ScreenSpot} is the first benchmark specifically designed for GUI visual grounding, containing 1,272 single-step instructions paired with corresponding target elements.
+It covers a wide range of GUI platforms, including mobile (Android and iOS), desktop (macOS and Windows), and web environments, and categorizes elements into text-based or icon elements.
+\textbf{ScreenSpot-v2} is a corrected version of ScreenSpot that fixes annotation errors and ambiguous instructions, while keeping the total number of samples unchanged.
+
+\textbf{ScreenSpot-Pro} is a recently introduced challenging benchmark tailored for high-resolution professional scenarios.
+It contains 1,581 tasks annotated by experts across 23 professional applications spanning three operating systems.
+Compared to ScreenSpot, ScreenSpot-Pro features higher-resolution screenshots and a larger domain gap from most grounding pretraining data, e.g., industrial software and multi-window interfaces.
+We view its performance as a practical estimate of generalization for GUI visual grounding models.
+
+
+
+\section{More Detailed on Grounding Verifier}
+\subsection{Data Construction}
+\label{appendix:data_verifier}
+We construct the verifier training dataset from the OS-Atlas dataset~\cite{wu2024atlas}, which spans desktop, mobile, and web domains. The original data consists of triplets in the form of $(\text{image}, \text{query}, \text{bounding box})$, where each image is paired with multiple queries and their corresponding bounding boxes. For each triplet, we generate a \textbf{positive example} by placing a marker at the center of the bounding box, treating it as the correct grounding point for the given query.
+To create \textbf{negative examples}, we apply two strategies:
+(1) selecting the center of a different bounding box from the same image to simulate a semantically plausible but incorrect location; (2) randomly sampling a point outside the correct bounding box to simulate an unrelated action. As shown in Figure~\ref{fig:verifier_data}, each proposed point is marked on the image with a hollow red circle. This process produces two labeled examples per query: one positive and one negative, formatted as:
+\[
+\{\text{image with correct point}, \text{query}, \texttt{`True'}\}, \quad \{\text{image with wrong point}, \text{query}, \texttt{`False'}\} .
+\]
+
+In total, we construct a balanced training set containing 730K examples, equally split between positive and negative cases. The overview of our dataset is listed in Table \ref{tab:train-data-verifier}.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Overview of the dataset used to train our Grounding Verifier, including both positive and negative examples. \textbf{Since multiple positive and negative samples can be generated from a single screenshot, the size of our dataset can exceed that of the original dataset.}}
+\label{tab:train-data-verifier}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Dataset} &  \textbf{\# of Screenshots} & \textbf{Platform} \\
+\midrule
+SeeClick~\citep{cheng2024seeclick}     & 147K  & Web \\
+FineWeb~\citep{penedo2024fineweb}     & 123K  & Web \\
+UIbert~\citep{bai2021uibert}       & 17K   & Mobile \\
+AMEX~\citep{chai2024amex}            & 155K    & Android \\
+RICOSCA~\citep{li2020mapping}          & 30K    & Android \\
+Widget Captioning~\citep{li2020widget}  &  22K  &  Mobile \\
+Linux-desktop~\citep{wu2024atlas}  &    9K    &    Linux \\
+Windows-desktop~\citep{wu2024atlas} &  220K & Windows \\
+MacOS-desktop~\citep{wu2024atlas} & 7K   & MacOS \\
+\midrule
+\textbf{Total}         & 730K  & - \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+
+% \begin{wrapfigure}{r}{0.6\linewidth} 
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/verifier_data.pdf}
+    \caption{Illustration of positive and negative examples used to train the grounding verifier.}
+    \label{fig:verifier_data}
+\end{figure}
+    % \centering
+    % \includegraphics[width=\linewidth]{figures/verifier_data.pdf}
+    % \caption{The data sample used for verifier training.}
+    % \label{fig:verifier_data}
+% \end{wrapfigure}
+
+\subsection{Patch Selection}
+\label{appendix:patch_selection}
+Given the top $M$ candidate patches from the attention map, our goal is to select the one that best aligns with the user instruction in the image. A straightforward approach is to draw a marker at the center of each patch and use a verifier to score how well each position satisfies the instruction $x$. Specifically, for each candidate image $I$ with a marked point, we use the verifier $\theta_v$ to compute the probability of predicting tokens \texttt{`True'} or \texttt{`False'}: 
+$P_{\texttt{true}} = P_{\theta_v}(\texttt{`True'}|I,x)$ and $P_{\texttt{false}} = P_{\theta_v}(\texttt{`False'}|I,x)$. We then define the score for each position as the normalized probability of the \texttt{`True'} token: $\texttt{s}(I,x)=\frac{P_{\texttt{true}}}{P_{\texttt{true}} + P_{\texttt{false}}}$.
+
+
+A key limitation of this approach is that each patch (typically $28 \times 28$ pixels) may miss small icons located between two neighboring patches, leading to inaccurate target localization. To address this, we introduce a simple yet effective refinement. We first cluster 4-connected neighboring patches and compute a weighted center based on the verifier scores of the individual patches. This enables the generation of candidate points that lie between adjacent patches and improves localization accuracy without directly modifying the patch size of the base model.
+
+In our implementation, we use up to $M=20$ top-scoring patches, filtering out those with attention weights below 20\% of the maximum attention weight. We then apply clustering to the neighboring patches, compute the weighted centers of these clusters, and add them to the set of $M$ candidate positions. Each candidate position is scored using $\texttt{s}(I,x)$, and we select the one with the highest score. Given a candidate coordinate $(x, y)$, we crop the image using a square region of size $l_{\text{crop}} \times l_{\text{crop}}$ centered at $(x, y)$. This is implemented as:
+\begin{lstlisting}[language=Python]
+image.crop((
+    max(0, x - l_crop//2),
+    max(0, y - l_crop//2),
+    min(image.size[0], x + l_crop//2),
+    min(image.size[1], y + l_crop//2)
+))
+\end{lstlisting}
+We set $l_{\text{crop}} = 1000$ pixels for all tasks. To reduce the computational cost, if a candidate position achieves a high confidence score (e.g., $\texttt{s}(I, x) > 0.95$), we immediately return that position without evaluating the remaining candidates. In our experiments, we set the threshold to 0.95 for tasks in ScreenSpot-Pro and 0.8 for ScreenSpot and ScreenSpot-v2. A lower threshold reduces reliance on the verifier and instead trusts the grounding model’s output, which is suitable when the grounding model is highly accurate. In contrast, a higher threshold prompts the verifier to more carefully assess each candidate, which is beneficial when the grounding model is less reliable, as in ScreenSpot-Pro.
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Improving Grounding with Verifier}\label{app:additional_exp_grounding}
+
+\subsection{Enhancing Generation with Verifier Self-Aggregation}
+\label{app:verifier_agg}
+In this section, we explore how to further leverage the verifier's capability through a simple yet effective technique that we call Verifier Self-Aggregation (VS). The idea is to crop the input image at multiple scales and compute the verifier scores for each crop, then average these scores to obtain a more robust final prediction. This approach balances the trade-off between capturing detailed local information (with smaller crops) and maintaining a broader context (with larger crops). Specifically, we use two crop sizes in our experiments: $l_{crop}=1200$ and $l_{crop}=1400$ for ScreenSpot-pro. The results, shown in Table~\ref{tab:screenspot_pro_verifier_agg}, demonstrate that verifier self-aggregation leads to improved performance on ScreenSpot-Pro. Verifier self-aggregation provides a simple yet effective strategy to enhance verifier robustness, while also highlighting the need for more robust verifiers in the future.
+
+
+% \begin{table}[!t]
+% \centering
+% \caption{Verifier Self-aggregation on ScreenSpot-v2.}
+% \resizebox{1.0\columnwidth}{!}{
+% \begin{tabular}{lccccccc}
+% \toprule
+% & \textbf{Mobile-Text} & \textbf{Mobile-Icon} & \textbf{Desktop-Text} & \textbf{Desktop-Icon} & \textbf{Web-Text} & \textbf{Web-Icon} & \textbf{Avg} \\
+% \textbf{GUI-Actor-7B + Verifier} & 97.2 & 84.4 & 93.3 & 80.7 & 94.9 & 84.7 & \textbf{90.25} \\
+
+
+% \textbf{GUI-Actor-7B + Verifier Self-aggregation} & 97.24 &  84.36 &  94.85 &  81.43 &  94.44 &  83.74 & 90.33 \\
+% \bottomrule
+% \end{tabular}
+% }
+% \label{tab:screenspot_v2_verifier_agg}
+% \end{table}
+
+\begin{table}[!t]
+\centering
+\caption{Verifier Self-aggregation on ScreenSpot-Pro. }
+\small
+\resizebox{1.0\columnwidth}{!}{
+\begin{tabular}{lccccccccc}
+\toprule
+& \textbf{Dev} & \textbf{Creative} & \textbf{CAD} & \textbf{Scientific} & \textbf{Office} & \textbf{OS} & \textbf{Avg-Text} & \textbf{Avg-Icon} & \textbf{Avg} \\
+\midrule
+\textbf{GUI-Actor-7B + Verifier} & \textbf{40.1} & 39.0 & \textbf{37.2} & \textbf{47.2} & 63.5 & 41.8 & 61.1 & 16.7 & 44.2 \\
+\textbf{GUI-Actor-7B + Verifier Self-aggregation} &  39.5 &  \textbf{40.2} &\textbf{38.3} &  44.9 &  \textbf{63.9} &  \textbf{44.9} &  \textbf{61.3} &  \textbf{17.4} &  \textbf{44.5} \\
+\bottomrule
+\end{tabular}
+}
+\label{tab:screenspot_pro_verifier_agg}
+\end{table}
+
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=0.90\linewidth]{figures/verifier_additional_v4.pdf}
+    \caption{Comparison with AGUVIS using the verifier. AGUVIS inferences 21 times for verification. In contrast, GUI-Actor performs a single inference step, requiring only about 5\% of the computation during inference.}
+    \label{fig:add_verifier_aguvis}
+\end{figure}
+
+\subsection{Comparison with Baseline Using Verifier}\label{app:baseline_w_verifier}
+To further validate the effectiveness of our grounding verifier, we integrate it into the AGUVIS baseline by sampling multiple candidate positions during inference and selecting the one with the highest verifier score. Specifically, AGUVIS generates one deterministic output at temperature 0.0 and samples 20 additional candidate points using a temperature of 0.7. While this approach explores a broader range of plausible locations, it incurs substantial computational overhead for these models.
+
+In contrast, our GUI-Actor uses the attention map to propose multiple candidate points within a single pass. This leads to a much more efficient process—\textbf{requiring only about 5\% of the computation} compared to AGUVIS—while achieving considerably higher grounding accuracy on ScreenSpot and ScreenSpot-v2, and significantly outperforming AGUVIS on the more challenging ScreenSpot-Pro benchmark. These results demonstrate both the efficiency of GUI-Actor and the general effectiveness of the verifier in improving action selection, even when applied to other models.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% \section{Evaluation on Offline Benchmark}
+% \input{tables/mind2web}
+% \input{tables/androidcontrol}
+% Table~\ref{tab:mind2web}, Table~\ref{tab:android_control}
+
+
+
+
+\section{Online Benchmark Evaluation on OSWorld}
+\label{sec:online_eva}
+
+To evaluate the real-world effectiveness of our proposed \sys, we conduct experiments on OS-World~\citep{xie2024osworld} using \textit{GUI-Actor-7B} for quick validation. OS-World is a live benchmark designed to test GUI agents in realistic desktop environments. We focus on a curated subset of 49 Windows-specific tasks, denoted as OSWorld-W, covering a variety of multi-step office and multi-application scenarios. Each task is paired with handcrafted verification scripts to ensure reliable automatic evaluation.
+
+Following the standard evaluation pipeline, we adopt GPT-4o as the planner. At each step, the planner observes the current GUI screenshot and user instruction and generates a natural language plan. This plan is then grounded into concrete actions—either via coordinate-based or coordinate-free mechanisms—by the underlying grounding model, which plays a critical role in determining the agent's success.
+
+We compare \sys with several state-of-the-art visual grounding baselines: Aguvis-7B~\citep{xu2024aguvis}, NAVI \cite{bonatti2024windows}, and OmniAgent \cite{lu2024omniparser}. As shown in Table~\ref{tab:osw}, \sys achieves the highest task success rate at 12.2\%, outperforming OmniAgent and NAVI (both at 10.2\%) and substantially surpassing Aguvis-7B (4.0\%). These results highlight the effectiveness and robustness of \sys in complex, real-world GUI environments. Despite having no exposure to OSWorld-W tasks during training, \sys generalizes well to unseen scenarios, delivering more accurate and reliable grounding performance than existing alternatives.
+
+\begin{table}[h]
+\centering
+\caption{Task Success Rate on the OSWorld-W subset (49 live Windows GUI tasks). \sys significantly outperforms existing grounding models in this real-world setting.}
+\label{tab:osw}
+\resizebox{0.6\linewidth}{!}{
+\begin{tabular}{lcc}
+\toprule
+\textbf{Grounding Model} & \textbf{Success Rate (\%)} & \textbf{\#Tasks Completed} \\
+\midrule
+Aguvis-7B (point sup.) & 4.00 & 2/49 \\
+NAVI & 10.2 & 5/49 \\
+OmniAgent & 10.2 & 5/49 \\
+GUI-Actor-7B (Ours) & \textbf{12.2} & \textbf{6/49} \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+
+
+
+% \newpage
+% \section*{NeurIPS Paper Checklist}
+
+% \begin{enumerate}
+
+% \item {\bf Claims}
+%     \item[] Question: Do the main claims made in the abstract and introduction accurately reflect the paper's contributions and scope?
+%     \item[] Answer: \answerYes{}, % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: The abstract and introduction clearly articulate our key contributions, including the proposal of a coordinate-free grounding framework and its empirical advantages over prior coordinate-based methods.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the abstract and introduction do not include the claims made in the paper.
+%         \item The abstract and/or introduction should clearly state the claims made, including the contributions made in the paper and important assumptions and limitations. A No or NA answer to this question will not be perceived well by the reviewers. 
+%         \item The claims made should match theoretical and experimental results, and reflect how much the results can be expected to generalize to other settings. 
+%         \item It is fine to include aspirational goals as motivation as long as it is clear that these goals are not attained by the paper. 
+%     \end{itemize}
+
+% \item {\bf Limitations}
+%     \item[] Question: Does the paper discuss the limitations of the work performed by the authors?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: We discuss some limitations in the analysis section and Appendix \ref{app:limitations}.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper has no limitation while the answer No means that the paper has limitations, but those are not discussed in the paper. 
+%         \item The authors are encouraged to create a separate "Limitations" section in their paper.
+%         \item The paper should point out any strong assumptions and how robust the results are to violations of these assumptions (e.g., independence assumptions, noiseless settings, model well-specification, asymptotic approximations only holding locally). The authors should reflect on how these assumptions might be violated in practice and what the implications would be.
+%         \item The authors should reflect on the scope of the claims made, e.g., if the approach was only tested on a few datasets or with a few runs. In general, empirical results often depend on implicit assumptions, which should be articulated.
+%         \item The authors should reflect on the factors that influence the performance of the approach. For example, a facial recognition algorithm may perform poorly when image resolution is low or images are taken in low lighting. Or a speech-to-text system might not be used reliably to provide closed captions for online lectures because it fails to handle technical jargon.
+%         \item The authors should discuss the computational efficiency of the proposed algorithms and how they scale with dataset size.
+%         \item If applicable, the authors should discuss possible limitations of their approach to address problems of privacy and fairness.
+%         \item While the authors might fear that complete honesty about limitations might be used by reviewers as grounds for rejection, a worse outcome might be that reviewers discover limitations that aren't acknowledged in the paper. The authors should use their best judgment and recognize that individual actions in favor of transparency play an important role in developing norms that preserve the integrity of the community. Reviewers will be specifically instructed to not penalize honesty concerning limitations.
+%     \end{itemize}
+
+% \item {\bf Theory assumptions and proofs}
+%     \item[] Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof?
+%     \item[] Answer: \answerNA{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: Our theoretical assumptions are largely aligned with established consensus.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not include theoretical results. 
+%         \item All the theorems, formulas, and proofs in the paper should be numbered and cross-referenced.
+%         \item All assumptions should be clearly stated or referenced in the statement of any theorems.
+%         \item The proofs can either appear in the main paper or the supplemental material, but if they appear in the supplemental material, the authors are encouraged to provide a short proof sketch to provide intuition. 
+%         \item Inversely, any informal proof provided in the core of the paper should be complemented by formal proofs provided in appendix or supplemental material.
+%         \item Theorems and Lemmas that the proof relies upon should be properly referenced. 
+%     \end{itemize}
+
+%     \item {\bf Experimental result reproducibility}
+%     \item[] Question: Does the paper fully disclose all the information needed to reproduce the main experimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: We provide the reproducible experimental setting in our experiment section.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not include experiments.
+%         \item If the paper includes experiments, a No answer to this question will not be perceived well by the reviewers: Making the paper reproducible is important, regardless of whether the code and data are provided or not.
+%         \item If the contribution is a dataset and/or model, the authors should describe the steps taken to make their results reproducible or verifiable. 
+%         \item Depending on the contribution, reproducibility can be accomplished in various ways. For example, if the contribution is a novel architecture, describing the architecture fully might suffice, or if the contribution is a specific model and empirical evaluation, it may be necessary to either make it possible for others to replicate the model with the same dataset, or provide access to the model. In general. releasing code and data is often one good way to accomplish this, but reproducibility can also be provided via detailed instructions for how to replicate the results, access to a hosted model (e.g., in the case of a large language model), releasing of a model checkpoint, or other means that are appropriate to the research performed.
+%         \item While NeurIPS does not require releasing code, the conference does require all submissions to provide some reasonable avenue for reproducibility, which may depend on the nature of the contribution. For example
+%         \begin{enumerate}
+%             \item If the contribution is primarily a new algorithm, the paper should make it clear how to reproduce that algorithm.
+%             \item If the contribution is primarily a new model architecture, the paper should describe the architecture clearly and fully.
+%             \item If the contribution is a new model (e.g., a large language model), then there should either be a way to access this model for reproducing the results or a way to reproduce the model (e.g., with an open-source dataset or instructions for how to construct the dataset).
+%             \item We recognize that reproducibility may be tricky in some cases, in which case authors are welcome to describe the particular way they provide for reproducibility. In the case of closed-source models, it may be that access to the model is limited in some way (e.g., to registered users), but it should be possible for other researchers to have some path to reproducing or verifying the results.
+%         \end{enumerate}
+%     \end{itemize}
+
+
+% \item {\bf Open access to data and code}
+%     \item[] Question: Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material?
+%     \item[] Answer: \answerNo{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: We plan to release all data and code upon passing internal review and approval processes.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that paper does not include experiments requiring code.
+%         \item Please see the NeurIPS code and data submission guidelines (\url{https://nips.cc/public/guides/CodeSubmissionPolicy}) for more details.
+%         \item While we encourage the release of code and data, we understand that this might not be possible, so “No” is an acceptable answer. Papers cannot be rejected simply for not including code, unless this is central to the contribution (e.g., for a new open-source benchmark).
+%         \item The instructions should contain the exact command and environment needed to run to reproduce the results. See the NeurIPS code and data submission guidelines (\url{https://nips.cc/public/guides/CodeSubmissionPolicy}) for more details.
+%         \item The authors should provide instructions on data access and preparation, including how to access the raw data, preprocessed data, intermediate data, and generated data, etc.
+%         \item The authors should provide scripts to reproduce all experimental results for the new proposed method and baselines. If only a subset of experiments are reproducible, they should state which ones are omitted from the script and why.
+%         \item At submission time, to preserve anonymity, the authors should release anonymized versions (if applicable).
+%         \item Providing as much information as possible in supplemental material (appended to the paper) is recommended, but including URLs to data and code is permitted.
+%     \end{itemize}
+
+
+% \item {\bf Experimental setting/details}
+%     \item[] Question: Does the paper specify all the training and test details (e.g., data splits, hyperparameters, how they were chosen, type of optimizer, etc.) necessary to understand the results?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: All experimental details are provided in our paper.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not include experiments.
+%         \item The experimental setting should be presented in the core of the paper to a level of detail that is necessary to appreciate the results and make sense of them.
+%         \item The full details can be provided either with the code, in appendix, or as supplemental material.
+%     \end{itemize}
+
+% \item {\bf Experiment statistical significance}
+%     \item[] Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: Most of our experiments are deterministic, and we follow standard reporting practices commonly adopted in this domain.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not include experiments.
+%         \item The authors should answer "Yes" if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper.
+%         \item The factors of variability that the error bars are capturing should be clearly stated (for example, train/test split, initialization, random drawing of some parameter, or overall run with given experimental conditions).
+%         \item The method for calculating the error bars should be explained (closed form formula, call to a library function, bootstrap, etc.)
+%         \item The assumptions made should be given (e.g., Normally distributed errors).
+%         \item It should be clear whether the error bar is the standard deviation or the standard error of the mean.
+%         \item It is OK to report 1-sigma error bars, but one should state it. The authors should preferably report a 2-sigma error bar than state that they have a 96\% CI, if the hypothesis of Normality of errors is not verified.
+%         \item For asymmetric distributions, the authors should be careful not to show in tables or figures symmetric error bars that would yield results that are out of range (e.g. negative error rates).
+%         \item If error bars are reported in tables or plots, The authors should explain in the text how they were calculated and reference the corresponding figures or tables in the text.
+%     \end{itemize}
+
+% \item {\bf Experiments compute resources}
+%     \item[] Question: For each experiment, does the paper provide sufficient information on the computer resources (type of compute workers, memory, time of execution) needed to reproduce the experiments?
+%     \item[] Answer:  \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: This information is provided in the experimental setup section of the paper.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not include experiments.
+%         \item The paper should indicate the type of compute workers CPU or GPU, internal cluster, or cloud provider, including relevant memory and storage.
+%         \item The paper should provide the amount of compute required for each of the individual experimental runs as well as estimate the total compute. 
+%         \item The paper should disclose whether the full research project required more compute than the experiments reported in the paper (e.g., preliminary or failed experiments that didn't make it into the paper). 
+%     \end{itemize}
+    
+% \item {\bf Code of ethics}
+%     \item[] Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics \url{https://neurips.cc/public/EthicsGuidelines}?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: Our research complies with the NeurIPS Code of Ethics.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the authors have not reviewed the NeurIPS Code of Ethics.
+%         \item If the authors answer No, they should explain the special circumstances that require a deviation from the Code of Ethics.
+%         \item The authors should make sure to preserve anonymity (e.g., if there is a special consideration due to laws or regulations in their jurisdiction).
+%     \end{itemize}
+
+
+% \item {\bf Broader impacts}
+%     \item[] Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: We discuss the broader societal impacts of GUI agents in the paper.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that there is no societal impact of the work performed.
+%         \item If the authors answer NA or No, they should explain why their work has no societal impact or why the paper does not address societal impact.
+%         \item Examples of negative societal impacts include potential malicious or unintended uses (e.g., disinformation, generating fake profiles, surveillance), fairness considerations (e.g., deployment of technologies that could make decisions that unfairly impact specific groups), privacy considerations, and security considerations.
+%         \item The conference expects that many papers will be foundational research and not tied to particular applications, let alone deployments. However, if there is a direct path to any negative applications, the authors should point it out. For example, it is legitimate to point out that an improvement in the quality of generative models could be used to generate deepfakes for disinformation. On the other hand, it is not needed to point out that a generic algorithm for optimizing neural networks could enable people to train models that generate Deepfakes faster.
+%         \item The authors should consider possible harms that could arise when the technology is being used as intended and functioning correctly, harms that could arise when the technology is being used as intended but gives incorrect results, and harms following from (intentional or unintentional) misuse of the technology.
+%         \item If there are negative societal impacts, the authors could also discuss possible mitigation strategies (e.g., gated release of models, providing defenses in addition to attacks, mechanisms for monitoring misuse, mechanisms to monitor how a system learns from feedback over time, improving the efficiency and accessibility of ML).
+%     \end{itemize}
+    
+% \item {\bf Safeguards}
+%     \item[] Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pretrained language models, image generators, or scraped datasets)?
+%     \item[] Answer: \answerNA{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: Our research does not have such risks.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper poses no such risks.
+%         \item Released models that have a high risk for misuse or dual-use should be released with necessary safeguards to allow for controlled use of the model, for example by requiring that users adhere to usage guidelines or restrictions to access the model or implementing safety filters. 
+%         \item Datasets that have been scraped from the Internet could pose safety risks. The authors should describe how they avoided releasing unsafe images.
+%         \item We recognize that providing effective safeguards is challenging, and many papers do not require this, but we encourage authors to take this into account and make a best faith effort.
+%     \end{itemize}
+
+% \item {\bf Licenses for existing assets}
+%     \item[] Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: Datasets and models used in this work comply with their respective licenses and terms of use.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not use existing assets.
+%         \item The authors should cite the original paper that produced the code package or dataset.
+%         \item The authors should state which version of the asset is used and, if possible, include a URL.
+%         \item The name of the license (e.g., CC-BY 4.0) should be included for each asset.
+%         \item For scraped data from a particular source (e.g., website), the copyright and terms of service of that source should be provided.
+%         \item If assets are released, the license, copyright information, and terms of use in the package should be provided. For popular datasets, \url{paperswithcode.com/datasets} has curated licenses for some datasets. Their licensing guide can help determine the license of a dataset.
+%         \item For existing datasets that are re-packaged, both the original license and the license of the derived asset (if it has changed) should be provided.
+%         \item If this information is not available online, the authors are encouraged to reach out to the asset's creators.
+%     \end{itemize}
+
+% \item {\bf New assets}
+%     \item[] Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets?
+%     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: We have appropriately documented the new assets introduced in our research.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not release new assets.
+%         \item Researchers should communicate the details of the dataset/code/model as part of their submissions via structured templates. This includes details about training, license, limitations, etc. 
+%         \item The paper should discuss whether and how consent was obtained from people whose asset is used.
+%         \item At submission time, remember to anonymize your assets (if applicable). You can either create an anonymized URL or include an anonymized zip file.
+%     \end{itemize}
+
+% \item {\bf Crowdsourcing and research with human subjects}
+%     \item[] Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? 
+%     \item[] Answer: \answerNo{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: We do not involve crowdsourcing nor research with human subjects.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not involve crowdsourcing nor research with human subjects.
+%         \item Including this information in the supplemental material is fine, but if the main contribution of the paper involves human subjects, then as much detail as possible should be included in the main paper. 
+%         \item According to the NeurIPS Code of Ethics, workers involved in data collection, curation, or other labor should be paid at least the minimum wage in the country of the data collector. 
+%     \end{itemize}
+
+% \item {\bf Institutional review board (IRB) approvals or equivalent for research with human subjects}
+%     \item[] Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained?
+%     \item[] Answer: \answerNo{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: Our paper does not involve crowdsourcing nor research with human subjects.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the paper does not involve crowdsourcing nor research with human subjects.
+%         \item Depending on the country in which research is conducted, IRB approval (or equivalent) may be required for any human subjects research. If you obtained IRB approval, you should clearly state this in the paper. 
+%         \item We recognize that the procedures for this may vary significantly between institutions and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the guidelines for their institution. 
+%         \item For initial submissions, do not include any information that would break anonymity (if applicable), such as the institution conducting the review.
+%     \end{itemize}
+
+% \item {\bf Declaration of LLM usage}
+%     \item[] Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does not impact the core methodology, scientific rigorousness, or originality of the research, declaration is not required.
+%     %this research? 
+%     \item[] Answer: \answerNA{}% Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
+%     \item[] Justification: The core method development in this research does not involve LLMs as any important, original, or non-standard components.
+%     \item[] Guidelines:
+%     \begin{itemize}
+%         \item The answer NA means that the core method development in this research does not involve LLMs as any important, original, or non-standard components.
+%         \item Please refer to our LLM policy (\url{https://neurips.cc/Conferences/2025/LLM}) for what should or should not be described.
+%     \end{itemize}
+
+% \end{enumerate}
+
+\end{document}

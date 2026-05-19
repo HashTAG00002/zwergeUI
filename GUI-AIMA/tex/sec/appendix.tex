@@ -1,0 +1,105 @@
+\newpage
+\appendix
+\crefalias{section}{appendix}
+% supplementary material
+In the appendix, we provide extra experimental results (\cref{app:extra_res}, including running time), ablations on a larger training set (\cref{app:extra_abla}), further analysis on $\mathcal{Q}_s$ (\cref{app:qs_analysis}), additional baseline (\cref{app:baseline}) and implementation (\cref{app:anchor}) details. We also provide visualization examples (\cref{app:example}).
+\section{Extra Results} \label{app:extra_res}
+In \cref{tab:ssv1},  we show the result of \method{} and baselines on ScreenSpot-v1~\citep{cheng2024seeclick}. In \cref{tab:time},  we compare the inference and training time between \method{}-3B and GUI-Actor-3B.
+
+\section{Extra Ablations} \label{app:extra_abla}
+In \cref{tab:results_with_verifier}, we compare the performance of \method{} and GUI-Actor, with both combined with the multi-region verifier proposed by GUI-Actor, showing that \method{} can benefit to the same extent as GUI-Actor from the extra verifier.  In~\cref{tab:ablation_all}, we add extra ablation results with variants trained on the 85k training set of \method{}-lite. It includes the results of uniform multi-head weighting with/without $\texttt{<ANCHOR>}$ token, vanilla attention grounding using multi-head weighting with $\mathcal{Q}'=\mathcal{Q}$ in \cref{eq:unified_head_score}, \method{}-3B-lite with stop-gradient on multi-head weights, GUI-Actor-3B with/without distance-aware labeling. The extra ablation results using a larger ablation training set are consistent with the results in \cref{tab:ablation}.
+
+% \input{sec/app_multi_agent}
+\section{Analysis for Visual-sink Query Token} \label{app:qs_analysis}
+From ablation results in \cref{sec:ablation}, the global pattern indicated from the visual-sink query token computed $\mathcal{Q}_s$ from hidden states achieved better performance, supporting our selection that complies with the visual-query pattern from hidden states for weighting attention grounding.
+
+In \cref{fig:visual_token}, we compute the similarity values between the multi-head weight vector computed from $\texttt{<ANCHOR>}$ token as the $\mathcal{Q}'=\{\texttt{<ANCHOR>}\}$ variant in \cref{eq:unified_head_score} and computed from each query token $q_i$ as $w_{l,h}=\sum_{v_i \in \mathcal{V}}\,\mathbf{A}^{l,h}_{q_i,v_i}$ from the trained \method{} model. The top-1 visual-sink query token consistently has the most similar multi-head weight vector with it computed from $\texttt{<ANCHOR>}$, supporting our design that computing $w_{l,h}$ from the visual-sink query token instead of $\texttt{<ANCHOR>}$ token, as it can work similarly with $\texttt{<ANCHOR>}$ in computing multi-head weight vector but avoiding the bias from random initialized $\texttt{<ANCHOR>}$ token.
+\input{sec/tab/tab_screenspot_v1_compact}
+\input{sec/tab/inference_time}
+\input{sec/tab/tab_ablation_85k}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{sec/tab/visual_token.pdf}
+    \caption{Cosine-similarity between multi-head attention vector computed between $\texttt{<ANCHOR>}$ and each text token. The top-1 visual-query token selected by \cref{eq:find_sink} consistently has the largest value with the $\texttt{<ANCHOR>}$ token.}
+    \label{fig:visual_token}
+\end{figure}
+\section{Extra Details of ANCHOR Token Implementations} \label{app:anchor}
+In \cref{sec:pre}, we abbreviate the implementation of $[\mathcal{V},\mathcal{Q},\texttt{<ANCHOR\_START>},\texttt{<ANCHOR>},\\\texttt{<ANCHOR\_END>}]$ as $[\mathcal{V},\mathcal{Q},\texttt{<ANCHOR>}]$ for brevity. For the single-area prediction setting in GUI grounding, we explore expanding a single $\texttt{<ANCHOR>}$ to multiple $\texttt{<ANCHOR>}$ tokens as $[\mathcal{V},\mathcal{Q},\texttt{<ANCHOR\_0>}, \texttt{<ANCHOR\_1>},\ldots,\texttt{<ANCHOR\_N>}]$ (abbreviate start and end tokens). However, it turns out to bring no performance gains and merely adds redundancy for the single-region grounding tasks. We will explore the multi-region grounding tasks with a disentangled $\texttt{<ANCHOR\_n>}$ token for each grounding region as future work.
+\section{Baselines Details}\label{app:baseline}
+Most baselines' results are taken from the original papers, except for GUI-G$^2$-3B, which is not reported in the source. Evaluation results of baselines for UI-Vision and MMBenchGUI-L2 in \cref{tab:ui_mm} are taken from the results reported in papers of UI-Venus-1.5~\citep{gao2026ui} and GroundNext~\citep{feizi2025grounding}.
+\section{GUI Grounding Examples of \method{}}
+\label{app:example}
+We provide the visualizations of \method{}'s multi-head attention grounding results on ScreenSpot-v2 and ScreenSpot-Pro as follows in \cref{fig:example_v2}, \cref{fig:example_pro1,fig:example_pro2}.
+\begin{figure}[t]
+  \centering
+  % 若想让小标题居中，可加：\captionsetup[subfigure]{justification=centering}
+  \begin{subfigure}[t]{0.37\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{fig/vis_v2/lock.png} % 或 .png/.jpg
+    \caption{Lock the memo.}
+    \label{fig:v2_1}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.37\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{fig/vis_v2/view.png}
+    \caption{View the language \& region settings.}
+    \label{fig:v2_2}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.25\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{fig/vis_v2/scan.png}
+    \caption{Scan QR code.}
+    \label{fig:v2_3}
+  \end{subfigure}
+  % \vspace{0.6em} % 行间距，可按需调整
+  % ----------- 第2行 -----------
+  \begin{subfigure}[t]{0.54\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{fig/vis_v2/settings.png}
+    \caption{View settings of cocowhip light.}
+    \label{fig:v2_4}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.44\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{fig/vis_v2/add.png}
+    \caption{Add a new page.}
+    \label{fig:v2_5}
+  \end{subfigure}
+  \caption{Visualization examples of \method{}'s grounding results on ScreenSpot-v2.}
+  \label{fig:example_v2}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}[b]{0.9\linewidth}
+    \includegraphics[width=\linewidth]{fig/vis_pro/add.png}
+    \caption{Add long title.}
+\end{subfigure}
+
+\vspace{2pt}
+
+\begin{subfigure}[b]{0.9\linewidth}
+    \includegraphics[width=\linewidth]{fig/vis_pro/change.png}
+    \caption{Change color theme in PyCharm.}
+\end{subfigure}
+\caption{Visualization examples of \method{}'s grounding results on ScreenSpot-Pro.}
+\label{fig:example_pro1}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}[b]{0.9\linewidth}
+    \includegraphics[width=\linewidth]{fig/vis_pro/save.png}
+    \caption{Save a file.}
+\end{subfigure}
+
+\vspace{2pt}
+
+\begin{subfigure}[b]{0.9\linewidth}
+    \includegraphics[width=\linewidth]{fig/vis_pro/select.png}
+    \caption{Select the only feature.}
+\end{subfigure}
+
+\caption{Visualization examples of \method{}'s grounding results on ScreenSpot-Pro.}
+\label{fig:example_pro2}
+\end{figure}
