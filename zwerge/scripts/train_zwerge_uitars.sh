@@ -44,19 +44,6 @@ else
     export NPROC_PER_NODE=$(nvidia-smi --list-gpus | wc -l)
     export NODE_RANK="$(jq -r '.index | tonumber' <<<"$AFO_ENV_CLUSTER_SPEC")"
     export NNODES="$(jq -r '.worker | length' <<<"$AFO_ENV_CLUSTER_SPEC")"
-
-    # ── MASTER_ADDR / MASTER_PORT 解析 ──────────────────────────────────────
-    # AFO 环境里 worker[0] 有两种格式：
-    #   (a) "10.x.x.x:29500"  → %%:* 取 IP，##*: 取端口
-    #   (b) "hostname.svc.cluster.local"（无端口）→ ##*: 会把整个串当端口，torchrun 报错
-    #
-    # 修复策略（参考同项目 overlapper 脚本）：
-    #   1. 先用 ip route get 探测本机真实内网 IP 作为 MASTER_ADDR
-    #   2. MASTER_PORT 固定使用默认值 29500（单节点 job 也适用）
-    #   3. 多节点时 rank-0 的 IP 通过真实网卡探测，确保所有节点能互通
-    # ───────────────────────────────────────────────────────────────────────
-
-    # 探测真实内网 IP（同 overlapper 脚本的策略）
     _REAL_IP=""
     # 策略1：出口路由对应的源 IP（最可靠）
     _REAL_IP=$(ip route get 1.0.0.0 2>/dev/null \
@@ -109,8 +96,8 @@ else
     GRADIENT_ACCUMULATION_STEPS=4
     NUM_EPOCHS=3
     MAX_STEPS=-1            # -1 = 跑完所有 epoch
-    SAVE_STEPS=500
-    MAX_PIXELS=5720064      # A100-80G 全分辨率
+    SAVE_STEPS=400
+    MAX_PIXELS=12845056    # A100-80G 全分辨率
 
     # job 环境 gcc 新，可用 flash_attention_2
     FLASH_ATTN=True
@@ -150,7 +137,8 @@ echo "OUTPUT_DIR   = ${OUTPUT_DIR}"
 
 # ── 5. Head 超参 ───────────────────────────────────────────────
 # UI-TARS-1.5-7B 共 28 层（0-indexed），选取中后层 probe
-PROBE_LAYERS="10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27"
+#PROBE_LAYERS="10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27"
+PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27"
 GROUNDING_PROJ_DIM=1024
 GROUNDING_ADAPTER_RANK=16
 GROUNDING_LAMBDA_LAYER=0.5
@@ -160,7 +148,12 @@ LM_LOSS_WEIGHT=0.0          # backbone 完全冻结，不计算 LM loss
 LEARNING_RATE=2e-4
 LEARNING_RATE_NEW_TOKENS=2e-4
 MIN_PIXELS=3136             # 56×56
-MODEL_MAX_LENGTH=8192
+# MODEL_MAX_LENGTH 计算：
+#   MAX_PIXELS=12845056，Qwen2.5-VL patch=14, merge=2，每 token 覆盖 28×28 像素
+#   最大视觉 token 数 = 12845056 / (28×28) = 16384
+#   + system message (~150) + instruction (~200) + response (~30) = ~16800
+#   取 16384 + 2048 = 18432 留足余量，确保高分辨率样本不被过滤掉
+MODEL_MAX_LENGTH=18432
 
 # ── 6. 启动 torchrun ───────────────────────────────────────────
 # 优先使用 conda 环境里的 torchrun（避免系统 PATH 找不到）
@@ -226,8 +219,7 @@ ${TORCHRUN} \
     \
     --save_strategy "steps" \
     --save_steps ${SAVE_STEPS} \
-    --save_total_limit 3 \
-    --logging_steps 5 \
+    --logging_steps 10 \
     --dataloader_num_workers 4 \
     \
     --report_to wandb \

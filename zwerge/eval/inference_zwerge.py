@@ -311,40 +311,8 @@ def zwerge_predict(
         n_height = max(1, h // token_cell)
 
     # ── Forward（prefill-only，无 generate）──────────────────────────────────
-    outputs = model(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        pixel_values=pixel_values,
-        image_grid_thw=image_grid_thw,
-        multi_patch_labels=None,    # inference mode: no labels
-        output_hidden_states=True,
-        output_attentions=False,
-    )
-
-    # ── 提取 p_final ──────────────────────────────────────────────────────────
-    # 在 inference 模式（multi_patch_labels=None）下，model.forward 不执行
-    # grounding head，我们需要手动提取。
-    # 方案：直接调 model.layerwise_grounding_head
-    all_hidden_states = model.model(
-        input_ids=None,
-        inputs_embeds=None,
-        attention_mask=attention_mask,
-        output_hidden_states=True,
-        output_attentions=False,
-        return_dict=True,
-        # 注意：这里只做第二次 forward 会重复计算，
-        # 改用下方从 outputs 取 hidden_states 更高效。
-    ) if False else None   # placeholder, see below
-
-    # 正确方法：从 outputs.hidden_states 取（但 model.forward 设置了 hidden_states=None 避免内存）
-    # 重新用 model.model 单独 forward 获取 hidden states，或在 forward 里暴露。
-    # 更高效：直接再做一次 model.model forward（image embeds 已经做过了），
-    # 但那样会重复。
-    #
-    # 最简单正确的做法：修改调用，传 multi_patch_labels=[[None]] 触发 head，
-    # 但这需要标签。
-    #
-    # 最干净的做法：直接调用 _inference_grounding 暴露接口 —— 见下方
+    # 直接调用 _run_grounding_head，内部完成 embed → transformer → grounding head
+    # （不走 model.forward，避免重复计算）
     p_final, omega, anchor_strategy_str = _run_grounding_head(
         model=model,
         input_ids=input_ids,
@@ -488,6 +456,27 @@ def point_in_bbox(px: float, py: float, bbox_norm: Tuple[float, float, float, fl
     """
     x1, y1, x2, y2 = bbox_norm
     return x1 <= px <= x2 and y1 <= py <= y2
+
+
+def do_boxes_overlap(
+    box1: Tuple[float, float, float, float],
+    box2: Tuple[float, float, float, float],
+) -> bool:
+    """
+    判断两个 bbox 是否有交叠（与 GUI-AIMA/gui_aima/utils.py 完全一致）。
+    两个 bbox 均为 (x1, y1, x2, y2) 格式，坐标系一致（均为归一化或均为绝对像素皆可）。
+
+    用途：计算 overlap_top1 / overlap_topk 指标。
+    以预测点为中心、patch 大小（0.5/n_width × 0.5/n_height）为半径构造预测框，
+    与 gt_bbox 有任何重叠即视为 overlap。
+    """
+    x1_min, y1_min, x1_max, y1_max = box1
+    x2_min, y2_min, x2_max, y2_max = box2
+    if x1_max < x2_min or x2_max < x1_min:
+        return False
+    if y1_max < y2_min or y2_max < y1_min:
+        return False
+    return True
 
 
 def do_boxes_overlap_norm(

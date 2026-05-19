@@ -10,9 +10,10 @@ retrofit 为具有 layer-wise coordinate-free grounding 能力的模型。
        无法直接用 GUI-Actor 的方式取 query hidden state。
 
   主方案：Pre-coordinate action-prefix token
-    构造：pyautogui.click(<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)
+    构造：click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
+    对应 UI-TARS-1.5 真实固化输出格式（issue #183/#138 确认），坐标部分替换为 pointer tokens
     <|ground|> 的 hidden state 特性：
-      - 已见过 image + instruction + action type (click()
+      - 已见过 image + instruction + action type (click(start_box='
       - 还没见到任何坐标数字 → 无 label leakage
       - 天然与 UI-TARS action interface 对齐
       - 类比 GUI-Actor 的 <ACTOR> token，但更贴近坐标生成模型范式
@@ -25,7 +26,7 @@ retrofit 为具有 layer-wise coordinate-free grounding 能力的模型。
     P5. 最后一个 non-padding token（带 UserWarning，可能有 label leakage 风险）
 
   对 GUI-Actor/GUI-AIMA 格式（已有 pointer tokens）：
-    <|pointer_start|><|ground|><|pointer_pad|><|pointer_end|>
+    click(<|pointer_start|><|ground|><|pointer_pad|><|pointer_end|>)
     <|ground|> 在 pointer_start 之后，同样是 pre-coordinate position
 
 Architecture:
@@ -461,7 +462,7 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
       1. BACKBONE FROZEN: no gradient through backbone params
          (original grounding / action formatting preserved; non-invasive retrofit)
       2. QUERY ANCHOR: <|ground|> at pre-coordinate action-prefix position
-         pyautogui.click(<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)
+         click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
          Has seen image + instruction + action-type but NOT coordinates → no leakage
       3. FA2 COMPATIBLE: output_hidden_states=True, output_attentions=False
          (no full B×L×H×S×S attention matrix stored)
@@ -611,8 +612,9 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
         seq_len = token_ids.shape[0]
 
         # P1: explicit <|ground|> token in sequence
-        # Use the LAST occurrence: the system prompt contains an example token
-        # ("you can output: pyautogui.click(<|ground|>...)") at an early position.
+        # Use the LAST occurrence: the system message Action Space example contains
+        # a spurious <|ground|> at an early position:
+        #   click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
         # The true anchor is in the assistant response (later in the sequence).
         if self._ground_token_id is not None:
             positions = (token_ids == self._ground_token_id).nonzero(as_tuple=False)
@@ -620,6 +622,11 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
                 return int(positions[-1].item()), AnchorStrategy.EXPLICIT_GROUND_TOKEN
 
         # P2: token immediately before <|pointer_start|>
+        # P2 only fires when P1 failed (no <|ground|> in sequence).
+        # GROUNDING_SYSTEM_MESSAGE always embeds <|ground|>, so P1 fires first whenever
+        # the system message is present. P2 is a last-resort fallback for data that has
+        # <|pointer_start|> but no <|ground|> token (e.g. raw GUI-Actor format).
+        # In that case there is only ONE <|pointer_start|> in the sequence, so first==last.
         if self._pointer_start_token_id is not None:
             positions = (token_ids == self._pointer_start_token_id).nonzero(as_tuple=False)
             if positions.numel() > 0:

@@ -25,7 +25,7 @@ ZwerGe-UI Retrofit Dataset
         "image": "relative/path/to/image.png",
         "conversations": [
           {"from": "human", "value": "<image>\nInstruction text"},
-          {"from": "gpt", "value": "pyautogui.click(<|pointer_start|><|pointer_pad|><|pointer_end|>)"}
+          {"from": "gpt", "value": "click(start_box='<|pointer_start|><|pointer_pad|><|pointer_end|>')"}
         ],
         "bbox": [x_min, y_min, x_max, y_max]
       },
@@ -37,7 +37,7 @@ ZwerGe-UI Retrofit Dataset
       {
         "image": "path/to/image.png",
         "query": "Click the OK button",
-        "response": "pyautogui.click(<|pointer_start|><|pointer_pad|><|pointer_end|>)",
+        "response": "click(start_box='<|box_start|>(x,y)<|box_end|>')",
         "bbox": [x_min, y_min, x_max, y_max]
       },
       ...
@@ -215,18 +215,25 @@ def get_ground_token_idx_in_sequence(
     """
     # P1: explicit <|ground|> token
     # NOTE: Use the LAST occurrence, not the first, because the system message
-    # contains an example: "...you can output: pyautogui.click(<|ground|>...)"
-    # which creates a spurious <|ground|> at an early position. The true anchor
-    # is in the assistant response (later in the sequence).
+    # Action Space example contains a spurious <|ground|> at an early position:
+    #   "click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')"
+    # The true anchor is in the assistant response (later in the sequence).
     positions = (input_ids == ground_token_id).nonzero(as_tuple=False)
     if positions.numel() > 0:
         return positions[-1].item()
 
-    # P2: token before <|pointer_start|>
+    # P2: token immediately before <|pointer_start|>
+    # NOTE: P2 only triggers when P1 failed (no <|ground|> in sequence at all).
+    # Since GROUNDING_SYSTEM_MESSAGE always contains <|ground|>, P1 will always
+    # fire first whenever the system message is present. P2 is a safety fallback
+    # for data that has <|pointer_start|> but NO <|ground|> token at all
+    # (e.g. raw GUI-Actor format without <|ground|> injection).
+    # In that edge case there is only ONE <|pointer_start|> (in assistant response),
+    # so first vs last does not matter. Using first is fine.
     if pointer_start_token_id is not None:
         ptr_positions = (input_ids == pointer_start_token_id).nonzero(as_tuple=False)
         if ptr_positions.numel() > 0:
-            ptr_pos = ptr_positions[0].item()
+            ptr_pos = ptr_positions[0].item()   # first occurrence (see note above)
             if ptr_pos > 0:
                 return ptr_pos - 1   # action-prefix token just before pointer_start
 
@@ -237,35 +244,62 @@ def get_ground_token_idx_in_sequence(
 # ─────────────────────────────────────────────────────────────────────────────
 # Query anchor injection utilities
 #
-# 核心设计（来自 chatgpt-export.txt §4.2）：
+# 核心设计：
 #   主方案：pre-coordinate action-prefix token
-#     格式：pyautogui.click(<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)
-#     <|ground|> 在 click( 之后，hidden state 已看到 image+instruction+click(，
+#     格式：click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
+#     <|ground|> 在 start_box=' 之后，hidden state 已看到 image+instruction+action_type，
 #     但还没看到坐标，无 label leakage
+#     对应 UI-TARS-1.5 真实固化输出格式（issue #183/#138）：
+#       click(start_box='<|box_start|>(x,y)<|box_end|>')
 #
 #   对已有 pointer token 的格式（GUI-Actor/GUI-AIMA）：
 #     注入：<|pointer_start|><|ground|><|pointer_pad|><|pointer_end|>
 #
-#   对 UI-TARS 原生坐标格式：
-#     pyautogui.click(x, y) → pyautogui.click(<|ground|><|pointer_start|>...)
-#     click([x, y])         → click(<|ground|><|pointer_start|>...)
+#   对各种原始坐标格式（UITARS_CLICK_PATTERNS 全部覆盖）：
+#     click(start_box='<|box_start|>(x,y)<|box_end|>') → GROUND_RESPONSE_CLICK
+#     click(point='(x,y)')                             → GROUND_RESPONSE_CLICK
+#     pyautogui.click(x, y)                           → GROUND_RESPONSE_CLICK
+#     click([x, y])                                    → GROUND_RESPONSE_CLICK
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _try_parse_point_from_text(text: str) -> Optional[List[float]]:
-    """Try to extract (x, y) from various coordinate formats. (module-level helper)"""
-    # GUI-Actor format: x=0.5, y=0.3
+    """Try to extract (x, y) from various coordinate formats. (module-level helper)
+
+    All formats return coordinates in the SAME space as stored in the original response:
+      - Normalized [0,1]: pyautogui.click / click([]) formats
+      - Absolute pixels: UI-TARS-1.5 click(start_box='<|box_start|>(x,y)<|box_end|>')
+        → returned as-is; caller is responsible for normalization if needed.
+
+    ⚠️ WARNING: UI-TARS-1.5 real format (issue #183/#138 confirmed) uses ABSOLUTE pixel
+    coords (e.g. 1327, 864). When gt_point comes from this path AND bbox is None,
+    get_patch_soft_label_from_point (which expects normalized [0,1]) will receive
+    out-of-range coordinates and produce a completely wrong Gaussian label.
+    Mitigation: _get_item always tries bbox-derived label FIRST; only falls back to
+    gt_point if bbox is None. Ensure training data always has bbox when possible.
+    """
+    # UI-TARS-1.5 真实固化格式：click(start_box='<|box_start|>(x,y)<|box_end|>')
+    # 坐标是绝对像素值，如 (1327,864)
+    m = re.search(r"click\(start_box='[^']*\(([0-9]+),\s*([0-9]+)\)[^']*'\)", text)
+    if m:
+        # 绝对像素坐标，返回时注明（调用方需自行归一化）
+        return [float(m.group(1)), float(m.group(2))]
+    # click(point='(x,y)') or click(point='x y') — 旧版/prompt.py 格式（绝对像素）
+    m = re.search(r"click\(point='[^']*?([0-9]+)[,\s]+([0-9]+)[^']*'\)", text)
+    if m:
+        return [float(m.group(1)), float(m.group(2))]
+    # GUI-Actor format: x=0.5, y=0.3（归一化 [0,1]）
     m = re.search(r"x=([0-9.]+),\s*y=([0-9.]+)", text)
     if m:
         return [float(m.group(1)), float(m.group(2))]
-    # pyautogui.click(x, y)
+    # pyautogui.click(x, y)（归一化 [0,1]）
     m = re.search(r"pyautogui\.click\(([0-9.]+),\s*([0-9.]+)\)", text)
     if m:
         return [float(m.group(1)), float(m.group(2))]
-    # click([x, y])
+    # click([x, y])（归一化 [0,1]）
     m = re.search(r"click\(\[([0-9.]+),\s*([0-9.]+)\]\)", text)
     if m:
         return [float(m.group(1)), float(m.group(2))]
-    # [x, y]
+    # [x, y]（归一化 [0,1]，最宽泛的 fallback）
     m = re.search(r"\[([0-9.]+),\s*([0-9.]+)\]", text)
     if m:
         return [float(m.group(1)), float(m.group(2))]
@@ -278,39 +312,33 @@ def inject_ground_token_into_response(response: str) -> str:
     pre-coordinate action-prefix anchor.
 
     Strategy (priority order):
-      1. If 'pyautogui.click(' already present → replace entire call with GROUND_RESPONSE_CLICK
-         e.g. pyautogui.click(0.5, 0.3) → pyautogui.click(<|ground|><|pointer_start|>...)
-      2. If 'click([' present (UI-TARS format) → replace with GROUND_RESPONSE_CLICK
-         e.g. click([0.5, 0.3]) → pyautogui.click(<|ground|><|pointer_start|>...)
-      3. If pointer_start already present but no <|ground|> → inject after pointer_start
+      1. Match any pattern in UITARS_CLICK_PATTERNS → replace the entire matched
+         call with GROUND_RESPONSE_CLICK (first match wins, count=1).
+         This covers all known click coordinate formats:
+           - click(start_box='<|box_start|>(x,y)<|box_end|>')  ← UI-TARS-1.5 real format
+           - click(start_box='(x,y)')
+           - click(point='...')
+           - pyautogui.click(x, y)
+           - click([x, y])
+      2. If pointer_start already present but no <|ground|> → inject after pointer_start
          e.g. <|pointer_start|><|pointer_pad|>... → <|pointer_start|><|ground|><|pointer_pad|>...
-      4. Otherwise, wrap the whole response in GROUND_RESPONSE_CLICK format
+      3. If response already has <|ground|> → return as-is
+      4. Fallback: wrap the whole response in GROUND_RESPONSE_CLICK format
     """
-    # Case 1 & 2: replace native coordinate calls with our retrofit format
-    for pattern in UITARS_CLICK_PATTERNS:
-        if re.search(pattern, response):
-            # Extract GT point before replacing (for later bbox/point parsing)
-            # Replace the matched coordinate call with our grounding format
-            if "pyautogui.click" in response:
-                new_response = re.sub(
-                    r"pyautogui\.click\([^)]*\)",
-                    GROUND_RESPONSE_CLICK,
-                    response,
-                    count=1,
-                )
-            elif re.search(r"click\(\[", response):
-                new_response = re.sub(
-                    r"click\(\[[^\]]*\]\)",
-                    GROUND_RESPONSE_CLICK,
-                    response,
-                    count=1,
-                )
-            else:
-                new_response = response
-            if new_response != response:
-                return new_response
+    # Case 0 (FIRST): if <|ground|> already present, return immediately.
+    # MUST be checked before Case 1, because GROUND_RESPONSE_CLICK itself contains
+    # "click(start_box='...'" which matches UITARS_CLICK_PATTERNS[0]. Without this
+    # guard, a response that was already injected would be replaced again.
+    if DEFAULT_GROUND_TOKEN in response:
+        return response
 
-    # Case 3: pointer_start exists but no ground token
+    # Case 1: replace any known native coordinate call with our retrofit format
+    for pattern in UITARS_CLICK_PATTERNS:
+        new_response = re.sub(pattern, GROUND_RESPONSE_CLICK, response, count=1)
+        if new_response != response:
+            return new_response
+
+    # Case 2: pointer_start exists but no ground token
     if DEFAULT_POINTER_START_TOKEN in response and DEFAULT_GROUND_TOKEN not in response:
         return response.replace(
             DEFAULT_POINTER_START_TOKEN,
@@ -318,11 +346,7 @@ def inject_ground_token_into_response(response: str) -> str:
             1,
         )
 
-    # Case 4: response already has ground token → return as-is
-    if DEFAULT_GROUND_TOKEN in response:
-        return response
-
-    # Case 5: fallback - wrap response with our standard format
+    # Case 3: fallback - wrap response with our standard format
     # (e.g. response is just plain text with no action)
     return GROUND_RESPONSE_CLICK
 
@@ -467,12 +491,11 @@ class RetrofitDataset(Dataset):
                     },
                     {
                         "from": "gpt",
-                        # 主方案（chatgpt-export.txt §4.2）：
-                        # pyautogui.click(<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)
-                        # <|ground|> 在 click( 之后，作为 pre-coordinate action-prefix token：
-                        # - 已看过 image + instruction + "pyautogui.click("
+                        # click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
+                        # <|ground|> 在 start_box=' 之后，作为 pre-coordinate action-prefix token：
+                        # - 已看过 image + instruction + "click(start_box='"
                         # - 还没看到任何坐标数字（无 label leakage）
-                        # - 天然与 UI-TARS action interface 对齐
+                        # - 对应 UI-TARS-1.5 真实固化格式（issue #183/#138 确认）
                         "value": GROUND_RESPONSE_CLICK,
                     },
                 ]
@@ -619,8 +642,22 @@ class RetrofitDataset(Dataset):
                 patch_label = None
         if patch_label is None and gt_point is not None:
             try:
+                # ⚠️ gt_point 坐标空间关键检查：
+                # - OS-Atlas / GUI-Actor 格式：归一化 [0,1]  → 直接使用
+                # - UI-TARS-1.5 click(start_box='<|box_start|>(x,y)<|box_end|>') 格式：
+                #   绝对像素坐标，相对于模型实际接收的 smart_resize 后图像尺寸
+                #   （来源：action_parser.py parse_action_to_structure_output，
+                #    qwen25vl 分支用 smart_resize_width/height 归一化，不是原图尺寸）
+                #   判断方法：如果 max(x,y) > 1，认为是绝对像素
+                gx, gy = float(gt_point[0]), float(gt_point[1])
+                if max(gx, gy) > 1.0:
+                    # 绝对像素坐标 → 除以 smart_resize 后的图像尺寸（即 processed_w/h）进行归一化
+                    # 注意：必须用 processed_w/processed_h，不能用原图 image.width/height
+                    if processed_w > 0 and processed_h > 0:
+                        gx = gx / processed_w
+                        gy = gy / processed_h
                 patch_label = get_patch_soft_label_from_point(
-                    image_processor, resized_image, gt_point[0], gt_point[1]
+                    image_processor, resized_image, gx, gy
                 )
             except Exception as e:
                 patch_label = None
@@ -696,8 +733,10 @@ class RetrofitDataset(Dataset):
                     "content": [{"type": "text", "text": value}],
                 })
 
-        # Apply chat template to get text (for debugging / reference)
-        # Process with processor to get pixel_values + tokenized ids
+        # Apply chat template to get text.
+        # We use processor.tokenizer.chat_template (set to CHAT_TEMPLATE from constants)
+        # rather than falling back to the base model's template, to ensure our
+        # custom special tokens (<|ground|> etc.) are handled correctly.
         try:
             text = processor.apply_chat_template(
                 messages,
@@ -740,9 +779,11 @@ class RetrofitDataset(Dataset):
             )
             prefix_len = prefix_inputs["input_ids"].shape[1]
         except Exception as e:
-            # Fallback: estimate prefix length
-            rank0_print(f"  Prefix tokenization error: {e}, using fallback")
-            prefix_len = max(1, len(input_ids) // 2)
+            # Prefix tokenization failed: we cannot reliably determine where the
+            # assistant response starts, so we cannot build correct labels.
+            # len(input_ids)//2 would wrongly include image tokens as labels → skip sample.
+            rank0_print(f"  Prefix tokenization error (skipping sample): {e}")
+            return None
 
         # Set labels for assistant tokens
         labels[prefix_len:] = input_ids[prefix_len:]
@@ -809,11 +850,22 @@ class RetrofitDataCollator:
 
         input_ids = [inst["input_ids"] for inst in instances]
         labels = [inst["labels"] for inst in instances]
+        ground_indices_raw = [inst.get("ground_token_indices") for inst in instances]
 
         # Truncate to model_max_length
         max_len = self.tokenizer.model_max_length
+        orig_lens = [len(ids) for ids in input_ids]
         input_ids = [ids[:max_len] for ids in input_ids]
         labels = [lbl[:max_len] for lbl in labels]
+
+        # If truncation occurred AND the pre-computed ground_token_idx falls in the
+        # truncated region, invalidate it (set None) so _find_ground_anchor will
+        # re-scan the truncated sequence and find the correct position.
+        ground_indices_raw = [
+            idx if (idx is None or idx < len(ids))
+            else None
+            for idx, ids in zip(ground_indices_raw, input_ids)
+        ]
 
         # Pad
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
@@ -842,10 +894,9 @@ class RetrofitDataCollator:
                 dim=0,
             )
 
-        # Grounding supervision
-        batch["ground_token_indices"] = [
-            inst["ground_token_indices"] for inst in instances
-        ]
+        # Grounding supervision (use ground_indices_raw which was already validated
+        # against post-truncation sequence lengths above)
+        batch["ground_token_indices"] = ground_indices_raw
         batch["multi_patch_labels"] = [
             inst["multi_patch_labels"] for inst in instances
         ]

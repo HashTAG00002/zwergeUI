@@ -8,8 +8,9 @@ ZwerGe-UI Retrofit Constants
       即 "pyautogui.click(" 之后、坐标生成之前的最后一个 token
       此时模型已经看过 image + instruction + "click("，但还没有看到任何坐标
       → 无 label leakage，天然与 action interface 对齐
-  - 实现方式：引入 <GROUND> token，放置于 action prefix "click(" 之后：
-        pyautogui.click(<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>)
+  - 实现方式：引入 <GROUND> token，放置于 action prefix "click(start_box='" 之后：
+        click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
+      对应 UI-TARS-1.5 真实固化输出格式（issue #183/#138 确认），坐标部分替换为 pointer tokens
       <|ground|> 的 hidden state 即为 pre-coordinate action-prefix token
   - 对 GUI-Actor/GUI-AIMA 格式（已有 pointer tokens）：
         <|pointer_start|><|ground|><|pointer_pad|><|pointer_end|>
@@ -61,12 +62,16 @@ ADDITIONAL_SPECIAL_TOKENS = [
 # 已经看过 image + instruction + action_prefix，但未看到坐标
 # ─────────────────────────────────────────────
 # click/double_click/right_click/hover 共用格式
+# ⚠️  必须与 UI-TARS-1.5 真实固化输出格式一致（issue #183/#138 确认）：
+#   click(start_box='<|box_start|>(x,y)<|box_end|>')
+# 我们用 <|ground|> 替代坐标部分，放在 start_box=' 之后：
+#   click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
 GROUND_RESPONSE_CLICK = (
-    f"pyautogui.click("
+    f"click(start_box='"
     f"{DEFAULT_GROUND_TOKEN}"
     f"{DEFAULT_POINTER_START_TOKEN}"
     f"{DEFAULT_POINTER_PAD_TOKEN}"
-    f"{DEFAULT_POINTER_END_TOKEN})"
+    f"{DEFAULT_POINTER_END_TOKEN}')"
 )
 
 # GUI-Actor/GUI-AIMA 格式注入（pointer_start 已存在时，在其后插入 <|ground|>）
@@ -76,27 +81,54 @@ GROUND_INJECTION_AFTER_POINTER_START = (
 
 # ─────────────────────────────────────────────
 # UI-TARS 原生坐标格式正则（用于检测并替换为 retrofit 格式）
-# UI-TARS 的 click 格式：click([x, y]) 或 pyautogui.click(x, y)
+#
+# UI-TARS-1.5 真实固化输出格式（来源：issue #183/#138 官方 collaborator 确认）：
+#   click(start_box='<|box_start|>(x,y)<|box_end|>')
+# prompt.py 里的 <point> 格式是过时/错误的，模型实际不输出那个格式。
+#
+# 训练数据来源可能混有多种格式，全部需要覆盖：
+#   1. click(start_box='<|box_start|>(x,y)<|box_end|>')  ← UI-TARS-1.5 真实格式（最重要）
+#   2. click(start_box='(x,y)')                          ← 无 box token 的变体
+#   3. click(point='(x,y)') 或 click(point='<point>x y</point>') ← 旧版/prompt.py 格式
+#   4. click([x, y])                                     ← 早期 UI-TARS 格式
+#   5. pyautogui.click(x, y)                             ← GUI-Actor/OS-Atlas 格式
 # ─────────────────────────────────────────────
 UITARS_CLICK_PATTERNS = [
-    # pyautogui.click(x, y) → 替换整个 "pyautogui.click(...)"
+    # UI-TARS-1.5 真实固化格式：click(start_box='<|box_start|>(...)<|box_end|>')
+    r"click\(start_box='[^']*'\)",
+    # <point> 格式（prompt.py 旧版，部分数据可能含有）
+    r"click\(point='[^']*'\)",
+    # pyautogui.click(x, y) → GUI-Actor/OS-Atlas 格式
     r"pyautogui\.click\([^)]*\)",
-    # click([x, y]) → 替换整个 "click([...])"
+    # click([x, y]) → 早期 UI-TARS 格式
     r"click\(\[[^\]]*\]\)",
-    # action_type=click coordinates=[x, y] → 替换 coordinates=[...]
+    # coordinates=[x, y] → 其他格式
     r"coordinates=\[[^\]]*\]",
 ]
 
 # ─────────────────────────────────────────────
 # UI-TARS grounding system message
-# 与 GUI-Actor 对齐，但强调从 hidden-state 读取空间证据
+#
+# 尽量与 UI-TARS-1.5 官方 GROUNDING_PROMPT 保持一致：
+#   - 保留 "## Output Format / ## Action Space / ## User Instruction" 结构
+#   - Action Space 中的坐标部分替换为我们的 pointer tokens（<|ground|> 等）
+#   - User turn 只放 instruction 本身，system message 不含 {instruction} 占位符
+#     （因为我们采用 system + user 分离的 chat 格式）
 # ─────────────────────────────────────────────
 GROUNDING_SYSTEM_MESSAGE = (
-    "You are a GUI agent. Given a screenshot of the current GUI and a human instruction, "
-    "your task is to locate the screen element that corresponds to the instruction. "
-    "You should output a PyAutoGUI action that performs a click on the correct position. "
-    "To indicate the click location, we will use some special tokens, which is used to refer to a visual patch later. "
-    f"For example, you can output: {GROUND_RESPONSE_CLICK}."
+    "You are a GUI agent. You are given a task and a screenshot. "
+    "You need to perform the next action to complete the task.\n\n\n\n"
+    "## Output Format\n\n"
+    "Action: ...\n\n\n\n"
+    "## Action Space\n\n"
+    # ⚠️  必须与 GROUND_RESPONSE_CLICK 以及 UI-TARS-1.5 真实固化格式完全一致：
+    #   click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
+    # 来源：issue #138 官方 collaborator JjjFangg 提供的 grounding-only prompt，
+    #       其中坐标 '<|box_start|>(x1,y1)<|box_end|>' 替换为我们的 pointer tokens
+    f"click(start_box='{DEFAULT_GROUND_TOKEN}"
+    f"{DEFAULT_POINTER_START_TOKEN}"
+    f"{DEFAULT_POINTER_PAD_TOKEN}"
+    f"{DEFAULT_POINTER_END_TOKEN}')\n"
 )
 
 # ─────────────────────────────────────────────

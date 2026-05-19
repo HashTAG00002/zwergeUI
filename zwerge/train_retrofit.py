@@ -70,6 +70,7 @@ from zwerge_retrofit.constants import (
     DEFAULT_POINTER_PAD_TOKEN,
     DEFAULT_PROBE_LAYERS,
     IGNORE_INDEX,
+    CHAT_TEMPLATE,
 )
 from zwerge_retrofit.dataset import RetrofitDataset, RetrofitDataCollator
 from zwerge_retrofit.modeling_uitars import UITARSRetrofitModel
@@ -136,7 +137,7 @@ class DataArguments:
         metadata={"help": "Minimum number of pixels for image resizing"},
     )
     max_pixels: Optional[int] = field(
-        default=5720064,  # ~3192*1792
+        default=12_845_056,  # 16384 * 28 * 28 = 12845056，对应 MODEL_MAX_LENGTH=18432
         metadata={"help": "Maximum number of pixels for image resizing"},
     )
     max_conv_turns: Optional[int] = field(
@@ -150,7 +151,7 @@ class TrainingArguments(transformers.TrainingArguments):
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     model_max_length: int = field(
-        default=8192,
+        default=18432,  # 16384 visual tokens (MAX_PIXELS/28/28) + ~2048 text budget
         metadata={"help": "Maximum sequence length"},
     )
     gradient_checkpointing: bool = field(default=True)
@@ -426,6 +427,9 @@ def train():
         max_pixels=data_args.max_pixels,
     )
     processor.tokenizer = tokenizer
+    # 确保使用我们定义的 CHAT_TEMPLATE（而非模型原始的 tokenizer_config.json 里的 chat_template）
+    # 这样可以确保 <|ground|> 等新 token 在 apply_chat_template 时被正确处理
+    processor.tokenizer.chat_template = CHAT_TEMPLATE
     data_args.processor = processor
 
     # ── Freeze / unfreeze params ─────────────────────────────────────────────

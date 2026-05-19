@@ -3,8 +3,8 @@ type = ml-easy-job
 
 [resource]
 usergroup = hadoop-mt-ocr
-#queue = root.zw05_training_cluster.hadoop-vision.basevacv
-queue = root.zw05_training_cluster.hadoop-aipnlp.elastic
+queue = root.zw05_training_cluster.hadoop-vision.basevacv
+#queue = root.zw05_training_cluster.hadoop-aipnlp.elastic
 
 [dataset]
 dataset_path =
