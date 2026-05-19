@@ -59,7 +59,7 @@ from inference_zwerge import (
 # 辅助：明确类型的 patch posterior → 点坐标（消除 linter 联合类型警告）
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _scores_to_point_and_topk(
+def scores_to_point_and_topk(
     p: torch.Tensor,
     n_width: int,
     n_height: int,
@@ -276,7 +276,7 @@ def zwerge_predict_layerwise(
     per_layer_points = []
     per_layer_topk   = []
     for p_l in per_layer_probs:
-        best, centers = _scores_to_point_and_topk(
+        best, centers = scores_to_point_and_topk(
             p=p_l,
             n_width=n_width,
             n_height=n_height,
@@ -448,7 +448,7 @@ def evaluate_bench_layerwise(
             })
 
         # ── fusion 指标（对比） ────────────────────────────────────────────────
-        f_best, f_centers = _scores_to_point_and_topk(
+        f_best, f_centers = scores_to_point_and_topk(
             p=pred["p_final"],
             n_width=n_w, n_height=n_h,
             activation_threshold=activation_threshold,
