@@ -104,7 +104,11 @@ def evaluate_bench(
     start: int = 0,
     end: int = -1,
     save_per_sample: bool = True,
-    verbose: bool = True,   # False → 不打印汇总表（多卡分片子进程用，避免重复输出）
+    verbose: bool = True,      # False → 不打印汇总表（多卡分片子进程用，避免重复输出）
+    force_suffix: bool = False, # True → 文件名强制带 _{start}-{end}（多卡分片子进程用，防止第0片覆盖无后缀文件）
+    decode_strategy: str = "centroid",
+    peak_shift_alpha: float = 0.5,
+    temperature: float = 0.5,
 ) -> Dict:
     cfg          = BENCH_CONFIGS[bench_key]
     bench_name   = cfg["name"]
@@ -161,6 +165,9 @@ def evaluate_bench(
                 device=device,
                 topk=topk,
                 activation_threshold=activation_threshold,
+                decode_strategy=decode_strategy,
+                peak_shift_alpha=peak_shift_alpha,
+                temperature=temperature,
             )
         except Exception as e:
             warnings.warn(f"Inference failed for #{global_idx}: {e}")
@@ -260,7 +267,7 @@ def evaluate_bench(
 
     # ── 保存 ──────────────────────────────────────────────────────────────────
     os.makedirs(output_dir, exist_ok=True)
-    suffix = f"_{start}-{end}" if (start > 0 or end != total + start) else ""
+    suffix = f"_{start}-{end}" if (force_suffix or start > 0 or end != total + start) else ""
     if save_per_sample:
         rpath = os.path.join(output_dir, f"{bench_key}_results{suffix}.json")
         with open(rpath, "w") as f:
@@ -393,6 +400,16 @@ def aggregate_shards(output_dir: str, bench_key: str, topk: int = 3) -> Optional
     with open(agg_path, "w") as f:
         json.dump({"summary": summary, "results": dedup}, f, indent=2, ensure_ascii=False)
 
+    # ── 3. 聚合完成后删除临时分片文件 ─────────────────────────────────────────
+    shard_files = set(result_files)
+    for fp in sorted(glob.glob(os.path.join(output_dir, f"{bench_key}_summary_*.json"))):
+        shard_files.add(fp)
+    for fp in shard_files:
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
+
     _print_summary(summary, topk)
     return summary
 
@@ -403,7 +420,9 @@ def aggregate_shards(output_dir: str, bench_key: str, topk: int = 3) -> Optional
 
 def _worker(gpu_id: int, ckpt_path: str, bench_key: str, eval_root: str,
             output_dir: str, topk: int, activation_threshold: float,
-            attn_impl: str, start: int, end: int, max_pixels: int = 20_358_912):
+            attn_impl: str, start: int, end: int, max_pixels: int = 20_358_912,
+            decode_strategy: str = "centroid", peak_shift_alpha: float = 0.5,
+            temperature: float = 0.5):
     """单张 GPU 上跑一个数据分片，结果写到 output_dir/{bench_key}_results_{start}-{end}.json。"""
     import torch
     device = torch.device(f"cuda:{gpu_id}")
@@ -426,13 +445,20 @@ def _worker(gpu_id: int, ckpt_path: str, bench_key: str, eval_root: str,
         start=start,
         end=end,
         save_per_sample=True,
-        verbose=False,   # 分片不打印，合并后由主进程统一打印
+        verbose=False,       # 分片不打印，合并后由主进程统一打印
+        force_suffix=True,   # 始终带 _{start}-{end} 后缀，防止第0片覆盖无后缀文件
+        decode_strategy=decode_strategy,
+        peak_shift_alpha=peak_shift_alpha,
+        temperature=temperature,
     )
 
 
 def run_bench_parallel(bench_key: str, ckpt_path: str, eval_root: str,
                        output_dir: str, topk: int, activation_threshold: float,
-                       attn_impl: str, max_pixels: int = 20_358_912) -> Optional[Dict]:
+                       attn_impl: str, max_pixels: int = 20_358_912,
+                       decode_strategy: str = "centroid",
+                       peak_shift_alpha: float = 0.5,
+                       temperature: float = 0.5) -> Optional[Dict]:
     """
     自动检测 GPU 数量，多卡并行跑一个 bench，最后合并分片返回汇总结果。
     单卡时退化为普通串行。
@@ -474,6 +500,9 @@ def run_bench_parallel(bench_key: str, ckpt_path: str, eval_root: str,
             start=0,
             end=N,
             save_per_sample=True,
+            decode_strategy=decode_strategy,
+            peak_shift_alpha=peak_shift_alpha,
+            temperature=temperature,
         )
 
     # 多卡：把 N 条数据等分给每张卡
@@ -494,7 +523,8 @@ def run_bench_parallel(bench_key: str, ckpt_path: str, eval_root: str,
         p = ctx.Process(
             target=_worker,
             args=(gpu_id, ckpt_path, bench_key, eval_root,
-                  output_dir, topk, activation_threshold, attn_impl, s, e, max_pixels),
+                  output_dir, topk, activation_threshold, attn_impl, s, e, max_pixels,
+                  decode_strategy, peak_shift_alpha, temperature),
         )
         p.start()
         procs.append(p)
@@ -528,6 +558,27 @@ def parse_args():
     # 算法超参，默认值与 GUI-AIMA/Actor 一致
     parser.add_argument("--activation_threshold", type=float, default=0.3)
     parser.add_argument("--topk",                 type=int,   default=3)
+    # 坐标提取策略（解决 hit < overlap 的质心漂移问题）
+    parser.add_argument(
+        "--decode_strategy",
+        default="centroid",
+        choices=["centroid", "argmax", "peak_shift", "temperature"],
+        help=(
+            "坐标提取策略: "
+            "centroid=score加权质心(默认,与GUI-AIMA对齐); "
+            "argmax=最高分patch中心(避免质心漂移); "
+            "peak_shift=argmax与centroid插値(通过--peak_shift_alpha控制); "
+            "temperature=温度缩放后加权质心(通过--temperature控制)"
+        ),
+    )
+    parser.add_argument(
+        "--peak_shift_alpha", type=float, default=0.5,
+        help="peak_shift策略的插値系数，0=纯质心 1=纯 argmax（默认 0.5）",
+    )
+    parser.add_argument(
+        "--temperature", type=float, default=0.5,
+        help="temperature策略的温度T，<1使分布更集中（默认 0.5）",
+    )
     return parser.parse_args()
 
 
@@ -535,7 +586,9 @@ def main():
     args = parse_args()
 
     assert os.path.isdir(args.ckpt), f"Checkpoint not found: {args.ckpt}"
-    output_dir = os.path.join(args.output_dir, os.path.basename(args.ckpt))
+    basename = os.path.basename(args.ckpt)
+    basedir = os.path.basename(os.path.dirname(args.ckpt))
+    output_dir = os.path.join(args.output_dir, os.path.join(basedir, basename))
     os.makedirs(output_dir, exist_ok=True)
     print(f"[ZwerGe eval] Output dir: {output_dir}")
 
@@ -553,6 +606,9 @@ def main():
             activation_threshold=args.activation_threshold,
             attn_impl=args.attn_impl,
             max_pixels=args.max_pixels,
+            decode_strategy=args.decode_strategy,
+            peak_shift_alpha=args.peak_shift_alpha,
+            temperature=args.temperature,
         )
         elapsed = time.time() - t0
         if summary:

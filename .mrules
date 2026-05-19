@@ -896,3 +896,129 @@
         → dataset 里的 assistant response 需要含有完整 CoT 路径
       当前架构完全兼容此扩展，无需改变 grounding head 的任何设计。
 
+  - [2026-05-19] 【坐标提取多策略扩展 + 评测脚本统一到 eval_layerwise.py】
+
+    ─── 一、背景：hit < overlap 的根因与解决方案 ─────────────────────────────────
+
+    【现象】融合模型在 SS-Pro / OSWorld-G 等 bench 上 hit_top1 比 overlap_top1 低 10-13 个百分点。
+    【根因】继承自 GUI-AIMA/GUI-Actor 的 score 加权质心（centroid）策略存在质心漂移问题：
+      当目标元素较小/细长时，BFS 连通区域内包含一些低分但相邻的噪声 patch，
+      这些噪声 patch 将质心向 GT bbox 外拉偏 → hit 判定失败，但预测点仍在 bbox 的 1 个 patch 内 → overlap 仍命中。
+    【解决方案】在 inference_zwerge.py 的 get_prediction_region_point() 函数中引入可配置的坐标提取策略。
+
+    ─── 二、四种坐标提取策略（解码策略）─────────────────────────────────────────
+
+    所有策略共享同一前处理步骤（公共部分）：
+      ① 阈值化：选 p > p_max × activation_threshold（默认 0.3）的 patch
+      ② BFS 4-连通聚类，分割成若干区域
+      ③ 各区域取 max(score) 作为 region score，选最高 region score 的区域作为最佳区域
+
+    策略差异（仅最佳区域内如何选点）：
+
+    策略 1: centroid（默认，与 GUI-AIMA 完全对齐）
+      center = Σ(score_i * pos_i) / Σ(score_i)   # 对区域所有 patch 做 score 加权质心
+      特点：与 GUI-AIMA baseline 完全一致，是 hit < overlap 的根源
+      适用：需要与官方对齐时使用
+
+    策略 2: argmax（最保守）
+      center = 区域内最高分 patch 的中心点
+      特点：完全不受邻域 patch 影响，理论上 hit 最接近 overlap
+      适用：快速上界估计，验证质心漂移假设
+
+    策略 3: peak_shift（平衡策略）
+      center = alpha * argmax_center + (1-alpha) * centroid_center
+      参数：peak_shift_alpha（默认 0.5），越大越像 argmax，越小越像 centroid
+      特点：在稳定性和精度之间取平衡
+      适用：调参实验，寻找 hit/overlap 综合最优点
+
+    策略 4: temperature（软化策略）
+      scaled_weight_i = score_i^(1/T)    # T=temperature，默认 0.5
+      center = Σ(scaled_weight_i * pos_i) / Σ(scaled_weight_i)
+      特点：T<1 使高分 patch 权重被放大（分布更"尖锐"），降低边缘低分 patch 对质心的拉偏
+      适用：T=0.3 接近 argmax 但更平滑，T=1.0 退化为 centroid
+
+    ─── 三、命令行使用方式 ───────────────────────────────────────────────────────
+
+    run_eval.sh 支持通过环境变量控制策略：
+      bash run_eval.sh ss_pro                                     # 默认 centroid
+      DECODE_STRATEGY=argmax bash run_eval.sh ss_pro              # argmax 策略
+      DECODE_STRATEGY=peak_shift PEAK_SHIFT_ALPHA=0.7 bash run_eval.sh ss_pro
+      DECODE_STRATEGY=temperature TEMPERATURE=0.3 bash run_eval.sh ss_pro
+
+    推荐试验顺序：argmax（上界）→ peak_shift alpha=0.8 → temperature T=0.3
+
+    ─── 四、评测脚本统一（eval_layerwise.py 成为唯一入口）──────────────────────
+
+    【调整】eval_zwerge.py（单模型 fusion 专用）的独有功能全部合并进 eval_layerwise.py：
+      ① group 细分域统计（--group_stats，默认 True）：
+          按 group_field（ui_type/data_type/GUI_types/grounding_type/task_type）分类统计
+          fusion 的 hit_top1/overlap_top1，输出 fusion_group_accs 字段
+      ② fusion topk 指标（--fusion_topk，默认与 --topk 相同）：
+          计算 fusion 的 hit_topk/overlap_topk（非只有 top1）
+
+    【新增 CLI 参数】
+      --group_stats           是否输出 group 细分域统计（默认 True，--no_group_stats 关闭）
+      --fusion_full_topk      是否计算 fusion 的完整 topk 指标（默认 True，--no_fusion_full_topk 关闭）
+
+    【run_eval.sh 变更】
+      删除 fusion 模式分支（移除 MODE="fusion" → eval_zwerge.py 路径），
+      统一走 eval_layerwise.py，默认参数与原 eval_zwerge.py 保持一致（含 group_stats/fusion_full_topk）
+      eval_zwerge.py 保留但不再通过 run_eval.sh 调用（留作参考）
+
+    【输出路径变更】
+      output_dir 统一为：.../zwerge/data/results/zwerge_layerwise/
+      文件命名：{bench_key}_layerwise_summary.json（含 fusion_acc 和 fusion_group_accs）
+
+  - [2026-05-19] 【解码策略消融实验结论：argmax 反效果，centroid 是最优策略】
+
+    ─── 实验设置 ─────────────────────────────────────────────────────────────────────
+
+    对比了 centroid（checkpoint-1200）和 argmax（checkpoint-2193）两种策略的完整评测结果：
+
+    策略                ckpt     SS-Pro hit   overlap     gap
+    centroid          1200     37.19%       50.16%      +12.97pp  ← 最优
+    centroid          1600     36.88%       49.27%      +12.40pp
+    argmax            2193     28.40%       50.16%      +21.76pp  ← 更差
+
+    关键观察：
+      (1) SS-Pro overlap 三者基本相同（≈50.16%），说明底层定位能力相同，
+          差异完全来自解码策略（centroid vs argmax）。
+      (2) argmax 策略使 hit-overlap gap 从 13pp 扩大到 22pp，与预期完全相反。
+
+    ─── 根因分析（argmax 为何反效果）──────────────────────────────────────────────
+
+    Qwen2.5-VL 的 visual token 对应 28px（patch_size=14 × merge_size=2）。
+    argmax 取的是区域内最高分 patch 的"正中心坐标"（(x+0.5)/n_width）。
+
+    失败场景：GT bbox 是 30×30px 图标，横跨两个 28px patch：
+      - 左 patch：覆盖 bbox 70%，score=0.85，patch 中心在 bbox 外 4px（patch 中心偏左）
+      - 右 patch：覆盖 bbox 30%，score=0.40
+      - argmax  → 取左 patch 中心 → 在 bbox 外面 ❌
+      - centroid → 0.85×左 + 0.40×右 加权质心 → 落在两格交界处 → bbox 内 ✅
+
+    本质：centroid 是对离散网格上连续 GT 分布的最优估计（期望值）；
+         argmax 在粗粒度网格下引入更大的网格对齐误差。
+
+    ─── hit < overlap 的真正根因（不可通过换解码策略解决）──────────────────────────
+
+    hit 要求"预测点严格在 bbox 内"，overlap 要求"预测框与 bbox 相交"。
+    两者差距 ~13pp 源于 28px 粗网格量化误差——当 GT bbox 小于或接近 1 个 patch 大小时，
+    最优的 centroid 预测点仍可能落在 bbox 外（因为最优 patch 中心本身就在 bbox 外）。
+    换任何解码策略都无法消除这个固有误差。
+
+    ─── 提升 hit 的正确路径 ────────────────────────────────────────────────────────
+
+    (1) Zoom-in 细化（ZwerGe 核心）：对模型不确定的样本，crop ROI 再推一次 → 更小 patch 粒度
+    (2) 提高 max_pixels（降低 patch 对应像素）：当前 12M → patch ≈ 28px；如降到 5M → patch ≈ 14px，
+        hit-overlap gap 理论上减半
+    (3) 训练时使用 Gaussian label 替代 binary bbox label：引导模型学到 GT 中心点的软分布
+
+    ─── 行动结论 ────────────────────────────────────────────────────────────────────
+
+    ① run_eval.sh 默认策略改回 centroid（实验证明最优）
+    ② run_eval.sh 默认 ckpt 改回 checkpoint-1200（SS-Pro 37.19% hit）
+    ③ argmax/peak_shift/temperature 策略保留为可选开关（留作将来 zoom-in 阶段验证）
+    ④ argmax 在 inference_zwerge.py 中注明⚠️警告：粗粒度网格下不推荐
+
+
+

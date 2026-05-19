@@ -43,20 +43,36 @@ def get_prediction_region_point(
     n_height: int,
     activation_threshold: float = 0.3,
     return_all_regions: bool = True,
+    decode_strategy: str = "centroid",
+    peak_shift_alpha: float = 0.5,
+    temperature: float = 0.5,
 ):
     """
-    从 patch 后验概率中提取点坐标（与 GUI-AIMA inference.py 完全对齐）。
+    从 patch 后验概率中提取点坐标（与 GUI-AIMA inference.py 完全对齐，并扩展多种策略）。
 
-    步骤：
+    步骤（公共部分，所有策略共享）：
       1. 阈值化：选 p > max*threshold 的 patch
       2. BFS 4-连通分割成若干区域
-      3. 各区域取 max(score) 作为 region score
-      4. 选 region score 最高的区域，以 score 加权质心作为预测点
-      5. 返回归一化坐标 (px, py) ∈ [0,1]
+      3. 各区域取 max(score) 作为 region score，选 region score 最高的区域
+
+    策略（决定最佳区域内如何选点）：
+      "centroid"    (默认/原始): score 加权质心。与 GUI-AIMA 完全对齐。
+                                  缺点：质心可能漂移到 gt_bbox 边界外（hit < overlap 的根因）。
+      "argmax"      :            直接取区域内最高分 patch 的中心点。
+                                  最保守，完全不依赖邻域信息，避免质心漂移。
+      "peak_shift"  :            argmax 中心 与 score 加权质心的线性插值。
+                                  alpha * argmax_center + (1-alpha) * centroid。
+                                  alpha=peak_shift_alpha（默认 0.5）。
+                                  平衡两者：alpha 越大越像 argmax，越小越像 centroid。
+      "temperature" :            对区域内 scores 做温度缩放（scores^(1/T)）后再做加权质心。
+                                  T=temperature（默认 0.5，< 1 使分布更峰值化）。
+                                  让高分 patch 权重更大，降低边缘低分 patch 对质心的拉偏。
+
+    区域排序和 topk 中心点在所有策略下逻辑一致（仅 best_point 不同）。
 
     Returns (当 return_all_regions=True):
       best_point:     (px, py) 归一化坐标
-      sorted_centers: 所有区域中心（按 region score 降序）
+      sorted_centers: 所有区域中心（按 region score 降序，使用所选策略）
       sorted_scores:  所有区域 score
       sorted_points:  所有区域的各 patch 归一化中心点列表
     """
@@ -115,7 +131,7 @@ def get_prediction_region_point(
                         queue.append((ny, nx, t_idx, topk_values[j].item()))
         regions.append(region)
 
-    # Compute region score (max score in region) and weighted centroid
+    # ── 计算每个区域的 center（依策略）和 score ──────────────────────────────
     region_scores = []
     region_centers = []
     region_points_list = []
@@ -133,10 +149,38 @@ def get_prediction_region_point(
             weights.append(score)
         region_points_list.append(norm_centers)
 
+        # argmax center（区域内最高分 patch 中心）
+        max_idx_in_region = int(max(range(len(weights)), key=lambda i: weights[i]))
+        argmax_center = norm_centers[max_idx_in_region]
+
+        # score 加权质心（centroid 策略原始实现）
         total_w = sum(weights)
         wt_x = sum(nc[0] * w for nc, w in zip(norm_centers, weights)) / total_w
         wt_y = sum(nc[1] * w for nc, w in zip(norm_centers, weights)) / total_w
-        region_centers.append((wt_x, wt_y))
+        centroid = (wt_x, wt_y)
+
+        # 根据策略选择 center
+        if decode_strategy == "argmax":
+            center = argmax_center
+        elif decode_strategy == "peak_shift":
+            alpha = peak_shift_alpha
+            center = (
+                alpha * argmax_center[0] + (1.0 - alpha) * centroid[0],
+                alpha * argmax_center[1] + (1.0 - alpha) * centroid[1],
+            )
+        elif decode_strategy == "temperature":
+            T = max(temperature, 1e-6)
+            # 温度缩放：分数升幂（T<1 使分布更集中于高分 patch）
+            scaled_w = [w ** (1.0 / T) for w in weights]
+            total_sw = sum(scaled_w) + 1e-12
+            tw_x = sum(nc[0] * sw for nc, sw in zip(norm_centers, scaled_w)) / total_sw
+            tw_y = sum(nc[1] * sw for nc, sw in zip(norm_centers, scaled_w)) / total_sw
+            center = (tw_x, tw_y)
+        else:
+            # "centroid"（默认，与 GUI-AIMA 完全对齐）
+            center = centroid
+
+        region_centers.append(center)
 
     # Sort by region score descending
     sorted_idx = sorted(range(len(region_scores)), key=lambda i: region_scores[i], reverse=True)
@@ -247,6 +291,9 @@ def zwerge_predict(
     system_message: Optional[str] = None,
     ground_response: Optional[str] = None,
     merge_size: int = 2,
+    decode_strategy: str = "centroid",
+    peak_shift_alpha: float = 0.5,
+    temperature: float = 0.5,
 ) -> dict:
     """
     ZwerGe-UI 单样本推理（prefill-only）。
@@ -262,6 +309,13 @@ def zwerge_predict(
         system_message:      系统提示词（None → 使用 GROUNDING_SYSTEM_MESSAGE）
         ground_response:     prefill 的 assistant 响应前缀（None → GROUND_RESPONSE_CLICK）
         merge_size:          Qwen2.5-VL visual token merge size（默认 2）
+        decode_strategy:     坐标提取策略，选项：
+                               "centroid"   — score 加权质心（默认，与 GUI-AIMA 对齐）
+                               "argmax"     — 最高分 patch 中心（避免质心漂移）
+                               "peak_shift" — argmax 与 centroid 线性插值（alpha 控制）
+                               "temperature"— 温度缩放后的加权质心（T<1 使分布更集中）
+        peak_shift_alpha:    peak_shift 策略的插值系数（默认 0.5，越大越像 argmax）
+        temperature:         temperature 策略的温度（默认 0.5，越小越集中于最高分 patch）
 
     Returns dict:
         pred_point:     (px, py) 归一化 [0,1]，top-1 预测点
@@ -329,6 +383,9 @@ def zwerge_predict(
         n_height=n_height,
         activation_threshold=activation_threshold,
         return_all_regions=True,
+        decode_strategy=decode_strategy,
+        peak_shift_alpha=peak_shift_alpha,
+        temperature=temperature,
     )
 
     topk_points = sorted_centers[:topk]
