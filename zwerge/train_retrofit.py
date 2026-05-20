@@ -77,7 +77,9 @@ from zwerge_retrofit.modeling_uitars import UITARSRetrofitModel
 from zwerge_retrofit.trainer import (
     RetrofitTrainer,
     EmptyCacheCallback,
+    SyncNewTokenEmbCallback,
     WandbRetrofitCallback,
+    ValEvalCallback,
     rank0_print,
     safe_save_model_for_hf_trainer,
 )
@@ -120,6 +122,14 @@ class ModelArguments:
         default=0.5,
         metadata={"help": "Weight for per-layer loss vs fused loss: total = loss_fuse + lambda * loss_layer"},
     )
+    grounding_fusion_type: str = field(
+        default="cos_meta",
+        metadata={"help": "Fusion scorer: 'cos_meta' (q_meta·q_l, default) or 'readiness' (original 5-feature MLP)"},
+    )
+    grounding_use_shared_mlp: bool = field(
+        default=True,
+        metadata={"help": "If False, skip shared q/k MLP projectors and use LoRA-adapted states directly for dot product (pure LoRA mode)"},
+    )
 
 
 @dataclass
@@ -143,6 +153,14 @@ class DataArguments:
     max_conv_turns: Optional[int] = field(
         default=10,
         metadata={"help": "Maximum conversation turns to use"},
+    )
+    gt_label_type: str = field(
+        default="binary",
+        metadata={"help": "GT label type: 'binary' (bbox overlap) or 'gaussian' (anisotropic Gaussian centered at bbox center)"},
+    )
+    gaussian_sigma_factor: float = field(
+        default=0.5,
+        metadata={"help": "For gt_label_type=gaussian: σ_x = bbox_width * factor, σ_y = bbox_height * factor (default 0.5 → σ = half bbox size)"},
     )
 
 
@@ -203,6 +221,39 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Learning rate for newly added token embeddings"},
     )
 
+    # ── In-training evaluation ──
+    val_steps: int = field(
+        default=-1,
+        metadata={"help": "Run distributed vis+eval every N steps (-1 = disabled)"},
+    )
+    val_bench: str = field(
+        default="all",
+        metadata={"help": "Benches for in-training eval: 'all' or one of ss_pro/ss_v2/osworld_g/mmbench/ui_vision"},
+    )
+    val_n_samples: int = field(
+        default=-1,
+        metadata={"help": "Samples per bench for eval (-1 = all data)"},
+    )
+    val_eval_dir: str = field(
+        default="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation",
+        metadata={"help": "Root directory of eval datasets"},
+    )
+    val_output_dir: str = field(
+        default="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge_layerwise",
+        metadata={"help": "Root output dir — {root}/{decode_strategy}/{run_name}/checkpoint-{step}/"},
+    )
+    val_decode_strategy: str = field(
+        default="centroid",
+        metadata={"help": "Decode strategy for val eval"},
+    )
+    val_max_pixels: int = field(
+        default=12_845_056,
+        metadata={"help": "max_pixels for val eval (should match training)"},
+    )
+    val_cell_w: int = field(default=300, metadata={"help": "Vis PNG cell width"})
+    val_cell_h: int = field(default=220, metadata={"help": "Vis PNG cell height"})
+    val_alpha:  float = field(default=0.55, metadata={"help": "Vis heatmap alpha"})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup functions
@@ -253,12 +304,15 @@ def update_model_config_for_retrofit(
     model_config.grounding_proj_dim = model_args.grounding_proj_dim
     model_config.grounding_adapter_rank = model_args.grounding_adapter_rank
     model_config.grounding_lambda_layer = model_args.grounding_lambda_layer
+    model_config.grounding_fusion_type    = model_args.grounding_fusion_type
+    model_config.grounding_use_shared_mlp = model_args.grounding_use_shared_mlp
 
     # Special token IDs (needed for inference)
-    model_config.ground_token_id = tokenizer.encode(DEFAULT_GROUND_TOKEN)[0]
-    model_config.pointer_start_token_id = tokenizer.encode(DEFAULT_POINTER_START_TOKEN)[0]
-    model_config.pointer_end_token_id = tokenizer.encode(DEFAULT_POINTER_END_TOKEN)[0]
-    model_config.pointer_pad_token_id = tokenizer.encode(DEFAULT_POINTER_PAD_TOKEN)[0]
+    # convert_tokens_to_ids is safer than encode()[0] — avoids BOS/extra-token prepending
+    model_config.ground_token_id        = tokenizer.convert_tokens_to_ids(DEFAULT_GROUND_TOKEN)
+    model_config.pointer_start_token_id = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_START_TOKEN)
+    model_config.pointer_end_token_id   = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_END_TOKEN)
+    model_config.pointer_pad_token_id   = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_PAD_TOKEN)
 
     rank0_print(f"Probe layers: {probe_layers}")
     rank0_print(f"Ground token ID: {model_config.ground_token_id}")
@@ -302,9 +356,8 @@ def setup_trainable_params(
         for p in model.model.layers[-n:].parameters():
             p.requires_grad = True
 
-    if training_args.unfreeze_new_tokens:
-        rank0_print("Unfreezing embed_tokens (new tokens only, via gradient hook)...")
-        model.model.embed_tokens.weight.requires_grad = True
+    # NOTE: embed_tokens is kept frozen here; the 4 new-token rows are handled via a
+    # separate _new_token_emb Parameter + forward hook (registered after this function).
 
     if training_args.unfreeze_visual_encoder:
         rank0_print("Unfreezing visual encoder...")
@@ -364,6 +417,7 @@ def train():
     base_config.grounding_proj_dim = model_args.grounding_proj_dim
     base_config.grounding_adapter_rank = model_args.grounding_adapter_rank
     base_config.grounding_lambda_layer = model_args.grounding_lambda_layer
+    base_config.grounding_fusion_type = model_args.grounding_fusion_type  # MUST be set before from_pretrained
 
     # flash_attention_2 要求 gcc >= 7（stdatomic.h），codelab 环境可能缺失
     # 关闭时退回到 sdpa（PyTorch 原生实现，无需 triton 编译，A100 也有加速）
@@ -406,14 +460,18 @@ def train():
     )
     update_model_config_for_retrofit(model.config, tokenizer, model_args)
 
-    # CRITICAL: register special token IDs for _find_ground_anchor P1/P2/P3
-    # Must be called AFTER add_special_tokens so the token IDs are correct.
+    # CRITICAL: register special token IDs for _find_ground_anchor P0-P3.
+    # reinit_grounding_head=True only when starting fresh from a base model;
+    # False when resuming from a retrofit checkpoint (trained weights must not be reset).
+    _is_resuming = len(list(pathlib.Path(training_args.output_dir).glob("checkpoint-*"))) > 0
     _vision_end_id = getattr(model.config, "vision_end_token_id", None)
     model.setup_special_token_ids(
         ground_token_id=model.config.ground_token_id,
         pointer_start_token_id=model.config.pointer_start_token_id,
         vision_end_token_id=_vision_end_id,
+        reinit_grounding_head=not _is_resuming,
     )
+    rank0_print(f"setup_special_token_ids: reinit_head={'yes' if not _is_resuming else 'NO (resuming)'}")
     rank0_print(
         f"setup_special_token_ids: ground={model.config.ground_token_id}, "
         f"pointer_start={model.config.pointer_start_token_id}, "
@@ -435,24 +493,47 @@ def train():
     # ── Freeze / unfreeze params ─────────────────────────────────────────────
     setup_trainable_params(model, training_args)
 
-    # ── Gradient hook for new token embeddings ───────────────────────────────
+    # ── New-token embeddings: separate nn.Parameter (avoids 543M Adam state) ──
+    # Instead of gradient-hook on the full embed_tokens.weight (which forces Adam to
+    # allocate momentum buffers for all 543M params even though only 4 rows are trained),
+    # we create a small standalone Parameter [n_new, d_model] and inject its values
+    # back into the embedding output via a forward hook.
     if training_args.unfreeze_new_tokens and not training_args.unfreeze_all_parameters:
-        emb_param = None
-        for n, p in model.named_parameters():
-            if n.endswith("model.embed_tokens.weight"):
-                emb_param = p
-                break
-        if emb_param is None:
-            raise ValueError("embed_tokens.weight not found in model")
+        new_token_ids = [
+            tokenizer.convert_tokens_to_ids(t)
+            for t in ADDITIONAL_SPECIAL_TOKENS
+            if tokenizer.convert_tokens_to_ids(t) != tokenizer.unk_token_id
+        ]
+        if not new_token_ids:
+            rank0_print("[WARN] No new token IDs found; skipping new-token embedding setup")
+        else:
+            embed_weight = model.model.embed_tokens.weight
+            # embed_tokens stays FROZEN — no requires_grad, no Adam state for 543M rows
+            embed_weight.requires_grad_(False)
+            # Standalone trainable parameter for just the new token rows
+            with torch.no_grad():
+                init_rows = embed_weight.data[new_token_ids].clone()
+            model._new_token_emb = torch.nn.Parameter(init_rows)  # [n_new, d_model]
+            model._new_token_id_to_row = {tid: i for i, tid in enumerate(new_token_ids)}
+            rank0_print(
+                f"[NewTokenEmb] Created _new_token_emb {list(init_rows.shape)} "
+                f"for token IDs {new_token_ids} — Adam state: {init_rows.numel()} params"
+            )
 
-        n_new_tokens = len(ADDITIONAL_SPECIAL_TOKENS)
-        def mask_grad(grad):
-            """Only allow gradients for the newly added tokens."""
-            grad = grad.clone()
-            grad[:-n_new_tokens] = 0.0
-            return grad
-        emb_param.register_hook(mask_grad)
-        rank0_print(f"Registered gradient hook: only update last {n_new_tokens} token embeddings")
+            # Forward hook: substitute embedding outputs for new token positions
+            _id_to_row = model._new_token_id_to_row
+            def _patch_new_token_outputs(module, inputs, output):
+                token_ids = inputs[0]
+                hits = [(tid, ri) for tid, ri in _id_to_row.items()
+                        if (token_ids == tid).any()]
+                if not hits:
+                    return output
+                out = output.clone()
+                for tid, ri in hits:
+                    mask = (token_ids == tid)
+                    out[mask] = model._new_token_emb[ri].to(out.dtype)
+                return out
+            model.model.embed_tokens.register_forward_hook(_patch_new_token_outputs)
 
     # ── Output directory ─────────────────────────────────────────────────────
     os.makedirs(training_args.output_dir, exist_ok=True)
@@ -473,10 +554,18 @@ def train():
     # ── Callbacks ────────────────────────────────────────────────────────────
     callbacks = [
         EmptyCacheCallback(every_n_steps=training_args.empty_cache_every_n_steps),
+        SyncNewTokenEmbCallback(),  # write _new_token_emb back to embed_tokens before each save
     ]
     # WandB callback (log retrofit-specific metrics)
     if "wandb" in training_args.report_to:
         callbacks.append(WandbRetrofitCallback(probe_layers=probe_layers_list))
+    # In-training eval callback
+    if training_args.val_steps > 0:
+        callbacks.append(ValEvalCallback(
+            training_args=training_args,
+            processor=processor,
+            probe_layers=probe_layers_list,
+        ))
 
     # ── Trainer ──────────────────────────────────────────────────────────────
     trainer = RetrofitTrainer(

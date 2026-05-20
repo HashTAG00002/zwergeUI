@@ -7,7 +7,10 @@ ZwerGe-UI Retrofit Trainer
   3. 专为 retrofit head 设计的 optimizer group（head LR 可与 embedding LR 不同）
 """
 
+import json
+import math
 import os
+import sys
 from datetime import timedelta
 from functools import wraps
 from typing import Dict, List, Optional
@@ -78,6 +81,28 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
 # Callbacks
 # ─────────────────────────────────────────────────────────────────────────────
 
+class SyncNewTokenEmbCallback(TrainerCallback):
+    """
+    Before every checkpoint save, write the trained _new_token_emb rows back
+    into embed_tokens.weight.data so that saved weights are self-contained
+    (inference doesn't know about the forward hook, it reads embed_tokens directly).
+    """
+    def on_save(self, args, state, control, **kwargs):
+        model = kwargs.get("model")
+        if model is None:
+            return
+        raw = getattr(model, "module", model)
+        if not (hasattr(raw, "_new_token_emb") and hasattr(raw, "_new_token_id_to_row")):
+            return
+        if args.local_rank not in (0, -1):
+            return
+        with torch.no_grad():
+            for tid, ri in raw._new_token_id_to_row.items():
+                raw.model.embed_tokens.weight.data[tid] = (
+                    raw._new_token_emb.data[ri].to(raw.model.embed_tokens.weight.dtype)
+                )
+
+
 class EmptyCacheCallback(TrainerCallback):
     """Periodically clear CUDA cache to reduce memory fragmentation."""
     def __init__(self, every_n_steps: int = 20):
@@ -124,8 +149,409 @@ class WandbRetrofitCallback(TrainerCallback):
                     omegas = logs["layer_weights"]  # list of floats, len=num_probes
                     for i, (layer_idx, w) in enumerate(zip(self.probe_layers, omegas)):
                         extra[f"layer_omega/L{layer_idx}"] = w
+                # ── omega entropy (layer-collapse detector) ──────────────
+                if "omega_entropy" in logs:
+                    extra["train/omega_entropy"] = logs["omega_entropy"]
+                # ── prediction sharpness ─────────────────────────────────
+                if "p_final_entropy" in logs:
+                    extra["train/p_final_entropy"] = logs["p_final_entropy"]
+                if "p_final_max" in logs:
+                    extra["train/p_final_max"] = logs["p_final_max"]
                 if extra:
                     wandb.log(extra, step=state.global_step)
+        except ImportError:
+            pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# In-Training Evaluation Callback
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ValEvalCallback(TrainerCallback):
+    """
+    全量分布式验证回调（与 run_vis.sh 完全等价）。
+
+    设计：ALL DDP ranks 同时参与评估，每个 rank 处理一个数据 shard，
+    使用已加载的训练模型做推理（无需重新加载），生成 PNG 可视化 + 评测指标，
+    rank-0 聚合后写入与 run_vis.sh 相同的目录结构并上报 WandB。
+
+    触发时机：
+      - on_step_end: 每 val_steps 步（val_steps>0）
+      - on_train_end: 训练结束（val_steps>0）
+
+    bench 配置：
+      val_bench = "all"   → 全部 5 个 bench
+      val_bench = "ss_pro" → 单 bench
+
+    数据量：
+      val_n_samples = -1  → 全量数据（默认）
+      val_n_samples =  N  → 前 N 条
+
+    输出结构（与 run_vis.sh 完全一致）：
+      {val_output_dir}/{decode_strategy}/{run_name}/checkpoint-{step}/
+        ├── {bench}_layerwise_summary.json
+        ├── layerwise_all_summary.json   (bench=all 时)
+        └── details/{bench}/
+            ├── success/*.png
+            ├── failure/*.png
+            └── results.json
+    """
+
+    def __init__(self, training_args, processor, probe_layers: List[int]):
+        self.val_steps       = getattr(training_args, "val_steps", -1)
+        self.val_bench       = getattr(training_args, "val_bench", "all")
+        self.val_n_samples   = getattr(training_args, "val_n_samples", -1)
+        self.eval_dir        = getattr(training_args, "val_eval_dir", "")
+        self.output_dir_root = getattr(training_args, "val_output_dir", "")
+        self.decode_strategy = getattr(training_args, "val_decode_strategy", "centroid")
+        self.max_pixels      = getattr(training_args, "val_max_pixels", 12_845_056)
+        self.processor       = processor
+        self.probe_layers    = probe_layers
+
+        # Cell sizes for vis (use vis_zwerge defaults)
+        self.cell_w = getattr(training_args, "val_cell_w", 300)
+        self.cell_h = getattr(training_args, "val_cell_h", 220)
+        self.alpha  = getattr(training_args, "val_alpha",  0.55)
+
+        _eval_dir = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "eval")
+        )
+        if _eval_dir not in sys.path:
+            sys.path.insert(0, _eval_dir)
+
+    # ------------------------------------------------------------------
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.val_steps > 0 and state.global_step % self.val_steps == 0:
+            self._run_eval_distributed(args, state, kwargs.get("model"))
+
+    def on_train_end(self, args, state, control, **kwargs):
+        if self.val_steps > 0:
+            self._run_eval_distributed(args, state, kwargs.get("model"))
+
+    # ------------------------------------------------------------------
+    def _run_eval_distributed(self, args, state, model):
+        """
+        所有 rank 同步进入评估，每个 rank 处理其 shard，rank-0 聚合。
+        """
+        if model is None:
+            return
+
+        # 所有 rank 同步进入
+        if dist.is_initialized():
+            dist.barrier()
+
+        try:
+            bench_list = self._bench_list()
+            rank      = args.local_rank if args.local_rank >= 0 else 0
+            n_ranks   = dist.get_world_size() if dist.is_initialized() else 1
+            step      = state.global_step
+            run_name  = (getattr(args, "run_name", None) or os.path.basename(args.output_dir))
+            step_dir  = os.path.join(
+                self.output_dir_root, self.decode_strategy, run_name, f"checkpoint-{step}"
+            ) if self.output_dir_root else ""
+
+            raw_model = getattr(model, "module", model)
+            device    = next(raw_model.parameters()).device
+            if hasattr(self.processor, "image_processor"):
+                self.processor.image_processor.max_pixels = self.max_pixels
+
+            raw_model.eval()
+            all_summaries = {}
+
+            for bench_key in bench_list:
+                summary = self._eval_bench_shard(
+                    bench_key=bench_key,
+                    raw_model=raw_model,
+                    device=device,
+                    rank=rank,
+                    n_ranks=n_ranks,
+                    step=step,
+                    step_dir=step_dir,
+                )
+                if summary is not None:
+                    all_summaries[bench_key] = summary
+
+            raw_model.train()
+
+        except Exception as e:
+            rank0_print(f"[ValEval] eval failed step={state.global_step}: {e}")
+            import traceback; traceback.print_exc()
+        finally:
+            if dist.is_initialized():
+                dist.barrier()
+
+        # rank-0 聚合 + WandB
+        if args.local_rank in (0, -1) and all_summaries and step_dir:
+            self._report_wandb(all_summaries, step)
+            if len(all_summaries) > 1:
+                with open(os.path.join(step_dir, "layerwise_all_summary.json"), "w") as f:
+                    json.dump(all_summaries, f, indent=2, ensure_ascii=False)
+
+    # ------------------------------------------------------------------
+    def _eval_bench_shard(self, bench_key, raw_model, device, rank, n_ranks, step, step_dir):
+        """每个 rank 处理其 shard，rank-0 聚合后返回 summary；非 rank-0 返回 None。"""
+        try:
+            from eval_layerwise import (
+                BENCH_CONFIGS, zwerge_predict_layerwise, scores_to_point_and_topk,
+                _get_group_key, _print_layerwise_summary,
+            )
+            from inference_zwerge import point_in_bbox, do_boxes_overlap
+            from vis_zwerge import visualize_sample
+            from PIL import Image as _PIL
+            import glob as _glob
+        except ImportError as e:
+            rank0_print(f"[ValEval] import error: {e}")
+            return None
+
+        cfg       = BENCH_CONFIGS[bench_key]
+        bench_name = cfg["name"]
+        eval_json  = os.path.join(self.eval_dir, cfg["eval_dir"], cfg["eval_json"])
+        img_root   = os.path.join(self.eval_dir, cfg["eval_dir"])
+        group_field = cfg.get("group_field")
+
+        if not os.path.exists(eval_json):
+            return None
+
+        with open(eval_json) as f:
+            all_data = json.load(f)
+        if self.val_n_samples > 0:
+            all_data = all_data[:self.val_n_samples]
+        N = len(all_data)
+
+        # Contiguous shard for this rank
+        chunk = (N + n_ranks - 1) // n_ranks
+        start = rank * chunk
+        end   = min(start + chunk, N)
+        shard = all_data[start:end]
+
+        # Output dirs
+        if step_dir:
+            success_dir = os.path.join(step_dir, "details", bench_key, "success")
+            failure_dir = os.path.join(step_dir, "details", bench_key, "failure")
+            os.makedirs(success_dir, exist_ok=True)
+            os.makedirs(failure_dir, exist_ok=True)
+        else:
+            success_dir = failure_dir = ""
+
+        probe_layers = list(raw_model.layerwise_grounding_head.probe_layers)
+        n_probes     = len(probe_layers)
+        layer_stats  = [{"hit1": 0, "hitk": 0, "overlap1": 0, "overlapk": 0, "total": 0}
+                        for _ in range(n_probes)]
+        fusion_stats  = {"hit1": 0, "hitk": 0, "overlap1": 0, "overlapk": 0, "total": 0}
+        fusion_groups: Dict[str, Dict] = {}
+        results = []
+        skip    = 0
+        TOPK    = 3
+
+        with torch.no_grad():
+            for idx, example in enumerate(shard):
+                global_idx = start + idx
+                img_path = os.path.join(img_root, example["image_path"])
+                if not os.path.exists(img_path):
+                    skip += 1; continue
+                try:
+                    orig_img = _PIL.open(img_path).convert("RGB")
+                    W, H = float(example["image_size"][0]), float(example["image_size"][1])
+                    x1, y1, x2, y2 = example["gt_bbox"]
+                    gt = (x1/W, y1/H, x2/W, y2/H)
+
+                    pred = zwerge_predict_layerwise(
+                        image=orig_img, instruction=example["instruction"],
+                        model=raw_model, processor=self.processor, device=device,
+                        decode_strategy=self.decode_strategy, topk=TOPK,
+                    )
+                    n_w, n_h = pred["n_width"], pred["n_height"]
+                    phx, phy = 0.5/n_w, 0.5/n_h
+
+                    # Per-layer metrics
+                    layer_metrics = []
+                    for li in range(n_probes):
+                        lpt = pred["per_layer_points"][li]
+                        px, py = float(lpt[0]), float(lpt[1])
+                        tpts   = pred["per_layer_topk"][li]
+                        hit1   = int(point_in_bbox(px, py, gt))
+                        hitk   = int(any(point_in_bbox(float(p[0]),float(p[1]),gt) for p in tpts))
+                        ov1    = int(do_boxes_overlap((px-phx,py-phy,px+phx,py+phy), gt))
+                        ovk    = ov1
+                        for pk in tpts[1:]:
+                            if do_boxes_overlap((float(pk[0])-phx,float(pk[1])-phy,
+                                                  float(pk[0])+phx,float(pk[1])+phy), gt):
+                                ovk = 1; break
+                        layer_stats[li]["hit1"]     += hit1
+                        layer_stats[li]["hitk"]     += hitk
+                        layer_stats[li]["overlap1"] += ov1
+                        layer_stats[li]["overlapk"] += ovk
+                        layer_stats[li]["total"]    += 1
+                        layer_metrics.append({
+                            "hit_top1": hit1, "hit_topk": hitk,
+                            "overlap_top1": ov1, "overlap_topk": ovk,
+                            "pred_point": list(pred["per_layer_points"][li]),
+                        })
+
+                    # Fusion metrics
+                    fb, fc = scores_to_point_and_topk(
+                        p=pred["p_final"], n_width=n_w, n_height=n_h,
+                        activation_threshold=0.3, topk=TOPK,
+                        decode_strategy=self.decode_strategy,
+                    )
+                    fpx, fpy = float(fb[0]), float(fb[1])
+                    fhit1 = int(point_in_bbox(fpx, fpy, gt))
+                    fov1  = int(do_boxes_overlap((fpx-phx,fpy-phy,fpx+phx,fpy+phy), gt))
+                    fhitk = int(any(point_in_bbox(float(p[0]),float(p[1]),gt) for p in fc))
+                    fovk  = fov1
+                    for fk in fc[1:]:
+                        if do_boxes_overlap((float(fk[0])-phx,float(fk[1])-phy,
+                                              float(fk[0])+phx,float(fk[1])+phy), gt):
+                            fovk = 1; break
+                    fusion_stats["hit1"]     += fhit1
+                    fusion_stats["overlap1"] += fov1
+                    fusion_stats["hitk"]     += fhitk
+                    fusion_stats["overlapk"] += fovk
+                    fusion_stats["total"]    += 1
+                    if group_field:
+                        grp = _get_group_key(example, group_field)
+                        if grp not in fusion_groups:
+                            fusion_groups[grp] = {"hit1":0,"hitk":0,"overlap1":0,"overlapk":0,"total":0}
+                        fusion_groups[grp]["hit1"]     += fhit1
+                        fusion_groups[grp]["overlap1"] += fov1
+                        fusion_groups[grp]["hitk"]     += fhitk
+                        fusion_groups[grp]["overlapk"] += fovk
+                        fusion_groups[grp]["total"]    += 1
+
+                    # Visualization
+                    if success_dir:
+                        meta = {"bench": bench_name}
+                        for k in ["ui_type","data_type","GUI_types","grounding_type",
+                                  "task_type","platform","application","element_type"]:
+                            if k in example: meta[k] = example[k]
+                        vis_img = visualize_sample(
+                            orig_img=orig_img, pred=pred, gt_bbox_norm=gt,
+                            instruction=example["instruction"], meta=meta,
+                            activation_threshold=0.3, decode_strategy=self.decode_strategy,
+                            cell_w=self.cell_w, cell_h=self.cell_h, alpha=self.alpha,
+                        )
+                        save_d = success_dir if fhit1 else failure_dir
+                        vis_img.save(os.path.join(save_d, f"idx{global_idx:05d}.png"))
+
+                    # Record
+                    rec = {
+                        "idx": global_idx,
+                        "image_path": example["image_path"],
+                        "instruction": example["instruction"],
+                        "gt_bbox_norm": list(gt),
+                        "anchor_strategy": pred["anchor_strategy"],
+                        "n_width": n_w, "n_height": n_h,
+                        "omega": pred["omega"].tolist(),
+                        "probe_layers": probe_layers,
+                        "layer_metrics": layer_metrics,
+                        "fusion_hit1": fhit1, "fusion_overlap1": fov1,
+                        "fusion_hitk": fhitk, "fusion_overlapk": fovk,
+                    }
+                    for ext in ["id","ui_type","group","platform","application","data_type",
+                                "split","grounding_type","task_type","GUI_types",
+                                "category","element_type"]:
+                        if ext in example: rec[ext] = example[ext]
+                    results.append(rec)
+
+                except Exception:
+                    skip += 1
+
+        # Write shard files (all ranks)
+        if step_dir:
+            det_dir = os.path.join(step_dir, "details", bench_key)
+            os.makedirs(det_dir, exist_ok=True)
+            with open(os.path.join(det_dir, f"results_{start}-{end}.json"), "w") as f:
+                json.dump(results, f, ensure_ascii=False)
+
+        # Shard summary (all ranks write, rank-0 aggregates)
+        valid_cnt = len(shard) - skip
+        la = []
+        for li, ls in enumerate(layer_stats):
+            n = ls["total"] or 1
+            la.append({
+                "layer_idx":    probe_layers[li], "probe_rank": li,
+                "hit_top1":     round(ls["hit1"]/n*100, 4),
+                "overlap_top1": round(ls["overlap1"]/n*100, 4),
+                "hit_topk":     round(ls["hitk"]/n*100, 4),
+                "overlap_topk": round(ls["overlapk"]/n*100, 4),
+                "n": ls["total"],
+            })
+        fn = fusion_stats["total"] or 1
+        fa = {
+            "hit_top1":     round(fusion_stats["hit1"]/fn*100, 4),
+            "overlap_top1": round(fusion_stats["overlap1"]/fn*100, 4),
+            "hit_topk":     round(fusion_stats["hitk"]/fn*100, 4),
+            "overlap_topk": round(fusion_stats["overlapk"]/fn*100, 4),
+            "topk": TOPK,
+        }
+        fga: Dict = {}
+        if group_field:
+            for grp, st in sorted(fusion_groups.items()):
+                gn = st["total"] or 1
+                fga[grp] = {
+                    "hit_top1":     round(st["hit1"]/gn*100, 2),
+                    "overlap_top1": round(st["overlap1"]/gn*100, 2),
+                    "hit_topk":     round(st["hitk"]/gn*100, 2),
+                    "overlap_topk": round(st["overlapk"]/gn*100, 2),
+                    "total": st["total"],
+                }
+        shard_summary = {
+            "bench": bench_name, "bench_key": bench_key,
+            "total": len(shard), "valid": valid_cnt, "skipped": skip,
+            "slice": [start, end], "probe_layers": probe_layers,
+            "layer_accs": la, "fusion_acc": fa, "fusion_group_accs": fga,
+        }
+        if step_dir:
+            with open(os.path.join(step_dir, f"{bench_key}_layerwise_summary_{start}-{end}.json"), "w") as f:
+                json.dump(shard_summary, f, ensure_ascii=False)
+
+        # Barrier: wait for all shards to complete
+        if dist.is_initialized():
+            dist.barrier()
+
+        # Rank-0 aggregates
+        if rank != 0:
+            return None
+        if not step_dir:
+            return shard_summary  # single rank, return directly
+
+        try:
+            from vis_zwerge import _aggregate_vis_shards
+            summary = _aggregate_vis_shards(step_dir, bench_key, TOPK)
+        except Exception as e:
+            rank0_print(f"[ValEval] aggregation failed for {bench_key}: {e}")
+            summary = shard_summary  # fallback to own shard
+
+        _print_layerwise_summary(summary, TOPK)
+        return summary
+
+    # ------------------------------------------------------------------
+    def _bench_list(self) -> List[str]:
+        try:
+            from eval_layerwise import BENCH_CONFIGS
+        except ImportError:
+            return [self.val_bench]
+        if self.val_bench == "all":
+            return list(BENCH_CONFIGS.keys())
+        return [self.val_bench]
+
+    def _report_wandb(self, summaries: Dict, step: int):
+        try:
+            import wandb
+            if wandb.run is None:
+                return
+            log_dict = {}
+            for bench_key, sm in summaries.items():
+                fa = sm.get("fusion_acc", {})
+                log_dict[f"val/{bench_key}/hit_top1"]     = fa.get("hit_top1", 0)
+                log_dict[f"val/{bench_key}/overlap_top1"] = fa.get("overlap_top1", 0)
+                log_dict[f"val/{bench_key}/valid"]        = sm.get("valid", 0)
+                # Best single layer hit@1
+                best = max(sm.get("layer_accs", [{}]), key=lambda x: x.get("hit_top1", 0), default={})
+                if best:
+                    log_dict[f"val/{bench_key}/best_layer_hit"]     = best.get("hit_top1", 0)
+                    log_dict[f"val/{bench_key}/best_layer_idx"]     = best.get("layer_idx", -1)
+            wandb.log(log_dict, step=step)
         except ImportError:
             pass
 
@@ -259,7 +685,9 @@ class RetrofitTrainer(Trainer):
         decay_parameters = get_parameter_names(opt_model, ALL_LAYERNORM_LAYERS)
         decay_parameters = [n for n in decay_parameters if "bias" not in n]
 
-        # Identify head vs embedding params
+        # Identify head vs new-token embedding params
+        # _new_token_emb is a tiny [n_new, d_model] Parameter separate from the frozen
+        # embed_tokens.weight, so Adam only tracks n_new*d_model states instead of 543M.
         head_param_names = set()
         emb_param_names = set()
         for n, p in opt_model.named_parameters():
@@ -267,7 +695,7 @@ class RetrofitTrainer(Trainer):
                 continue
             if "layerwise_grounding_head" in n:
                 head_param_names.add(n)
-            elif "embed_tokens" in n:
+            elif "_new_token_emb" in n or "new_token_embeddings" in n:
                 emb_param_names.add(n)
 
         lr_head = getattr(self.args, "learning_rate", 2e-4)
@@ -333,30 +761,51 @@ class RetrofitTrainer(Trainer):
             )
 
         # ── layer weights (omega) from LayerFusionScorer ──────────────────
-        # outputs.layer_weights is a list of omega tensors, one per sample.
-        # Average across samples in batch, accumulate across grad-accum steps.
         if hasattr(outputs, "layer_weights") and outputs.layer_weights is not None:
-            # layer_weights: list[Tensor shape (num_probes,)] or None per sample
             omegas_batch = [w for w in outputs.layer_weights if w is not None]
             if omegas_batch:
-                # Stack and mean over batch
                 try:
-                    omega_mean = torch.stack(
+                    omega_stack = torch.stack(
                         [w.float().cpu() if isinstance(w, torch.Tensor)
                          else torch.tensor(w, dtype=torch.float32)
                          for w in omegas_batch]
-                    ).mean(0)  # [num_probes]
+                    )  # [B, num_probes]
+                    omega_mean = omega_stack.mean(0)  # [num_probes]
                     prev = self._custom_metrics.get("layer_weights")
                     cnt  = self._custom_counts.get("layer_weights", 0)
                     if prev is None:
                         self._custom_metrics["layer_weights"] = omega_mean
                         self._custom_counts["layer_weights"] = 1
                     else:
-                        # Running mean
                         self._custom_metrics["layer_weights"] = (
-                            prev * cnt + omega_mean
-                        ) / (cnt + 1)
+                            prev * cnt + omega_mean) / (cnt + 1)
                         self._custom_counts["layer_weights"] = cnt + 1
+                    # omega_entropy: H(omega) per sample → mean over batch
+                    eps = 1e-8
+                    ent = -(omega_stack * torch.log(omega_stack.clamp(min=eps))).sum(-1).mean().item()
+                    _k = "omega_entropy"
+                    _c = self._custom_counts.get(_k, 0)
+                    self._custom_metrics[_k] = (self._custom_metrics.get(_k, 0.0) * _c + ent) / (_c + 1)
+                    self._custom_counts[_k] = _c + 1
+                except Exception:
+                    pass
+
+        # ── p_final stats (sharpness / confidence) ────────────────────────
+        if hasattr(outputs, "grounding_scores") and outputs.grounding_scores is not None:
+            p_finals = [s for s in outputs.grounding_scores if s is not None]
+            if p_finals:
+                try:
+                    eps = 1e-8
+                    entropies, maxes = [], []
+                    for pf in p_finals:
+                        pf_f = pf.float()
+                        entropies.append(-(pf_f * torch.log(pf_f.clamp(min=eps))).sum().item())
+                        maxes.append(pf_f.max().item())
+                    for _k, _v in [("p_final_entropy", sum(entropies) / len(entropies)),
+                                   ("p_final_max",     sum(maxes)     / len(maxes))]:
+                        _c = self._custom_counts.get(_k, 0)
+                        self._custom_metrics[_k] = (self._custom_metrics.get(_k, 0.0) * _c + _v) / (_c + 1)
+                        self._custom_counts[_k] = _c + 1
                 except Exception:
                     pass
 
@@ -372,11 +821,15 @@ class RetrofitTrainer(Trainer):
         """
         if hasattr(self, "_custom_metrics") and self._custom_metrics:
             ga = max(1, self.args.gradient_accumulation_steps)
+            # Metrics stored as running-mean (already averaged): pass as-is
+            _mean_keys = {"layer_weights", "omega_entropy", "p_final_entropy", "p_final_max"}
             for k, v in self._custom_metrics.items():
                 if k == "layer_weights":
-                    # Pass as list of floats for WandbRetrofitCallback to unpack
                     logs[k] = v.tolist() if isinstance(v, torch.Tensor) else list(v)
+                elif k in _mean_keys:
+                    logs[k] = float(v)
                 else:
+                    # Sum-accumulated losses (grounding_loss, lm_loss) → average
                     logs[k] = v / ga
             self._custom_metrics = {}
             self._custom_counts = {}
@@ -385,3 +838,14 @@ class RetrofitTrainer(Trainer):
             super().log(logs, start_time=start_time)
         else:
             super().log(logs)
+
+    def _save(self, output_dir: str, state_dict=None):
+        """Override to exclude _new_token_emb from saved checkpoint.
+        Its values are already synced back into embed_tokens.weight by
+        SyncNewTokenEmbCallback.on_save, so loading works without it.
+        """
+        if state_dict is None:
+            state_dict = self.model.state_dict()
+        state_dict = {k: v for k, v in state_dict.items()
+                      if not k.startswith("_new_token_emb")}
+        super()._save(output_dir, state_dict=state_dict)

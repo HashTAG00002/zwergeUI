@@ -194,6 +194,56 @@ def get_patch_binary_label_from_bbox(
     return label
 
 
+def get_patch_gaussian_label_from_bbox(
+    image_processor,
+    image: Image.Image,
+    bbox: List[float],
+    sigma_factor: float = 0.5,
+) -> torch.Tensor:
+    """
+    各向异性 Gaussian patch label：以 GT bbox 中心为均值，
+    σ_x = bbox_width_px * sigma_factor，σ_y = bbox_height_px * sigma_factor。
+
+    宽 bbox → σ_x 大（x 方向分布更均匀）；高 bbox → σ_y 大（y 方向分布更均匀）。
+    归一化到 sum=1。
+
+    sigma_factor 推荐值 0.5：σ 等于 bbox 半宽/半高，bbox 内覆盖约 68% 的概率质量。
+    """
+    w, h = image.size
+    token_cell_size = image_processor.patch_size * image_processor.merge_size
+    grid_w = max(1, w // token_cell_size)
+    grid_h = max(1, h // token_cell_size)
+
+    x_min, y_min, x_max, y_max = bbox
+    cx_px = ((x_min + x_max) / 2.0) * w
+    cy_px = ((y_min + y_max) / 2.0) * h
+    bbox_w_px = (x_max - x_min) * w
+    bbox_h_px = (y_max - y_min) * h
+
+    sigma_x = max(bbox_w_px * sigma_factor, 1e-3)
+    sigma_y = max(bbox_h_px * sigma_factor, 1e-3)
+
+    # Patch center coordinates in pixels: vectorized
+    x_idx = torch.arange(grid_w, dtype=torch.float32)
+    y_idx = torch.arange(grid_h, dtype=torch.float32)
+    cx_patches = (x_idx + 0.5) * token_cell_size   # [grid_w]
+    cy_patches = (y_idx + 0.5) * token_cell_size   # [grid_h]
+
+    dx2 = (cx_patches - cx_px) ** 2                         # [grid_w]
+    dy2 = (cy_patches - cy_px) ** 2                         # [grid_h]
+    label_2d = torch.exp(
+        -(dx2.unsqueeze(0) / (2 * sigma_x ** 2) +
+          dy2.unsqueeze(1) / (2 * sigma_y ** 2))
+    )                                                        # [grid_h, grid_w]
+
+    label = label_2d.reshape(-1)
+    label_sum = label.sum()
+    if label_sum > 1e-9:
+        return label / label_sum
+    # 极端情况（sigma 过小使所有 patch 权重趋零）退回 binary
+    return get_patch_binary_label_from_bbox(image_processor, image, bbox)
+
+
 def get_ground_token_idx_in_sequence(
     input_ids: torch.Tensor,
     ground_token_id: int,
@@ -383,10 +433,16 @@ class RetrofitDataset(Dataset):
         self.processor = processor
         self.data_args = data_args
 
-        self.ground_token_id = tokenizer.encode(DEFAULT_GROUND_TOKEN)[0]
-        self.pointer_pad_token_id = tokenizer.encode(DEFAULT_POINTER_PAD_TOKEN)[0]
-        self.pointer_start_token_id = tokenizer.encode(DEFAULT_POINTER_START_TOKEN)[0]
-        self.pointer_end_token_id = tokenizer.encode(DEFAULT_POINTER_END_TOKEN)[0]
+        self.ground_token_id        = tokenizer.convert_tokens_to_ids(DEFAULT_GROUND_TOKEN)
+        self.pointer_pad_token_id   = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_PAD_TOKEN)
+        self.pointer_start_token_id = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_START_TOKEN)
+        self.pointer_end_token_id   = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_END_TOKEN)
+
+        self.gt_label_type = getattr(data_args, "gt_label_type", "binary")
+        self.gaussian_sigma_factor = getattr(data_args, "gaussian_sigma_factor", 0.5)
+        rank0_print(f"[RetrofitDataset] gt_label_type={self.gt_label_type}"
+                    + (f"  sigma_factor={self.gaussian_sigma_factor}"
+                       if self.gt_label_type == "gaussian" else ""))
 
         # Load all data into flat list: each item has unified format
         self.samples = []  # list of dicts: {image_path, instruction, bbox, conversations}
@@ -635,9 +691,15 @@ class RetrofitDataset(Dataset):
         patch_label = None
         if bbox is not None:
             try:
-                patch_label = get_patch_binary_label_from_bbox(
-                    image_processor, resized_image, bbox
-                )
+                if self.gt_label_type == "gaussian":
+                    patch_label = get_patch_gaussian_label_from_bbox(
+                        image_processor, resized_image, bbox,
+                        sigma_factor=self.gaussian_sigma_factor,
+                    )
+                else:
+                    patch_label = get_patch_binary_label_from_bbox(
+                        image_processor, resized_image, bbox
+                    )
             except Exception as e:
                 patch_label = None
         if patch_label is None and gt_point is not None:

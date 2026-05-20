@@ -139,7 +139,37 @@ echo "OUTPUT_DIR   = ${OUTPUT_DIR}"
 # UI-TARS-1.5-7B 共 28 层（0-indexed），选取中后层 probe
 #PROBE_LAYERS="10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27"
 PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27"
-GROUNDING_PROJ_DIM=1024
+
+# GT 标签类型（二选一）：
+#   binary   : bbox 内所有 patch 均等权重（默认，与 GUI-AIMA 对齐）
+#   gaussian : 以 bbox 中心为均值的各向异性高斯，σ_x=bbox_w*factor，σ_y=bbox_h*factor
+# 用法示例：GT_LABEL_TYPE=gaussian bash scripts/train_zwerge_uitars.sh
+GT_LABEL_TYPE="${GT_LABEL_TYPE:-binary}"
+GAUSSIAN_SIGMA_FACTOR="${GAUSSIAN_SIGMA_FACTOR:-0.5}"
+
+# Fusion scorer 类型（二选一）：
+#   cos_meta  : alpha_l + cos(q_meta, q_l)，input-adaptive（新，默认）
+#   readiness : 5特征 + layer_emb → MLP（原始，backward compat）
+# 用法示例：FUSION_TYPE=readiness bash scripts/train_zwerge_uitars.sh
+FUSION_TYPE="${FUSION_TYPE:-cos_meta}"
+
+# 共享 MLP 开关：
+#   true  : 使用共享 MLP 投影（默认，d_model→d_proj→d_proj，当前主要参数量）
+#   false : 纯 LoRA 模式，去掉共享 MLP，直接在 d_model 空间做 dot product
+# 用法示例：USE_SHARED_MLP=false bash scripts/train_zwerge_uitars.sh
+USE_SHARED_MLP="${USE_SHARED_MLP:-true}"
+
+# 训练中间验证（val_steps=-1 关闭，正数=每 N 步评估一次）
+# 输出：{VAL_OUTPUT_DIR}/{VAL_DECODE_STRATEGY}/{WANDB_RUN_NAME}/checkpoint-{step}/
+VAL_STEPS="${VAL_STEPS:-400}"            # -1=关闭；建议与 save_steps 对齐（如 400）
+VAL_BENCH="${VAL_BENCH:-all}"            # 'all'=全部5个bench，或单个 bench key
+VAL_N_SAMPLES="${VAL_N_SAMPLES:--1}"     # -1=全量数据；> 0 为前 N 条
+VAL_DECODE_STRATEGY="${VAL_DECODE_STRATEGY:-centroid}"
+VAL_OUTPUT_DIR="${VAL_OUTPUT_DIR:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge_layerwise}"
+VAL_CELL_W="${VAL_CELL_W:-300}"
+VAL_CELL_H="${VAL_CELL_H:-220}"
+VAL_ALPHA="${VAL_ALPHA:-0.55}"
+GROUNDING_PROJ_DIM=2048
 GROUNDING_ADAPTER_RANK=16
 GROUNDING_LAMBDA_LAYER=0.5
 GROUNDING_LOSS_WEIGHT=1.0
@@ -188,6 +218,21 @@ ${TORCHRUN} \
     --min_pixels ${MIN_PIXELS} \
     --max_pixels ${MAX_PIXELS} \
     --max_conv_turns 10 \
+    --gt_label_type ${GT_LABEL_TYPE} \
+    --gaussian_sigma_factor ${GAUSSIAN_SIGMA_FACTOR} \
+    --grounding_fusion_type   ${FUSION_TYPE} \
+    --grounding_use_shared_mlp ${USE_SHARED_MLP} \
+    \
+    --val_steps             ${VAL_STEPS} \
+    --val_bench             ${VAL_BENCH} \
+    --val_n_samples         ${VAL_N_SAMPLES} \
+    --val_decode_strategy   ${VAL_DECODE_STRATEGY} \
+    --val_eval_dir          "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation" \
+    --val_output_dir        "${VAL_OUTPUT_DIR}" \
+    --val_max_pixels        "${MAX_PIXELS}" \
+    --val_cell_w            "${VAL_CELL_W}" \
+    --val_cell_h            "${VAL_CELL_H}" \
+    --val_alpha             "${VAL_ALPHA}" \
     \
     --output_dir "${OUTPUT_DIR}" \
     --num_train_epochs ${NUM_EPOCHS} \

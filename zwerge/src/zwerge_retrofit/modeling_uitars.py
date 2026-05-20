@@ -221,13 +221,13 @@ class LayerGroundingProbe(nn.Module):
 
     def forward(
         self,
-        h_query: torch.Tensor,     # [d_model]  anchor hidden state
-        h_vis: torch.Tensor,       # [N_vis, d_model]  visual token hidden states
-        q_proj: nn.Module,         # shared q projector (d_model → d_proj)
-        k_proj: nn.Module,         # shared k projector (d_model → d_proj)
-        d_proj: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Returns (p, logits), each of shape [N_vis]."""
+        h_query: torch.Tensor,                  # [d_model]  anchor hidden state
+        h_vis: torch.Tensor,                    # [N_vis, d_model]  visual token hidden states
+        q_proj: Optional[nn.Module],            # shared q projector (d_model → d_proj); None = no MLP
+        k_proj: Optional[nn.Module],            # shared k projector (d_model → d_proj); None = no MLP
+        d_eff: int,                             # d_proj when MLP present, d_model otherwise
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns (p, logits, q): p and logits [N_vis], q [d_eff]."""
         d_model = h_query.shape[-1]
         target_norm = math.sqrt(d_model)
 
@@ -251,12 +251,17 @@ class LayerGroundingProbe(nn.Module):
         h_v_ln = self.k_ln(h_v_adapted)
         rms_scale_q = (h_q_ln.norm(dim=-1, keepdim=True) / target_norm).clamp(min=1e-6)
         rms_scale_v = (h_v_ln.norm(dim=-1, keepdim=True) / target_norm).clamp(min=1e-6)
-        q = q_proj(h_q_ln / rms_scale_q)   # [d_proj]
-        k = k_proj(h_v_ln / rms_scale_v)   # [N_vis, d_proj]
+        if q_proj is not None:
+            q = q_proj(h_q_ln / rms_scale_q)   # [d_proj]
+            k = k_proj(h_v_ln / rms_scale_v)   # [N_vis, d_proj]
+        else:
+            # No shared MLP: use LoRA-adapted hidden states directly
+            q = h_q_ln / rms_scale_q           # [d_model]
+            k = h_v_ln / rms_scale_v           # [N_vis, d_model]
 
-        logits = torch.matmul(k, q) / math.sqrt(d_proj)   # [N_vis]
+        logits = torch.matmul(k, q) / math.sqrt(d_eff)   # [N_vis]
         p = torch.softmax(logits, dim=-1)
-        return p, logits
+        return p, logits, q
 
 
 # =============================================================================
@@ -293,39 +298,63 @@ def compute_readiness_features(p: torch.Tensor, eps: float = 1e-8) -> torch.Tens
 
 class LayerFusionScorer(nn.Module):
     """
-    Learned layer fusion scorer (readiness selector).
+    Learned layer fusion scorer. Two modes, selected at construction time:
 
-    For each probe layer l:
+    cos_meta (default, recommended):
+      score_l = alpha_l + cos(q_meta, q_l)
+      q_meta  [d_proj]  — single global trainable query (D+L new params)
+      alpha   [L]       — per-layer learnable prior (init 0 → uniform start)
+      q_l is the per-layer anchor query vector already computed by the probe.
+
+    readiness (original, kept for backward compat):
       s_l = concat(readiness_features(p_l), layer_emb_l)
-      score_l = fusion_mlp(s_l)    # scalar
-    omega = softmax([score_0, ..., score_L])
-    p_final = sum_l(omega_l * p_l)
-
-    This implements "learn to read the right layer" from chatgpt-export.txt §7.
+      score_l = fusion_mlp(s_l)
     """
 
-    def __init__(self, num_layers: int, feature_dim: int = 5, layer_emb_dim: int = 8):
+    def __init__(
+        self,
+        num_layers: int,
+        feature_dim: int = 5,
+        layer_emb_dim: int = 8,
+        fusion_type: str = "cos_meta",
+        d_proj: int = 512,
+    ):
         super().__init__()
-        self.layer_embeddings = nn.Embedding(num_layers, layer_emb_dim)
-        in_dim = feature_dim + layer_emb_dim
-        self.scorer = MLP2(in_dim, in_dim * 2, 1)
+        self.fusion_type = fusion_type
+        if fusion_type == "cos_meta":
+            self.q_meta = nn.Parameter(torch.empty(d_proj))
+            self.alpha  = nn.Parameter(torch.zeros(num_layers))
+            nn.init.normal_(self.q_meta, std=0.01)
+        else:
+            self.layer_embeddings = nn.Embedding(num_layers, layer_emb_dim)
+            in_dim = feature_dim + layer_emb_dim
+            self.scorer = MLP2(in_dim, in_dim * 2, 1)
 
     def forward(
         self,
         readiness_features: List[torch.Tensor],   # list of [5] per probe layer
         probe_positions: List[int],               # 0-indexed in probe set
+        per_layer_queries: Optional[List[torch.Tensor]] = None,  # list of [d_proj]
     ) -> torch.Tensor:
         """Returns omega: [num_probes] softmax weights."""
-        device = readiness_features[0].device
-        # Cast to the scorer's parameter dtype (bf16 in mixed-precision training)
-        param_dtype = next(self.scorer.parameters()).dtype
-        scores = []
-        for feat, pos in zip(readiness_features, probe_positions):
-            l_emb = self.layer_embeddings(torch.tensor(pos, device=device))   # [layer_emb_dim]
-            combined = torch.cat([feat.to(param_dtype), l_emb], dim=-1)
-            score = self.scorer(combined)   # [1]
-            scores.append(score)
-        return torch.softmax(torch.cat(scores, dim=0), dim=-1)   # [num_probes]
+        if self.fusion_type == "cos_meta":
+            param_dtype = self.q_meta.dtype
+            q_norm = F.normalize(self.q_meta.to(param_dtype), dim=-1)
+            scores = []
+            for i, q_l in enumerate(per_layer_queries):
+                ql_norm = F.normalize(q_l.to(param_dtype), dim=-1)
+                cos_sim = (q_norm * ql_norm).sum()
+                scores.append(self.alpha[i] + cos_sim)
+            return torch.softmax(torch.stack(scores), dim=-1)
+        else:
+            device = readiness_features[0].device
+            param_dtype = next(self.scorer.parameters()).dtype
+            scores = []
+            for feat, pos in zip(readiness_features, probe_positions):
+                l_emb = self.layer_embeddings(torch.tensor(pos, device=device))
+                combined = torch.cat([feat.to(param_dtype), l_emb], dim=-1)
+                scores.append(self.scorer(combined))
+            return torch.softmax(torch.cat(scores, dim=0), dim=-1)
 
 
 # =============================================================================
@@ -362,28 +391,39 @@ class LayerWiseGroundingHead(nn.Module):
         adapter_rank: int = 16,
         layer_emb_dim: int = 8,
         lambda_layer: float = 0.5,
+        fusion_type: str = "cos_meta",
+        use_shared_mlp: bool = True,
     ):
         super().__init__()
-        self.probe_layers = sorted(probe_layers)
-        self.num_probes = len(self.probe_layers)
-        self.d_proj = d_proj
-        self.lambda_layer = lambda_layer
+        self.probe_layers    = sorted(probe_layers)
+        self.num_probes      = len(self.probe_layers)
+        self.d_model         = d_model
+        self.d_proj          = d_proj
+        self.lambda_layer    = lambda_layer
+        self.use_shared_mlp  = use_shared_mlp
 
-        # Shared projectors (cross-layer parameter sharing)
-        self.q_proj = MLP2(d_model, d_proj, d_proj)
-        self.k_proj = MLP2(d_model, d_proj, d_proj)
+        # Shared MLP projectors (optional; skip when use_shared_mlp=False)
+        if use_shared_mlp:
+            self.q_proj = MLP2(d_model, d_proj, d_proj)
+            self.k_proj = MLP2(d_model, d_proj, d_proj)
+        else:
+            self.q_proj = None   # type: ignore[assignment]
+            self.k_proj = None   # type: ignore[assignment]
 
-        # Per-layer probes
+        # Per-layer probes (LoRA adapters are always present)
         self.probes = nn.ModuleList([
             LayerGroundingProbe(d_model, adapter_rank)
             for _ in range(self.num_probes)
         ])
 
-        # Layer fusion scorer
+        # Layer fusion scorer — q_meta dimension = d_proj if MLP, else d_model
+        d_for_fusion = d_proj if use_shared_mlp else d_model
         self.fusion = LayerFusionScorer(
             num_layers=self.num_probes,
             feature_dim=5,
             layer_emb_dim=layer_emb_dim,
+            fusion_type=fusion_type,
+            d_proj=d_for_fusion,
         )
 
     def forward(
@@ -399,21 +439,27 @@ class LayerWiseGroundingHead(nn.Module):
         Returns dict with keys: p_final, omega, per_layer_probs
         (+ loss_fuse, loss_layer, total_grounding_loss if labels given)
         """
-        per_layer_probs = []
-        readiness_feats = []
+        per_layer_probs   = []
+        readiness_feats   = []
+        per_layer_queries = []
 
         for probe_i, layer_idx in enumerate(self.probe_layers):
             hs = all_hidden_states[layer_idx + 1]   # [seq_len, d_model]
             h_query = hs[ground_token_idx]           # [d_model]
             h_vis   = hs[visual_indices]             # [N_vis, d_model]
 
-            p_l, _ = self.probes[probe_i](
-                h_query, h_vis, self.q_proj, self.k_proj, self.d_proj
+            p_l, _, q_l = self.probes[probe_i](
+                h_query, h_vis,
+                self.q_proj, self.k_proj,
+                self.d_proj if self.use_shared_mlp else self.d_model,
             )
             per_layer_probs.append(p_l)
             readiness_feats.append(compute_readiness_features(p_l.detach()))
+            per_layer_queries.append(q_l)
 
-        omega = self.fusion(readiness_feats, list(range(self.num_probes)))  # [num_probes]
+        omega = self.fusion(
+            readiness_feats, list(range(self.num_probes)), per_layer_queries
+        )  # [num_probes]
         p_final = sum(omega[i] * per_layer_probs[i] for i in range(self.num_probes))
 
         result = {
@@ -433,7 +479,7 @@ class LayerWiseGroundingHead(nn.Module):
                 reduction="sum",
             )
 
-            loss_layer = torch.zeros(1, device=p_final.device)
+            loss_layer = torch.zeros((), device=p_final.device)
             for p_l in per_layer_probs:
                 loss_layer = loss_layer + F.kl_div(
                     torch.log(p_l.clamp(min=eps)),
@@ -479,10 +525,12 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
     def __init__(self, config, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
 
-        probe_layers  = getattr(config, "probe_layers",            [14, 18, 21, 24, 26, 27])
-        d_proj        = getattr(config, "grounding_proj_dim",       512)
-        adapter_rank  = getattr(config, "grounding_adapter_rank",   16)
-        lambda_layer  = getattr(config, "grounding_lambda_layer",   0.5)
+        probe_layers    = getattr(config, "probe_layers",              [14, 18, 21, 24, 26, 27])
+        d_proj          = getattr(config, "grounding_proj_dim",         512)
+        adapter_rank    = getattr(config, "grounding_adapter_rank",     16)
+        lambda_layer    = getattr(config, "grounding_lambda_layer",     0.5)
+        fusion_type     = getattr(config, "grounding_fusion_type",     "readiness")
+        use_shared_mlp  = getattr(config, "grounding_use_shared_mlp",  True)
 
         self.layerwise_grounding_head = LayerWiseGroundingHead(
             d_model=config.hidden_size,
@@ -490,6 +538,8 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
             probe_layers=probe_layers,
             adapter_rank=adapter_rank,
             lambda_layer=lambda_layer,
+            fusion_type=fusion_type,
+            use_shared_mlp=use_shared_mlp,
         )
 
         # Loss weights
@@ -550,12 +600,19 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
             nn.init.zeros_(probe.q_ln.bias)
             nn.init.ones_(probe.k_ln.weight)
             nn.init.zeros_(probe.k_ln.bias)
+        # cos_meta fusion params
+        fusion = self.layerwise_grounding_head.fusion
+        if hasattr(fusion, "q_meta"):
+            nn.init.normal_(fusion.q_meta, std=0.01)
+        if hasattr(fusion, "alpha"):
+            nn.init.zeros_(fusion.alpha)
 
     def setup_special_token_ids(
         self,
         ground_token_id: int,
         pointer_start_token_id: int,
         vision_end_token_id: Optional[int] = None,
+        reinit_grounding_head: bool = True,
     ) -> None:
         """
         Register special token IDs needed by _find_ground_anchor().
@@ -564,22 +621,23 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
           tokenizer.add_special_tokens({"additional_special_tokens": ADDITIONAL_SPECIAL_TOKENS})
           model.resize_token_embeddings(len(tokenizer))
 
-        Also calls reinit_grounding_head() to fix any NaN weights that can
-        result from HuggingFace's bfloat16 from_pretrained() initialization
-        of newly-added (non-checkpoint) parameters.
-
         Args:
             ground_token_id:        token id of <|ground|>
             pointer_start_token_id: token id of <|pointer_start|>
             vision_end_token_id:    token id of <|vision_end|>
                                     (optional; auto-detected from config if not provided)
+            reinit_grounding_head:  call reinit_grounding_head() to fix NaN weights from
+                                    bfloat16 from_pretrained() of newly-added parameters.
+                                    Set True when initializing from a base (non-retrofit)
+                                    checkpoint; set False when resuming from a trained
+                                    retrofit checkpoint to preserve learned weights.
         """
         self._ground_token_id = ground_token_id
         self._pointer_start_token_id = pointer_start_token_id
         if vision_end_token_id is not None:
             self._vision_end_token_id = vision_end_token_id
-        # Fix potential NaN weights from bfloat16 from_pretrained() initialization
-        self.reinit_grounding_head()
+        if reinit_grounding_head:
+            self.reinit_grounding_head()
 
     def reset_loss_weights(
         self, grounding_loss_weight: float, lm_loss_weight: float
@@ -600,66 +658,67 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
         """
         Dynamically find the best anchor token for grounding query.
 
-        Priority (chatgpt-export.txt §4.2):
-          P1. <|ground|> in sequence        → EXPLICIT_GROUND_TOKEN (safest, no leakage)
-          P2. Token before <|pointer_start|> → BEFORE_POINTER_START (pre-coordinate)
-          P3. Token after <|vision_end|>     → AFTER_VISION_END (safe but weaker)
-          P4. external_hint from dataset     → EXTERNAL_HINT
-          P5. Last non-padding token         → LAST_NON_PAD (WARNING: leakage risk)
+        Priority:
+          P0. external_hint from dataset     → EXTERNAL_HINT  (pre-computed, most reliable)
+          P1. <|ground|> AFTER vision_end    → EXPLICIT_GROUND_TOKEN
+          P2. last <|pointer_start|> AFTER vision_end → BEFORE_POINTER_START
+          P3. first token after <|vision_end|> → AFTER_VISION_END
+          P4. Last non-padding token         → LAST_NON_PAD (WARNING: leakage risk)
+
+        P1 and P2 are restricted to positions after the last <|vision_end|> to prevent
+        accidentally selecting <|ground|> / <|pointer_start|> in the system-message
+        action-space example, which appears before the image tokens.
 
         Returns (anchor_position_index, AnchorStrategy).
         """
         seq_len = token_ids.shape[0]
 
-        # P1: explicit <|ground|> token in sequence
-        # Use the LAST occurrence: the system message Action Space example contains
-        # a spurious <|ground|> at an early position:
-        #   click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
-        # The true anchor is in the assistant response (later in the sequence).
-        if self._ground_token_id is not None:
-            positions = (token_ids == self._ground_token_id).nonzero(as_tuple=False)
-            if positions.numel() > 0:
-                return int(positions[-1].item()), AnchorStrategy.EXPLICIT_GROUND_TOKEN
+        # Determine the cut point: last <|vision_end|> position.
+        # P1 and P2 only consider tokens after this point.
+        vision_cut = -1
+        if self._vision_end_token_id is not None:
+            vis_ends = (token_ids == self._vision_end_token_id).nonzero(as_tuple=False)
+            if vis_ends.numel() > 0:
+                vision_cut = int(vis_ends[-1].item())
 
-        # P2: token immediately before <|pointer_start|>
-        # P2 only fires when P1 failed (no <|ground|> in sequence).
-        # GROUNDING_SYSTEM_MESSAGE always embeds <|ground|>, so P1 fires first whenever
-        # the system message is present. P2 is a last-resort fallback for data that has
-        # <|pointer_start|> but no <|ground|> token (e.g. raw GUI-Actor format).
-        # In that case there is only ONE <|pointer_start|> in the sequence, so first==last.
+        # P0: external hint from dataset (pre-computed by get_ground_token_idx_in_sequence)
+        if external_hint is not None and 0 <= external_hint < seq_len:
+            return external_hint, AnchorStrategy.EXTERNAL_HINT
+
+        # P1: last <|ground|> AFTER vision_end
+        if self._ground_token_id is not None:
+            positions = (token_ids == self._ground_token_id).nonzero(as_tuple=False).squeeze(-1)
+            candidates = positions[positions > vision_cut]
+            if candidates.numel() > 0:
+                return int(candidates[-1].item()), AnchorStrategy.EXPLICIT_GROUND_TOKEN
+
+        # P2: token before last <|pointer_start|> AFTER vision_end
         if self._pointer_start_token_id is not None:
-            positions = (token_ids == self._pointer_start_token_id).nonzero(as_tuple=False)
-            if positions.numel() > 0:
-                ptr_pos = int(positions[0].item())
+            positions = (token_ids == self._pointer_start_token_id).nonzero(as_tuple=False).squeeze(-1)
+            candidates = positions[positions > vision_cut]
+            if candidates.numel() > 0:
+                ptr_pos = int(candidates[-1].item())
                 if ptr_pos > 0:
                     if verbose:
                         warnings.warn(
                             f"Anchor P2: before pointer_start at pos {ptr_pos}. "
-                            f"<|ground|> not found in sequence. "
+                            f"<|ground|> not found after vision_end. "
                             f"Ensure training data injects <|ground|> for best quality.",
                             UserWarning, stacklevel=3,
                         )
                     return ptr_pos - 1, AnchorStrategy.BEFORE_POINTER_START
 
         # P3: first token after <|vision_end|>
-        if self._vision_end_token_id is not None:
-            positions = (token_ids == self._vision_end_token_id).nonzero(as_tuple=False)
-            if positions.numel() > 0:
-                last_vis_end = int(positions[-1].item())
-                if last_vis_end + 1 < seq_len:
-                    if verbose:
-                        warnings.warn(
-                            f"Anchor P3: after vision_end at pos {last_vis_end}. "
-                            f"No <|ground|> or <|pointer_start|> found.",
-                            UserWarning, stacklevel=3,
-                        )
-                    return last_vis_end + 1, AnchorStrategy.AFTER_VISION_END
+        if vision_cut >= 0 and vision_cut + 1 < seq_len:
+            if verbose:
+                warnings.warn(
+                    f"Anchor P3: first token after vision_end at pos {vision_cut}. "
+                    f"No <|ground|> or <|pointer_start|> found after vision_end.",
+                    UserWarning, stacklevel=3,
+                )
+            return vision_cut + 1, AnchorStrategy.AFTER_VISION_END
 
-        # P4: external hint from dataset
-        if external_hint is not None and 0 <= external_hint < seq_len:
-            return external_hint, AnchorStrategy.EXTERNAL_HINT
-
-        # P5: last non-padding token (WARNING)
+        # P4: last non-padding token (WARNING)
         pad_id = getattr(self.config, "pad_token_id", None)
         if pad_id is not None:
             non_pad = (token_ids != pad_id).nonzero(as_tuple=False)
@@ -669,7 +728,7 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
         if non_pad.numel() > 0:
             last_np = int(non_pad[-1].item())
             warnings.warn(
-                f"Anchor P5: last non-pad token at pos {last_np}. "
+                f"Anchor P4: last non-pad token at pos {last_np}. "
                 f"For UI-TARS native format this may follow coordinates → LABEL LEAKAGE RISK! "
                 f"Inject <|ground|> token into training responses to avoid this.",
                 UserWarning, stacklevel=3,
@@ -834,7 +893,7 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
                 visual_indices = self._get_visual_indices(token_ids_i)   # [N_vis]
 
                 if visual_indices.numel() == 0:
-                    grounding_losses.append(torch.tensor(0.0, device=input_ids.device))
+                    grounding_losses.append(logits[i].sum() * 0.0)
                     all_grounding_scores.append(None)
                     all_layer_weights.append(None)
                     all_anchor_positions.append(None)
@@ -858,7 +917,7 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
                 # Step 3: patch label
                 sample_label = multi_patch_labels[i]
                 if sample_label is None:
-                    grounding_losses.append(torch.tensor(0.0, device=input_ids.device))
+                    grounding_losses.append(logits[i].sum() * 0.0)
                     all_grounding_scores.append(None)
                     all_layer_weights.append(None)
                     continue
@@ -868,7 +927,7 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
 
                 # Skip placeholder labels
                 if sample_label.shape[0] == 1 and sample_label.sum() == 0:
-                    grounding_losses.append(torch.tensor(0.0, device=input_ids.device))
+                    grounding_losses.append(logits[i].sum() * 0.0)
                     all_grounding_scores.append(None)
                     all_layer_weights.append(None)
                     continue
@@ -887,7 +946,7 @@ class UITARSRetrofitModel(Qwen2_5_VLForConditionalGeneration):
                                 f"[WARN] Sample {i}: label={sample_label.shape[0]} "
                                 f"!= N_vis={n_vis}, skipping"
                             )
-                        grounding_losses.append(torch.tensor(0.0, device=input_ids.device))
+                        grounding_losses.append(logits[i].sum() * 0.0)
                         all_grounding_scores.append(None)
                         all_layer_weights.append(None)
                         continue

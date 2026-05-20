@@ -1,0 +1,1421 @@
+
+【回答内容 轮数1】
+I’ve now read the mrules and will frame ZwerGe specifically as pre-decoding, layer-wise internal posterior evidence—not generic zoom-in or leaderboard engineering.
+
+【回答内容 轮数1】
+下面这套方案按 **EMNLP 投稿优先级** 来设计：主线不是“retrofit 涨点”，而是把 ZwerGe-UI 写成一篇 **内部表征机制论文**：
+
+> **Coordinate Bottleneck Hypothesis**：GUI Agent 在生成坐标/action tokens 之前，中间层已经形成可恢复的目标位置 posterior；最后几层更多承担 coordinate/action lexicalization，而不是主要承担视觉 grounding。Coordinate-free retrofit 的价值，是暴露并利用这个 pre-decoding grounding signal。
+
+我先给结论：你现在已有的 A2/A4、near-miss、layer-wise、omega collapse 结果已经足够支撑一个强叙事。接下来 2–3 天最该补的不是更多 leaderboard，而是四类证据：**layer emergence、grounding-vs-coordinate lexicality、AR wrong/internal right recoverability、late-layer/token-role analysis**。这些实验短平快，而且和 `Vision Transformers Need Registers` 的风格一致：先发现内部表征现象，再刻画位置、功能和干预效果。
+
+---
+
+## 0. 非 GUI 领域可借鉴的机制叙事
+
+你的论文最像的不是普通 GUI grounding paper，而是以下几类工作的交叉：
+
+**Vision Transformers Need Registers** 的写法很适合你：它不是先讲 SOTA，而是识别 ViT feature map 中的 high-norm artifacts，说明这些 token 常出现在低信息背景区域、被模型复用为内部计算槽位，然后用 register tokens 作为干预来验证机制解释。你的对应物是：GUI Agent 的最后层/coordinate tokens 不是“更懂视觉”，而是在把已有 grounding signal 翻译成坐标词法。
+
+**attention sink / massive activation** 一类工作能支撑“Transformer 会把一部分 token/layer 功能化，而不是所有 token 都语义等价”的论述。StreamingLLM 发现初始 token 即便语义不重要也会吸收大量 attention，并用保留 sink KV 来稳定长上下文；Massive Activations 进一步说明少数极大 activation 可扮演近似 bias 的内部计算角色，并与 attention concentration 相关。
+
+**efficient VLM / visual token pruning** 给你另一个论据：多模态模型里视觉信息的作用随层变化，不是“越深越视觉”。FastV 报告 LVLM 深层视觉 token attention 极低效，并在后续层 pruning visual tokens；PyramidDrop 则经验性观察到浅层需要更多视觉 token，而视觉 token redundancy 随深度增加。 但也要引用反例/警告：FEATHER 发现视觉 token pruning 在许多任务上看似无伤，但会显著伤害 localization/TextVQA，说明普通 VLM benchmark 可能低估细粒度视觉 grounding 的需求。
+
+**VLM layer-wise perception / hallucination** 直接支撑你的“中间层有视觉，深层被语言/输出偏置稀释”。LLaVA 内部处理研究发现 object-specific token 被移除会让 object identification 大幅下降，并分析 visual token 表征如何随层演化；近期 ARA/attention re-alignment 类工作也报告：MLLM 中间层能感知目标对象，但深层视觉细节会被语言先验稀释。
+
+GUI 领域近作可以作为旁证和差异化对象：Re-Prefill 明确提出 prefill 阶段决定候选 UI element、decode 阶段主要 refine 坐标；AutoFocus/UI-Zoomer/ZoomUI 则多数从 decoding-time perplexity、多次采样或 iterative attention 获取不确定性，而你要强调的是 **single-pass, pre-decoding, layer-wise hidden-state posterior**。
+
+---
+
+# 1. 把 Coordinate Bottleneck Hypothesis 形式化
+
+设一个 GUI grounding 样本为
+$$
+
+x_i=(I_i, q_i, b_i)
+
+$$
+其中 $I_i$ 是截图，$q_i$ 是 instruction，$b_i$ 是 GT bbox。模型把图像编码成 $N_i$ 个 visual tokens。第 $l$ 层 anchor token hidden state 为
+$$
+
+h_{a,i}^{(l)}
+
+$$
+第 $j$ 个 visual token hidden state 为
+$$
+
+h_{v,ij}^{(l)}
+
+$$
+
+你的 retrofit head 已经定义了：
+
+$$
+
+q_i^{(l)} = f_q(h_{a,i}^{(l)}), \quad
+k_{ij}^{(l)} = f_k(h_{v,ij}^{(l)})
+
+$$
+
+$$
+
+z_{ij}^{(l)} = \frac{(k_{ij}^{(l)})^\top q_i^{(l)}}{\sqrt{d}}
+
+$$
+
+$$
+
+p_i^{(l)}(j)=\mathrm{softmax}_j(z_{ij}^{(l)})
+
+$$
+
+其中 $p_i^{(l)}$ 就是第 $l$ 层的 internal patch posterior。
+
+---
+
+## 1.1 Layer-wise Grounding Recoverability $G_l$
+
+建议主文里同时报告一个 **hard recoverability** 和一个 **soft recoverability**。
+
+**Hard hit recoverability**：
+
+$$
+
+G_l^{hit} = \frac{1}{|\mathcal{D}|}\sum_i
+\mathbf{1}\left[d(p_i^{(l)}) \in b_i\right]
+
+$$
+
+这里 $d(\cdot)$ 是你的 centroid decoder，和当前评测一致。
+
+**Hard overlap recoverability**：
+
+$$
+
+G_l^{overlap} = \frac{1}{|\mathcal{D}|}\sum_i
+\mathbf{1}\left[\mathrm{patch}(d(p_i^{(l)})) \cap b_i \neq \emptyset\right]
+
+$$
+
+它对小 bbox 量化更稳，适合解释 SS-Pro/OSWorld-G 的 near-miss。
+
+**Soft target mass recoverability**：
+
+令 $\mathcal{B}_i$ 是与 GT bbox overlap 的 patch 集合：
+
+$$
+
+G_l^{mass} = \frac{1}{|\mathcal{D}|}\sum_i \sum_{j\in \mathcal{B}_i} p_i^{(l)}(j)
+
+$$
+
+或者用 NLL：
+
+$$
+
+\mathrm{NLL}_l^{box} =
+-\frac{1}{|\mathcal{D}|}\sum_i
+\log \left(\sum_{j\in \mathcal{B}_i} p_i^{(l)}(j)+\epsilon\right)
+
+$$
+
+主图用 $G_l^{hit}$ / $G_l^{overlap}$，appendix 用 $G_l^{mass}$ / NLL，避免 reviewer 说 hit 受 patch 量化影响太大。
+
+---
+
+## 1.2 Coordinate Lexicality $C_l$
+
+你要证明的是：**grounding signal 早于 coordinate token lexicalization**。因此需要衡量第 $l$ 层是否已经“准备好输出坐标词法”。
+
+定义 coordinate vocabulary：
+
+$$
+
+\mathcal{V}_{coord} =
+\{\text{digits}, \text{comma}, \text{decimal}, \text{brackets},
+\text{x/y coordinate tokens}, \text{normalized coordinate bins}\}
+
+$$
+
+根据模型 tokenizer 实际拆分做集合。UI-TARS / GUI-Owl / Qwen-VL 可能不完全一致，所以主文报告 normalized 指标。
+
+### 指标 A：coordinate token mass
+
+对 pre-coordinate anchor hidden state $h_{a,i}^{(l)}$，用 LM head 或 tuned/logit lens 得到词表分布：
+
+$$
+
+P_l^{LM}(v|x_i) = \mathrm{softmax}(W_U T_l h_{a,i}^{(l)})_v
+
+$$
+
+其中 $T_l$ 可先用 identity，即 logit lens；若有时间，训练 affine tuned lens，但 6 天投稿不强求。Tuned Lens 的思想就是为每层 hidden state 学 affine translator，使中间层可被读成词表分布，适合作为方法依据。
+
+$$
+
+C_l^{mass} =
+\frac{1}{|\mathcal{D}|}\sum_i
+\sum_{v\in \mathcal{V}_{coord}}P_l^{LM}(v|x_i)
+
+$$
+
+如果 $C_l^{mass}$ 在最后层急剧上升，而 $G_l$ 在 L20/L21 附近达到峰值，就很漂亮。
+
+### 指标 B：true first-coordinate lexicality
+
+如果你有 teacher-forced 坐标序列 $c_i=(c_{i1},...,c_{iT})$，可测第一个 coordinate token 的 readiness：
+
+$$
+
+C_l^{true1} =
+-\frac{1}{|\mathcal{D}|}\sum_i
+\log P_l^{LM}(c_{i1}|x_i)
+
+$$
+
+为了画成“越高越好”：
+
+$$
+
+\tilde C_l^{true1}
+=
+1-\frac{C_l^{true1}-\min_k C_k^{true1}}
+{\max_k C_k^{true1}-\min_k C_k^{true1}+\epsilon}
+
+$$
+
+注意：这个指标容易受 coordinate format 影响，所以它更适合证明“最后层在做词法输出”，不是证明 grounding。
+
+---
+
+## 1.3 Coordinate Bottleneck Index, CBI
+
+我建议把 CBI 拆成三个可解释分量，而不是只报一个黑盒数字。
+
+### 分量 1：Grounding–Lexicalization Depth Gap
+
+先把层归一化：
+
+$$
+
+r_l = \frac{l}{L-1}
+
+$$
+
+把 $G_l$ 和 $C_l$ 都归一到 $[0,1]$，例如 min-max normalize。
+
+定义 grounding center of mass：
+
+$$
+
+\mu_G =
+\frac{\sum_l r_l \tilde G_l}{\sum_l \tilde G_l+\epsilon}
+
+$$
+
+定义 coordinate lexicalization center of mass：
+
+$$
+
+\mu_C =
+\frac{\sum_l r_l \tilde C_l}{\sum_l \tilde C_l+\epsilon}
+
+$$
+
+则：
+
+$$
+
+\mathrm{CBI}_{depth} = \mu_C - \mu_G
+
+$$
+
+正值越大，说明 coordinate lexicality 比 grounding 更晚出现。这个是主文最干净的 Coordinate Bottleneck Index。
+
+---
+
+### 分量 2：Late Grounding Degradation
+
+定义中间层集合 $\mathcal{M}$，例如 L18–L23；深层集合 $\mathcal{F}$，例如 L24–L27 或最后 20% 层。
+
+$$
+
+\mathrm{CBI}_{drop}
+=
+\max_{l\in \mathcal{M}} G_l
+-
+\max_{l\in \mathcal{F}} G_l
+
+$$
+
+你的现有结果已经支持这个：SS-Pro 上 L20/L21 单层最好，L25 gap 大，历史上 L26/L27 更差；A4 去掉 L26/L27 后 SS-v2/MMBench/UI-Vision 比 A3 更稳。
+
+---
+
+### 分量 3：Internal-Recoverable AR Failure
+
+设自回归坐标输出为 $y_i^{AR}$，internal posterior 最优层或 fusion 输出为 $p_i^*$。
+
+$$
+
+R_{\mathrm{AR}\downarrow,\mathrm{Int}\uparrow}
+=
+P\left[
+d(p_i^*)\in b_i \mid y_i^{AR}\notin b_i
+\right]
+
+$$
+
+这就是 “AR wrong but internal posterior right”。它直接回答 reviewer 最可能问的问题：
+
+> 你怎么知道涨点不是 head 学了一个额外 detector，而是 coordinate bottleneck？
+
+如果很多 AR failure 能被 pre-decoding posterior 恢复，就说明坐标输出阶段确实丢掉/扭曲了已有 grounding signal。
+
+---
+
+## 1.4 Late Lexicalization Index, LLI
+
+可单独定义：
+
+$$
+
+\mathrm{LLI}=
+\mu_C-\mu_G
+
+$$
+
+也可用 threshold layer 版本：
+
+$$
+
+l_G(\tau)=\min\{l: G_l \ge \tau \max_k G_k\}
+
+$$
+
+$$
+
+l_C(\tau)=\min\{l: C_l \ge \tau \max_k C_k\}
+
+$$
+
+$$
+
+\mathrm{LLI}_\tau = \frac{l_C(\tau)-l_G(\tau)}{L}
+
+$$
+
+推荐主文用 $\tau=0.9$，appendix 报 $\tau=0.8/0.95$ 稳健性。
+
+---
+
+# 2. 2–3 天内最值得跑的 probe/analysis 实验
+
+下面按优先级分。P0 必须做；P1 尽量做；P2 做不完放 appendix 或 future work。
+
+---
+
+## P0-1. Layer-wise Grounding Emergence Curve
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 证明 grounding signal 在中间层已经可恢复，且最后层不是最优 grounding readout。 |
+| 数学定义 | $G_l^{hit}$, $G_l^{overlap}$, $G_l^{mass}$, $\mathrm{NLL}_l^{box}$。 |
+| 怎么跑 | 用现有 `eval_layerwise.py` 扩展输出每层 hit/overlap/mass/NLL；固定 centroid decoder；对 A2/A4 checkpoint、UI-TARS base+head、后续 GUI-Owl/UI-Venus 分别跑。 |
+| 数据 | SS-Pro、OSWorld-G、MMBench-GUI-L2；SS-v2 只作 sanity，因为太饱和。 |
+| 预期图 | x 轴 layer，y 轴 hit/overlap；每个 benchmark 一条线或小 multiples。重点标出 L20/L21 peak、L25–L27 drop、fusion。 |
+| 支撑 claim | “Grounding emerges before decoding and peaks in intermediate layers.” |
+| 不如预期怎么办 | 如果某模型最后层也强，就降级为“grounding is broadly recoverable before coordinate decoding, not exclusive to final layer”；用跨模型平均和 UI-TARS 的明显 late drop 做主证据。 |
+
+你已有 A4@SS-Pro：L20/L21 单层最好、fusion 只比最优单层高 0.06–0.81pp，L25/L26/L27 差。这一张图应该是主文 Figure 2。
+
+---
+
+## P0-2. Grounding Curve vs Coordinate Lexicality Curve
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 同一张图证明：视觉 grounding 早，coordinate lexicalization 晚。 |
+| 数学定义 | $G_l$ 与 $C_l^{mass}$、$\tilde C_l^{true1}$、$\mathrm{LLI}$。 |
+| 怎么跑 | 对同一批样本 dump 每层 anchor hidden；用 LM head/logit lens 计算 coordinate-token mass；可先不用 tuned lens。 |
+| 数据 | SS-Pro 500–1,000 条即可；再加 OSWorld-G 510 条 positive。 |
+| 预期图 | 双 y 轴或归一化 overlay：蓝线 $G_l$ 在 L18–L22 达峰；红线 $C_l$ 在 L24–L27 上升。 |
+| 支撑 claim | “Late layers specialize toward coordinate/action tokenization rather than improving grounding.” |
+| 不如预期怎么办 | 如果 logit lens 噪声大，用 coordinate-token mass 不用 true coordinate NLL；再把它放 appendix，并在主文保留 layer drop / AR recoverability。 |
+
+具体实现建议：
+
+```text
+For each sample:
+  1. 构造 pre-coordinate prompt:
+     pyautogui.click(<|ground|><|pointer_start|>...)
+  2. forward with output_hidden_states=True
+  3. 对每层 anchor hidden h_a^l:
+       logits_l = lm_head(final_norm_or_identity(h_a^l))
+       C_l_mass = sum softmax(logits_l)[coord_vocab_ids]
+  4. 记录 G_l from posterior head
+```
+
+注意 `final_norm_or_identity` 要固定一种写法。Qwen 系模型通常最后还有 final norm，建议同时试：
+
+$$
+
+P_l^{raw}=\mathrm{softmax}(W_U h_l)
+
+$$
+
+$$
+
+P_l^{normed}=\mathrm{softmax}(W_U \mathrm{final\_norm}(h_l))
+
+$$
+
+主文只放更稳定的那个，appendix 说明另一种一致。
+
+---
+
+## P0-3. AR Wrong but Internal Posterior Right
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 证明一部分错误不是“模型没看见”，而是已有 grounding signal 没被 AR coordinate 输出正确使用。 |
+| 数学定义 | $R_{\mathrm{AR}\downarrow,\mathrm{Int}\uparrow}$、$P[\mathrm{IntRight}, \mathrm{ARWrong}]$、$P[\mathrm{IntWrong}, \mathrm{ARRight}]$。 |
+| 怎么跑 | 对同一批样本保存：AR baseline 坐标、ZwerGe fusion 坐标、best-layer 坐标、GT bbox、near/far 标签。 |
+| 数据 | SS-Pro 全量；OSWorld-G positive；UI-Vision 可做 appendix。 |
+| 预期图 | 2×2 confusion matrix：AR hit/miss vs internal hit/miss；再给 6–8 个 qualitative heatmaps。 |
+| 支撑 claim | “Coordinate bottleneck causes recoverable failures.” |
+| 不如预期怎么办 | 如果 internal-right/AR-wrong 比例不高，改写为“retrofit exposes a subset of pre-existing signals; remaining errors are perceptual/data-resolution failures”，并用 icon far_miss 支撑限制。 |
+
+这张图非常关键。它能把论文从“我加了 head 所以涨点”拉回“我证明了 AR coordinate stage 不是充分利用内部 grounding”。
+
+建议错误分类：
+
+$$
+
+\text{Lexicalization failure}:
+\quad \mathrm{ARWrong}\land\mathrm{InternalRight}
+
+$$
+
+$$
+
+\text{Perceptual failure}:
+\quad \mathrm{ARWrong}\land\mathrm{InternalWrong}
+
+$$
+
+$$
+
+\text{Head-induced failure}:
+\quad \mathrm{ARRight}\land\mathrm{InternalWrong}
+
+$$
+
+然后按 icon/text/slider、bbox size、near/far 分组。你已有发现里 icon far_miss 高、slider disaster，这正好解释“不是所有错误都属于 coordinate bottleneck”。
+
+---
+
+## P0-4. Prompt / Coordinate Format Stress Test
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 证明 internal posterior 对 coordinate surface form 更稳定，而 AR coordinate 输出对格式更脆。 |
+| 数学定义 | posterior stability：$\mathrm{JS}(p_l^{template\,a}, p_l^{template\,b})$；AR stability：coordinate variance / hit variance。 |
+| 怎么跑 | 同一图同一 instruction，换 4 种输出格式 prompt：`pyautogui.click(x,y)`、`[x,y]`、`<point>x y</point>`、normalized 0–1000 / pixel。每种都读 pre-coordinate anchor posterior 和 AR 输出。 |
+| 数据 | SS-Pro 300–500 条足够；优先 small/icon 子集。 |
+| 预期图 | 左：AR hit 随 format 波动明显；右：mid-layer posterior JS 小，late-layer/AR JS 大。 |
+| 支撑 claim | “Coordinate output format is a bottleneck/lexical interface; internal grounding is less format-bound.” |
+| 不如预期怎么办 | 如果 posterior 也随 prompt 大幅变动，说明 prompt 改变了 instruction parsing；降级为 appendix，并在主文强调固定 prompt 下的 layer evidence。 |
+
+posterior JS 定义：
+
+$$
+
+\mathrm{JS}_l(a,b)
+=
+\frac{1}{2}\mathrm{KL}(p_l^a||m_l)
++
+\frac{1}{2}\mathrm{KL}(p_l^b||m_l)
+
+$$
+
+$$
+
+m_l=\frac{1}{2}(p_l^a+p_l^b)
+
+$$
+
+建议报告：
+
+$$
+
+\mathrm{PSI}_l = 1 - \frac{1}{|\mathcal{T}|^2}\sum_{a,b}\mathrm{JS}_l(a,b)
+
+$$
+
+即 Posterior Stability Index。
+
+---
+
+## P1-1. Pre-decoding vs Post-decoding Anchor Probe
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 证明坐标生成后不必然带来更多 grounding；pre-coordinate anchor 已经足够强。 |
+| 数学定义 | $G_l(a_{pre})$, $G_l(a_{post})$, $\Delta G_l=G_l(a_{post})-G_l(a_{pre})$。 |
+| 怎么跑 | 三种 anchor：pre-coordinate `<|ground|>`；post-generated-coordinate token；post-random-coordinate token。禁止 teacher-forced GT 坐标直接作为 post anchor 主结果，避免 label leakage。 |
+| 数据 | SS-Pro 500 条；OSWorld-G 510 positive。 |
+| 预期图 | pre 和 post-generated 接近；post-true 可能高但只做 leakage upper bound；post-random 不应提升。 |
+| 支撑 claim | “Grounding is formed before coordinate decoding.” |
+| 不如预期怎么办 | 如果 post-generated 明显强，说明 decoding tokens refine 了 localization；仍可写成“prefill provides candidate selection, decoding refines coordinates”，与 Re-Prefill 对齐，但主 claim 要变弱。 |
+
+这里要非常小心 reviewer 的 label leakage。主文只用 pre-coordinate 和 model-generated post-coordinate；GT post-coordinate 放 appendix 且明确标为 oracle/leakage upper bound。
+
+---
+
+## P1-2. Token Norm / Information Role Analysis
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 模仿 Registers：看最后层是否出现高范数/功能性 token，及其是否与 grounding 无关或负相关。 |
+| 数学定义 | visual norm concentration $NC_l=\max_j||h_{v,j}^{(l)}||/\mathrm{median}_j||h_{v,j}^{(l)}||$；target-norm overlap；sinkness。 |
+| 怎么跑 | 对 SS-Pro 300 条保存每层 visual token norm、anchor norm、special token norm；必要时 sparse QK recompute anchor→visual attention slice。 |
+| 数据 | SS-Pro，按 icon/text/small/large 分组。 |
+| 预期图 | layer × token-type norm heatmap；高 norm token 是否集中在 background/special/anchor；norm peak 与 posterior peak 的重合率。 |
+| 支撑 claim | “Late representations are functionally repurposed; high activation does not equal visual grounding.” |
+| 不如预期怎么办 | 如果没有 high-norm artifact，写成 appendix：“Unlike plain ViTs, GUI bottleneck manifests less as norm artifact and more as functional layer shift.” |
+
+指标可定义：
+
+$$
+
+\mathrm{NormTargetOverlap}_l
+=
+\frac{1}{|\mathcal{D}|}\sum_i
+\mathbf{1}\left[
+\arg\max_j ||h_{v,ij}^{(l)}|| \in \mathcal{B}_i
+\right]
+
+$$
+
+$$
+
+\mathrm{PosteriorNormCorr}_l
+=
+\mathrm{corr}_j
+\left(p_i^{(l)}(j), ||h_{v,ij}^{(l)}||\right)
+
+$$
+
+如果 late layers 的 norm outlier 和 target posterior 不相关，叙事会很像 Registers paper。
+
+---
+
+## P1-3. Layer Dropping / Late-layer Ablation
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 干预证明最后层更影响 coordinate lexicalization，而不是 internal grounding。 |
+| 数学定义 | $\Delta G = G_{\text{ablated}}-G_{\text{full}}$，$\Delta C=C_{\text{ablated}}-C_{\text{full}}$，$\Delta AR$。 |
+| 怎么跑 | 小规模 hook：把 L24–L27 block output 替换为 block input，或只 drop last 1/2/3 layers；对 AR coordinate hit、coordinate-token NLL、mid-layer posterior hit 分别测。 |
+| 数据 | SS-Pro 200–500 条，先别全量。 |
+| 预期图 | late drop 对 AR/coordinate lexicality 伤害大，对 L20/L21 posterior 无影响；如果 probe readout在被 drop 层之前，理论上完全不变。 |
+| 支撑 claim | “Late layers are necessary for output tokenization, not for forming the grounding posterior.” |
+| 不如预期怎么办 | 如果模型直接崩，放 appendix 或不做；主文用 readout ablation：去掉 L26/L27 的 A4 优于含 L26/L27 的 A3。 |
+
+工程上这项风险最高，但如果一天内能跑通，会很有说服力。若时间紧，用你已有 A4 “remove L26/L27 improves stability” 作为轻量干预即可。
+
+---
+
+## P1-4. Omega Collapse / Entropy-Regularized Fusion
+
+| 项 | 方案 |
+|---|---|
+| 目的 | 解释 cos_meta 为什么 collapse 到 L18/L19，以及 learned fusion 为什么仍支持“中间层优先”。 |
+| 数学定义 | $H(\omega)=-\sum_l \omega_l\log\omega_l$；weighted fusion depth $\mu_\omega=\sum_l r_l\omega_l$；fusion regret $\max_l G_l-G_{fusion}$。 |
+| 怎么跑 | A4 设置：$\lambda_H=0,0.01,0.03,0.05$，400/800/1200 steps quick eval；loss 用 $L=L_{ground}-\lambda_H H(\omega)$。 |
+| 数据 | 50K train；SS-Pro 200 quick val + full SS-Pro for best 1–2 个。 |
+| 预期图 | omega entropy vs step；layer omega bar；fusion regret。 |
+| 支撑 claim | “The model voluntarily selects pre-final layers; entropy regularization can test whether collapse is optimization artifact.” |
+| 不如预期怎么办 | 如果 entropy 提升但分数不涨，写成 diagnostic：quality-aware fusion 尚未解决，main claim 不依赖它。 |
+
+你当前 observation 很好：cos_meta collapse 到 L18/L19，而最优单层是 L20/L21。这说明 selector 还没学到最优 quality，但它**没有**选择最后层，这本身支持坐标瓶颈假说。
+
+---
+
+# 3. 实验优先级：主文 vs appendix
+
+主文建议只放 4 个核心实验，避免太散。
+
+## 主文核心 claims
+
+**Claim 1 — Grounding is recoverable before decoding.**
+证据：layer-wise $G_l$ emergence curve，L20/L21 peak，pre-coordinate anchor。
+
+**Claim 2 — Coordinate lexicalization happens later than grounding.**
+证据：$G_l$ vs $C_l$ overlay，LLI/CBI positive。
+
+**Claim 3 — Many AR failures are internally recoverable.**
+证据：AR wrong/internal right confusion matrix + examples。
+
+**Claim 4 — Coordinate-free retrofit exploits this signal and improves robustness, but remaining errors reveal resolution/data bottlenecks.**
+证据：A2/A4 benchmark + near/far analysis + icon/slider failure breakdown。
+
+## Appendix 放
+
+- Prompt/format stress test 全细节。
+- Token norm/sink analysis。
+- Layer dropping 失败或部分结果。
+- Entropy regularized fusion。
+- Refusal head design。
+- Decoding strategy ablation：centroid vs argmax，说明 argmax 反而扩大 hit-overlap gap。
+
+---
+
+# 4. 重构论文叙事
+
+## 4.1 论文一句话
+
+> We show that GUI grounding in autoregressive GUI agents emerges as a layer-wise internal posterior before coordinate decoding; the final layers primarily lexicalize this posterior into coordinate/action tokens, creating a coordinate bottleneck that coordinate-free retrofit can expose and bypass.
+
+中文内部版本：
+
+> GUI Agent 不是最后几层才“看见”目标；目标位置在中间层已经形成 posterior。最后几层主要把这个 posterior 翻译成坐标/action token，而这个翻译过程会带来 coordinate bottleneck。
+
+---
+
+## 4.2 论文结构建议
+
+### Introduction
+
+不要从 “ScreenSpot-Pro +2.34pp” 开始。开头建议这样写：
+
+1. GUI grounding 通常被建模为自回归坐标生成。
+2. 但坐标 token 是一种很窄的输出接口：离散、格式敏感、分辨率受限、受 action template 影响。
+3. 我们问一个机制问题：**目标位置是在坐标 token 生成时才出现，还是早已存在于内部表征？**
+4. 我们发现：中间层已有强 grounding posterior；最后层更偏 coordinate lexicalization。
+5. ZwerGe-UI 通过 layer-wise internal posterior 读出这一信号，并为 layout-aware ROI refinement / refusal 提供接口。
+
+### Method
+
+不要写成 “new head improves benchmark”。写成三部分：
+
+1. **Pre-decoding anchor posterior**：在 `<|ground|>` / pre-coordinate anchor 处读 hidden state。
+2. **Layer-wise visual posterior**：每层 $q_l,k_l,p_l$。
+3. **Coordinate-free readout and fusion**：$p_{fuse}=\sum_l\omega_l p_l$，cos_meta 只是实现之一。
+
+### Mechanistic Analysis
+
+这是论文心脏。
+
+- Layer-wise $G_l$
+- Coordinate lexicality $C_l$
+- CBI / LLI
+- AR wrong/internal right
+- Late-layer / token-role diagnostics
+
+### Benchmark Results
+
+放在机制之后或与机制交错。定位为：
+
+> These improvements are not the main claim; they demonstrate that the recovered internal signal is actionable.
+
+### Failure Analysis
+
+你已有分析很强，应主文保留一部分：
+
+- SS-Pro/OSWorld-G near_miss 大：patch quantization + tiny/small bbox。
+- UI-Vision far_miss 高：不是边界问题，而是真没定位。
+- Icon far_miss 灾难：50K 数据不足以学小图标。
+- OSWorld-G slider hit=0：细长/轨道类元素是单独 failure mode。
+
+这会让论文更可信，不像刷榜报告。
+
+---
+
+# 5. 主文图表清单
+
+## Figure 1：ZwerGe-UI 机制图
+
+内容：
+
+- 输入 screenshot + instruction。
+- prefill 到 `<|ground|>`，无 decode。
+- 多层 $h_a^{(l)}, h_v^{(l)}$。
+- 每层 posterior $p_l$。
+- cos_meta fusion。
+- optional layout-aware ROI refinement / refusal logit 用虚线表示。
+
+Caption 重点：
+
+> We read a spatial posterior before the first coordinate token is decoded.
+
+---
+
+## Figure 2：Layer-wise Grounding Emergence
+
+主文最重要图。
+
+子图：
+
+- SS-Pro：L18–L27 hit/overlap 曲线。
+- OSWorld-G：hit/overlap 曲线。
+- MMBench/UI-Vision 可小图或 appendix。
+- 标出 fusion 和 best single layer。
+
+你当前结论可写：
+
+- L20/L21 best。
+- L25/L26/L27 worse。
+- A4 去掉 L26/L27 更稳。
+- fusion gain 小，说明 signal 单层已很强。
+
+---
+
+## Figure 3：Grounding vs Coordinate Lexicality
+
+Overlay：
+
+- 蓝线：$G_l$
+- 红线：$C_l$
+- 灰色区域：late coordinate layers
+- 标注 $\mu_G,\mu_C,\mathrm{LLI}$
+
+这张图是 Coordinate Bottleneck Hypothesis 的核心形式化证据。
+
+---
+
+## Figure 4：AR Wrong but Internal Posterior Right
+
+包含：
+
+- 2×2 confusion matrix。
+- 4 个 qualitative examples：AR coordinate miss，但 L20/L21 posterior heatmap 对准目标。
+- 2 个 perceptual failure examples：icon/slider，全都错，说明边界。
+
+---
+
+## Table 1：Benchmark Results
+
+不要只放 best。放：
+
+| Model/Method | SS-Pro hit | SS-Pro overlap | SS-v2 | OSWorld-G | MMBench | UI-Vision |
+|---|---:|---:|---:|---:|---:|---:|
+
+行建议：
+
+- UI-TARS original AR baseline
+- A0 readiness binary
+- A2 binary + cos_meta
+- A4 gaussian + cos_meta + no L26/L27 或你最终 best
+- optional GUI-Owl/UI-Venus retrofit
+
+表注写清楚：不是系统级 SOTA；目标是 validating mechanism。
+
+---
+
+## Table 2：Mechanism Metrics Across Models
+
+| Model | best layer | $G_{best}$ | $G_{last}$ | $\mathrm{CBI}_{drop}$ | $\mathrm{LLI}$ | AR wrong/internal right |
+|---|---:|---:|---:|---:|---:|---:|
+
+这张表比 benchmark table 更重要。
+
+---
+
+## Table 3：Ablation
+
+| Variant | Layer set | GT label | Fusion | SS-Pro | Gap | OSWorld-G | Omega entropy |
+|---|---|---|---|---:|---:|---:|---:|
+
+放 A0/A1/A2/A3/A4 + entropy regularized best。
+
+---
+
+# 6. 6 天工作计划：两个主力 + 一个辅助
+
+原则：**Day 1–3 补机制证据，Day 4 固化结果，Day 5 写完，Day 6 只修不冒险。**
+不要 Day 5 晚上还改核心训练代码。
+
+---
+
+## Day 1
+
+### 主力 A：机制实验 / probe
+
+交付：
+
+- `analysis/layer_emergence_uitars_sspro_osworld.csv`
+- `figures/fig2_layer_emergence_uitars.pdf`
+- `analysis/cbi_metrics.py`
+
+任务：
+
+1. 扩展 `eval_layerwise.py` 输出每层：
+   - hit
+   - overlap
+   - near_miss
+   - far_miss
+   - target patch mass
+   - entropy/margin
+2. 对 A2/A4 checkpoints 跑：
+   - SS-Pro full
+   - OSWorld-G positive
+   - MMBench-GUI-L2 quick/full 视时间
+3. 生成第一版 $G_l$ curve。
+4. 计算：
+   - best layer
+   - late drop
+   - fusion regret
+
+### 主力 B：模型扩展 / benchmark / 刷点
+
+交付：
+
+- `results/benchmark_a2_a4_full.csv`
+- `logs/guiowl_venus_retrofit_launch.md`
+
+任务：
+
+1. 固化 UI-TARS A2/A4 全 benchmark 数字。
+2. 检查 `setup_special_token_ids(... reinit_grounding_head=False)`，避免 eval/resume 重置 head。
+3. 启动 GUI-Owl-1.5-8B、UI-Venus-1.5-8B 的 head-only retrofit quick run：
+   - 同样 L18–L25 或模型深度对应比例层。
+   - 先 400/800 step，不追最终。
+4. 同时启动 entropy runs：
+   - $\lambda_H=0.01,0.03,0.05$
+   - A4 layer set
+   - quick val every 400。
+
+### 辅助 C：数据分析 / 图表 / 写作 glue
+
+交付：
+
+- `tables/error_taxonomy_a4.csv`
+- `figures/near_far_by_benchmark.pdf`
+- `paper/sections/intro_draft.md`
+
+任务：
+
+1. 整理现有 near/far：
+   - SS-Pro
+   - SS-v2
+   - OSWorld-G
+   - MMBench
+   - UI-Vision
+2. 按 bbox size/type 生成：
+   - icon/text far_miss
+   - tiny/small/medium/large
+   - slider group
+3. 写 Introduction skeleton：
+   - coordinate bottleneck
+   - grounding before decoding
+   - not leaderboard-first
+
+---
+
+## Day 2
+
+### 主力 A
+
+交付：
+
+- `analysis/coordinate_lexicality_uitars.csv`
+- `figures/fig3_grounding_vs_lexicality.pdf`
+- `analysis/prompt_format_stress.csv`
+
+任务：
+
+1. 实现 coordinate lexicality：
+   - coordinate vocab ids
+   - $C_l^{mass}$
+   - optional $C_l^{true1}$
+2. 同一批 SS-Pro/OSWorld-G 样本画 $G_l$ vs $C_l$。
+3. 跑 prompt/coordinate format stress test：
+   - 4 templates
+   - 300–500 SS-Pro samples
+   - posterior JS + AR hit variance
+4. 产出 LLI/CBI_depth。
+
+### 主力 B
+
+交付：
+
+- `results/entropy_reg_ablation.csv`
+- `results/guiowl_venus_quick_eval.csv`
+
+任务：
+
+1. 回收 entropy runs，选 best。
+2. GUI-Owl/UI-Venus quick eval：
+   - SS-Pro
+   - SS-v2
+   - OSWorld-G
+3. 若 GUI-Owl thinking 模型不稳定，先用 no-think/direct-action prompt。
+4. 启动 best 1–2 个配置的 longer run。
+
+### 辅助 C
+
+交付：
+
+- `figures/qualitative_heatmaps_v1/`
+- `paper/sections/related_work_mechanism.md`
+
+任务：
+
+1. 从 A 的 layer results 中选 qualitative examples：
+   - AR wrong/internal right
+   - near_miss
+   - icon far_miss
+   - slider failure
+2. Related work 写作：
+   - Registers
+   - attention sink / massive activation
+   - efficient VLM
+   - VLM intermediate-layer perception
+   - GUI prefill/zoom competitors
+
+---
+
+## Day 3
+
+### 主力 A
+
+交付：
+
+- `analysis/ar_internal_recoverability.csv`
+- `figures/fig4_ar_wrong_internal_right.pdf`
+- `analysis/token_norm_role.csv`
+
+任务：
+
+1. 跑 AR wrong/internal right：
+   - UI-TARS original AR baseline vs ZwerGe posterior
+   - A2/A4 fusion vs best single layer
+2. 输出 2×2 confusion matrix。
+3. Token norm / role analysis：
+   - visual token norm
+   - anchor norm
+   - special token norm
+   - target-norm overlap
+   - posterior-norm corr
+4. 如果有余力，跑 late-layer readout ablation。
+
+### 主力 B
+
+交付：
+
+- `results/final_candidate_checkpoints.md`
+- `results/refusal_data_plan_or_seed_eval.csv`
+
+任务：
+
+1. 回收 longer run。
+2. 选择 final candidate：
+   - best mechanism checkpoint
+   - best benchmark checkpoint
+   - 两者若不同，主文可分开报告。
+3. 启动 OSWorld/Jedi data mixture 小规模 run：
+   - 不污染 benchmark。
+   - refusal head 若来不及完整实现，先只做 data pipeline dry-run 和 refusal design appendix。
+4. 不再尝试高风险 backbone finetune。
+
+### 辅助 C
+
+交付：
+
+- `paper/sections/method_draft.md`
+- `paper/sections/mechanism_results_draft.md`
+- `tables/table1_benchmark.tex`
+- `tables/table2_mechanism.tex`
+
+任务：
+
+1. 把 Day 1–2 图表转成论文风格。
+2. 写 Method：
+   - layerwise posterior
+   - cos_meta
+   - loss
+   - pre-decoding anchor
+3. 写机制结果初稿，先不等最终 best。
+
+---
+
+## Day 4
+
+### 主力 A
+
+交付：
+
+- `figures/final_fig2_layer_emergence.pdf`
+- `figures/final_fig3_cbi.pdf`
+- `figures/final_fig4_recoverability.pdf`
+- `appendix/token_norm_analysis.pdf`
+
+任务：
+
+1. 固化所有机制图。
+2. 做跨模型 CBI 表：
+   - UI-TARS
+   - GUI-Owl quick
+   - UI-Venus quick
+   - optional Qwen3-VL/Qwen3.5
+3. 明确哪些 claim 主文写强，哪些写弱。
+
+### 主力 B
+
+交付：
+
+- `results/final_full_benchmark.csv`
+- `results/final_ablation.csv`
+
+任务：
+
+1. 对 final candidate 跑完整五 benchmark。
+2. 跑 A0/A2/A4/entropy best 的统一评测，避免 checkpoint/decoder 不一致。
+3. 只做低风险刷点：
+   - L18–L25
+   - entropy
+   - Gaussian
+   - data mixture quick
+   - max_pixels eval-only
+4. 晚上后冻结代码。
+
+### 辅助 C
+
+交付：
+
+- `paper/main_draft_v1.pdf`
+- `paper/limitations.md`
+- `paper/appendix_plan.md`
+
+任务：
+
+1. 拼完整论文初稿。
+2. 写 Limitations：
+   - small icon
+   - slider
+   - refusal not complete / early version
+   - benchmark contamination avoidance
+3. 写实验设置和数据标准化。
+
+---
+
+## Day 5
+
+### 主力 A
+
+交付：
+
+- `paper/claims_checklist.md`
+- `appendix/probe_details.md`
+
+任务：
+
+1. 检查每个 claim 是否有图表支撑。
+2. 补 appendix：
+   - prompt format
+   - pre/post anchor
+   - token norm
+   - decoding strategy
+3. 确认没有 label leakage。
+
+### 主力 B
+
+交付：
+
+- `results/final_numbers_locked.csv`
+- `repro/run_commands.md`
+
+任务：
+
+1. 最终 numbers lock。
+2. 所有表格填最终数字。
+3. 记录复现命令：
+   - train
+   - eval
+   - analysis
+4. 不再引入新模型/新数据。
+
+### 辅助 C
+
+交付：
+
+- `paper/main_draft_v2.pdf`
+- `paper/tables_final.tex`
+- `paper/figures_final/`
+
+任务：
+
+1. 完成 Abstract/Intro/Conclusion。
+2. 压页数。
+3. 统一术语：
+   - “coordinate-free retrofit”
+   - “pre-decoding internal posterior”
+   - “layout-aware ROI refinement”
+   - 避免写成普通 two-stage zoom。
+
+---
+
+## Day 6
+
+### 主力 A
+
+交付：
+
+- `paper/final_mechanism_sanity.md`
+
+任务：
+
+1. 逐图检查：
+   - axis
+   - layer index
+   - checkpoint
+   - sample count
+   - prompt
+2. 准备 rebuttal 预案：
+   - “probe creates signal?”
+   - “why not SOTA?”
+   - “is this just another head?”
+   - “does CoT matter?”
+
+### 主力 B
+
+交付：
+
+- `artifact/final_results_package.zip`
+
+任务：
+
+1. 打包结果 JSON/CSV。
+2. 检查 checkpoint 名和表格一致。
+3. 如有时间，跑一个 final seed sanity，不改变主结论。
+
+### 辅助 C
+
+交付：
+
+- `paper/submission_final.pdf`
+- `paper/source_final.zip`
+
+任务：
+
+1. 语言润色。
+2. 格式检查。
+3. 引用检查。
+4. 最终提交。
+
+---
+
+# 7. Thinking 模型如何定义 pre-decoding grounding
+
+GUI-Owl 这类模型可能先输出 reasoning/thinking，再输出 action。你需要避免 CoT token 干扰机制分析。建议定义三套 anchor protocol。
+
+---
+
+## 方案 A：Pre-answer sentinel
+
+格式：
+
+```text
+<assistant>
+<|ground|>
+```
+
+或者：
+
+```text
+<assistant>
+<|ground|> pyautogui.click(...)
+```
+
+读取 `<|ground|>` 处 hidden state。这个 anchor 在任何模型生成的 reasoning/action token 之前。
+
+**优点**
+
+- 最干净地对应 “before the first output token is decoded”。
+- 不受 CoT 内容、长度、质量影响。
+- 适合跨模型机制分析。
+
+**缺点**
+
+- 对 thinking 模型来说，这不是它自然工作流。
+- reviewer 可能问 sentinel 是否改变模型状态。
+
+**建议用途**
+
+主文机制实验优先用这个，尤其是 $G_l$、$C_l$、CBI。
+
+---
+
+## 方案 B：Post-think pre-action anchor
+
+流程：
+
+1. 让模型自然生成 reasoning。
+2. 当生成到 action prefix，例如 `pyautogui.click(` 或 `Action:` 后停止。
+3. 插入或定位 `<|ground|>`。
+4. 在 coordinate token 之前读 posterior。
+
+形式：
+
+```text
+<think> ... </think>
+Action: pyautogui.click(<|ground|><|pointer_start|>...)
+```
+
+**优点**
+
+- 符合 thinking model 的自然使用。
+- 能测试 “planning-conditioned grounding”。
+
+**缺点**
+
+- CoT 会成为 confound：posterior 可能来自 reasoning tokens，而不是纯视觉/instruction prefill。
+- 不同模型 CoT 长度差异大，跨模型不公平。
+- CoT 可能包含空间描述，甚至隐式泄漏目标。
+
+**建议用途**
+
+放 appendix。作为 robustness：即使允许 thinking，pre-action grounding 仍在 coordinate token 前出现。
+
+---
+
+## 方案 C：No-think / direct-action prompt
+
+格式：
+
+```text
+Do not reason. Output only the action.
+pyautogui.click(<|ground|><|pointer_start|>...)
+```
+
+**优点**
+
+- 和当前 UI-TARS/ZwerGe 训练最一致。
+- benchmark 评测稳定。
+- 最适合刷点和跨模型对比。
+
+**缺点**
+
+- 对原生 thinking 模型不一定最优。
+- 不能说明自然 CoT setting 下完全相同。
+
+**建议用途**
+
+主文 benchmark 使用 direct-action prompt；主文机制可以用 pre-answer sentinel。Appendix 用 post-think pre-action 证明结论不依赖 no-think prompt。
+
+---
+
+## 避免 CoT 干扰的规则
+
+1. 主文 CBI 不使用 generated CoT hidden states。
+2. post-think 结果必须单独标注为 “planning-conditioned”。
+3. 不把 GT coordinate teacher-forced 到 post anchor 作为主结果。
+4. 加一个 random-CoT 或 shuffled-CoT control：
+   $$
+
+   G_l(\text{real CoT}) - G_l(\text{shuffled CoT})
+
+$$
+   如果差异很大，说明 CoT 内容本身影响 grounding，需要谨慎解释。
+5. 对 thinking 模型统一报告三种 protocol：
+   - sentinel
+   - direct-action
+   - post-think pre-action
+
+---
+
+# 8. 刷点方向：值得做 vs 不值得做
+
+## SS-Pro：值得做
+
+### 1. Posterior-driven ROI refinement
+
+你现在 SS-Pro 的核心问题不是所有样本都错，而是 tiny/small bbox + 28px patch quantization。A4 的 near_miss 里约 68% 离 GT 中心不超过 2% 归一化距离，这类最适合 ROI refinement。
+
+触发条件不要写成“又一个 zoom”。用：
+
+$$
+
+u_i =
+\alpha H(p_i)
++
+\beta (1-\mathrm{margin}(p_i))
++
+\gamma \mathrm{active\_area}(p_i)
++
+\delta \mathrm{JS}(p_i^{l_1},p_i^{l_2})
+
+$$
+
+高不确定或 small active region 时做局部重读。主线叫 **layout-aware ROI refinement from internal posterior uncertainty**。
+
+### 2. Icon-heavy 数据
+
+SS-Pro icon far_miss 约 71%，这不是 centroid 解码能解决的。需要数据：
+
+- 小图标点击样本。
+- toolbar / sidebar / browser chrome。
+- 图标同义指令。
+- hard negative icons：相似图标、多实例图标。
+
+这比调 decoding strategy 更值得。
+
+### 3. Gaussian / center-aware label
+
+你已有 A1 说明 Gaussian 能压 near_miss gap。继续保留，但别过度押注。Gaussian 主要修边界，不修 far_miss。
+
+### 4. Eval-only max_pixels sweep
+
+如果资源不限，做 1 个 sweep：
+
+- 12M 当前
+- 16M
+- 20M 或安全上限
+
+看 tiny/icon hit 是否涨。这个不改训练，风险低。但注意如果训练分辨率和 eval 差太大，可能出现 distribution shift。
+
+---
+
+## OSWorld-G：值得做
+
+### 1. Jedi / OSWorld-G-like 数据扩充
+
+OSWorld-G 更像真实 desktop/task distribution。50K non-refusal GUI grounding 不够。优先加：
+
+- desktop app
+- browser forms
+- menu/submenu
+- slider/scrollbar
+- file dialogs
+- disabled/missing target
+
+### 2. Refusal head
+
+不要 all-zero KL。用额外 no-target logit 是正确方向：
+
+Positive：
+
+$$
+
+L_{pos}
+=
+\mathrm{KL}(y||p_{patch})
++
+\lambda_{bce}\mathrm{BCE}(r,0)
++
+\lambda_m \max(0, r-\log\sum_j e^{z_j}+m)
+
+$$
+
+Refusal：
+
+$$
+
+L_{ref}
+=
+\lambda_{bce}\mathrm{BCE}(r,1)
++
+\lambda_m \max(0,\max_j z_j-r+m)
++
+\lambda_u \mathrm{KL}(U||p_{patch})
+
+$$
+
+第一版设置：
+
+- refusal bias = -3 或 -4
+- refusal ratio 20–25%
+- refusal loss warmup
+- 监控 over-refusal on positives
+
+### 3. Slider-specific data
+
+OSWorld-G slider hit=0 是明显 blind spot。它不是普通 icon/text grounding。需要单独加：
+
+- track center
+- knob center
+- desired value position
+- long thin bbox Gaussian label
+
+---
+
+## 值得小跑但别占主线
+
+- Entropy regularized cos_meta。
+- L18–L25 vs L18–L23 debug。
+- per-benchmark layer prior。
+- fusion regret 最小化。
+- bbox-size-aware loss weighting。
+
+---
+
+## 不值得做，至少这 6 天别做
+
+1. **argmax/temperature decoder 继续调参**
+   你已经验证 argmax 把 SS-Pro gap 从约 13pp 扩到 22pp。centroid 是当前最优，别再烧时间。
+
+2. **把 refusal 样本 mask 掉就宣称解决 refusal**
+   这只能作为 no-refusal baseline，不是 refusal-aware grounding。
+
+3. **把 refusal 当 visual token 插入 grid**
+   没有真实 2D position，RoPE/grid position 不自然。
+
+4. **训练 whole backbone + LM loss 大改造**
+   这会破坏机制叙事：你现在最强证据是 backbone frozen 后仍能读出 signal。
+
+5. **抄 UI-Zoomer/AutoFocus 做多次采样系统**
+   这会把论文拉回 test-time scaling 竞品赛道。你的差异是 single-pass internal posterior。
+
+6. **把 VenusBench-GD / OSWorld-G benchmark refusal 混进训练**
+   这会污染评测。保留 held-out eval。
+
+7. **为了 leaderboard 做复杂 agentic pipeline**
+   除非主文明确不比较系统级 SOTA，否则会稀释机制论文定位。
+
+---
+
+# 9. 你现有结果如何写成强结论
+
+你当前 ablation 可以这样解释：
+
+**A2 vs A0**：cos_meta 带来 SS-Pro +2.34pp、OSWorld-G +4.90pp。不要只写“fusion 更强”，要写：query-state-conditioned fusion 能更好选择 pre-decoding internal posterior，说明 layer identity 和 anchor state 都携带 grounding readiness。
+
+**A4 去掉 L26/L27 更稳**：这是坐标瓶颈假说最重要的 intervention。写成：including the final coordinate-oriented layers injects noise into spatial readout; removing them improves multiple benchmarks.
+
+**Fusion gain 很小**：这不是坏事。它说明单个中间层 posterior 已经强，fusion 不是魔法。可以写：the best individual layer nearly matches the learned fusion, suggesting that grounding is localized in a narrow intermediate band.
+
+**Omega collapse 到 L18/L19**：不是失败，而是证据。learned fusion 自发避开最后层，尽管未完美选中 L20/L21。entropy regularization 是优化诊断。
+
+**Near-miss gap**：说明 coordinate-free posterior 已经找到局部邻域，但 patch quantization/小 bbox 限制了 hit。尤其 SS-Pro/OSWorld-G gap 大，SS-v2 gap 小，刚好说明 SS-v2 已饱和，不是主战场。
+
+**Icon far_miss / slider failure**：这是 perceptual/data bottleneck，不是 coordinate bottleneck。论文需要承认两类错误：
+- coordinate bottleneck：internal right, AR wrong / near_miss
+- perception/data bottleneck：internal wrong, AR wrong / far_miss
+
+这样 reviewer 会觉得你诚实而且分析扎实。
+
+---
+
+# 10. 最终投稿定位
+
+标题方向：
+
+> **Grounding Emerges Before Decoding: Exposing the Coordinate Bottleneck in GUI Agents**
+
+或更贴近 ZwerGe：
+
+> **ZwerGe-UI: Coordinate-Free Retrofit Reveals Pre-Decoding Grounding in GUI Agents**
+
+摘要核心句：
+
+> We empirically show that GUI agents often localize target UI elements in intermediate representations before emitting any coordinate token. However, their final layers increasingly lexicalize this signal into action/coordinate tokens, creating a coordinate bottleneck. ZwerGe-UI exposes this hidden spatial posterior with a lightweight layer-wise retrofit head, enabling coordinate-free readout and revealing recoverable failures of autoregressive coordinate generation.
+
+主文不要承诺 SOTA。更强、更稳的 claim 是：
+
+1. **中间层可恢复 grounding。**
+2. **坐标词法化晚于 grounding。**
+3. **最后层不是最优 spatial readout。**
+4. **一部分 AR coordinate error 是 internally recoverable。**
+5. **coordinate-free retrofit 是机制验证和实用利用，而不是单纯刷榜。**
