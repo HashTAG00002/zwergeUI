@@ -220,6 +220,7 @@ class ValEvalCallback(TrainerCallback):
         training_args,
         processor,
         probe_layers: List[int],
+        model_type: str = "uitars",
         system_message: Optional[str] = None,
         ground_response: Optional[str] = None,
         user_prompt_template: Optional[str] = None,
@@ -233,7 +234,8 @@ class ValEvalCallback(TrainerCallback):
         self.max_pixels      = getattr(training_args, "val_max_pixels", 12_845_056)
         self.processor       = processor
         self.probe_layers    = probe_layers
-        # model-specific prompt constants (None → use UITARS defaults in eval code)
+        self.model_type      = model_type
+        # model-specific prompt constants
         self.system_message       = system_message
         self.ground_response      = ground_response
         self.user_prompt_template = user_prompt_template
@@ -321,12 +323,13 @@ class ValEvalCallback(TrainerCallback):
     def _eval_bench_shard(self, bench_key, raw_model, device, rank, n_ranks, step, step_dir):
         """每个 rank 处理其 shard，rank-0 聚合后返回 summary；非 rank-0 返回 None。"""
         try:
-            from eval_layerwise import (
-                BENCH_CONFIGS, zwerge_predict_layerwise, scores_to_point_and_topk,
+            from inference_base import (
+                BENCH_CONFIGS, scores_to_point_and_topk,
+                point_in_bbox, do_boxes_overlap,
                 _get_group_key, _print_layerwise_summary,
             )
-            from inference_zwerge import point_in_bbox, do_boxes_overlap
-            from vis_zwerge import visualize_sample
+            from eval_retrofit import get_inference_class, _aggregate_shards
+            from vis_utils import visualize_sample
             from PIL import Image as _PIL
             import glob as _glob
         except ImportError as e:
@@ -373,6 +376,15 @@ class ValEvalCallback(TrainerCallback):
         skip    = 0
         TOPK    = 3
 
+        # Create inference wrapper once (wraps already-loaded training model)
+        InfClass = get_inference_class(self.model_type)
+        grounder = InfClass(
+            model=raw_model, processor=self.processor,
+            system_message=self.system_message,
+            ground_response=self.ground_response,
+            user_prompt_template=self.user_prompt_template,
+        )
+
         with torch.no_grad():
             for idx, example in enumerate(shard):
                 global_idx = start + idx
@@ -385,13 +397,9 @@ class ValEvalCallback(TrainerCallback):
                     x1, y1, x2, y2 = example["gt_bbox"]
                     gt = (x1/W, y1/H, x2/W, y2/H)
 
-                    pred = zwerge_predict_layerwise(
+                    pred = grounder.predict_layerwise(
                         image=orig_img, instruction=example["instruction"],
-                        model=raw_model, processor=self.processor, device=device,
-                        decode_strategy=self.decode_strategy, topk=TOPK,
-                        system_message=self.system_message,
-                        ground_response=self.ground_response,
-                        user_prompt_template=self.user_prompt_template,
+                        device=device, decode_strategy=self.decode_strategy, topk=TOPK,
                     )
                     n_w, n_h = pred["n_width"], pred["n_height"]
                     phx, phy = 0.5/n_w, 0.5/n_h
@@ -486,7 +494,10 @@ class ValEvalCallback(TrainerCallback):
                         if ext in example: rec[ext] = example[ext]
                     results.append(rec)
 
-                except Exception:
+                except Exception as _e:
+                    import traceback as _tb
+                    rank0_print(f"[ValEval] sample #{global_idx} failed: {_e}")
+                    _tb.print_exc()
                     skip += 1
 
         # Write shard files (all ranks)
@@ -549,8 +560,8 @@ class ValEvalCallback(TrainerCallback):
             return shard_summary  # single rank, return directly
 
         try:
-            from vis_zwerge import _aggregate_vis_shards
-            summary = _aggregate_vis_shards(step_dir, bench_key, TOPK)
+            from eval_retrofit import _aggregate_shards
+            summary = _aggregate_shards(step_dir, bench_key, TOPK, skip_vis=False)
         except Exception as e:
             rank0_print(f"[ValEval] aggregation failed for {bench_key}: {e}")
             summary = shard_summary  # fallback to own shard
@@ -561,7 +572,7 @@ class ValEvalCallback(TrainerCallback):
     # ------------------------------------------------------------------
     def _bench_list(self) -> List[str]:
         try:
-            from eval_layerwise import MAIN_BENCH_KEYS
+            from inference_base import MAIN_BENCH_KEYS
         except ImportError:
             return [self.val_bench]
         if self.val_bench == "all":

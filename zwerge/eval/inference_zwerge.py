@@ -1,27 +1,9 @@
 """
-ZwerGe-UI Inference Utilities
-==============================
-完全 prefill-only 推理：不生成任何 token，直接从中间层 hidden states 读取 grounding signal。
-
-推理流程：
-  1. 构造 conversation（system + user(image + instruction)），注入 <|ground|> 作为响应前缀
-  2. Processor 处理得到 input_ids / pixel_values / image_grid_thw
-  3. 单次 forward（output_hidden_states=True, output_attentions=False）
-  4. LayerWiseGroundingHead 在 all_hidden_states 上做 layer-wise probe
-  5. p_final [N_vis] → get_prediction_region_point → 归一化 (px, py) ∈ [0,1]
-  6. topk 中心点列表用于 hit 判定
-
-FA2 兼容：整个推理过程不需要 output_attentions，完全走 hidden-state 路径。
-
-anchor token 选取（_find_ground_anchor 优先级）：
-  P1: 序列中最后一个 <|ground|>（主方案，prefill 时模型已看完 image+instruction+click(，
-      但没有见到任何坐标数字 → 无 label leakage）
-  P2: <|pointer_start|> 之前的 token（pre-coordinate action-prefix token）
-  P3-P5: fallback（见 modeling_uitars._find_ground_anchor）
-
-image_grid_thw → n_width / n_height：
-  n_h = H // merge_size,  n_w = W // merge_size
-  对 Qwen2.5-VL 默认 merge_size=2 → 每个 visual token 对应 patch_size*merge_size=14*2=28 pixel
+ZwerGe-UI Inference Utilities (backward-compatibility wrapper)
+==============================================================
+New code should import from inference_base, inference_uitars, inference_guiowl, or
+inference_uivenus directly. This module re-exports all public symbols for
+backward compatibility with existing scripts that import from inference_zwerge.
 """
 
 import math

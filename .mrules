@@ -1353,3 +1353,86 @@
     需要在 AFO 8 卡 A100-80G 上提交 GUI-Owl 训练 job，验证实际速度（预期 ~20-30s/step）。
     Conv3d patch 方案已生产就绪，不影响 checkpoint 保存/加载（权重形状不变）。
 
+  - [2026-05-21] 【eval/ 代码重组：镜像训练端结构 + 全模型类型支持统一入口】
+
+    ─── Conv3d Patch 继承链分析 ──────────────────────────────────────────────────────
+
+    数学等价性：Conv3d(kernel_size=stride) == F.linear(input.view(N,flat), weight.view(O,flat))
+    当且仅当 stride==kernel_size（每 kernel 恰好触发一次），Qwen3-VL PatchEmbed 满足此条件。
+
+    继承链（retrofit 路径，安全）：
+      GUIOwlRetrofitInference.from_checkpoint()
+        → GUIOwlRetrofitModel.from_pretrained()
+        → _GUIOwlImpl.__init__()  ← 自动调用 _patch_embed_conv3d_to_linear_forward() ✅
+
+    UIVenusRetrofitModel 继承链（安全）：
+      UIVenusRetrofitModel._get_concrete_class()
+        → _UIVenusImpl(GuiOwlImpl)  ← GuiOwlImpl 是 _GUIOwlImpl
+        → __init__ 调用 _patch_embed_conv3d_to_linear_forward() ✅
+
+    ValEvalCallback（安全）：
+      使用已加载的训练模型（patch 在训练启动时已应用），无需额外处理 ✅
+
+    原始 Native 路径（旧 gui_owl15_grounding_infer.py 未打 patch → 本次修复）：
+      GUIOwlNativeInference.__init__() → 加载后调用 _patch_native_conv3d() ✅
+      UIVenusNativeInference.__init__() → 加载后调用 _patch_native_conv3d() ✅
+
+    ─── eval/ 新结构（镜像 src/zwerge_retrofit/）────────────────────────────────────
+
+    训练端 src/zwerge_retrofit/     eval/ 对应文件
+    modeling_base.py          ↔    inference_base.py   (RetrofitInference + 公共工具)
+    modeling_uitars.py        ↔    inference_uitars.py (UITARSRetrofitInference)
+    modeling_guiowl.py        ↔    inference_guiowl.py (GUIOwlRetrofitInference + GUIOwlNativeInference)
+    modeling_uivenus.py       ↔    inference_uivenus.py(UIVenusRetrofitInference + UIVenusNativeInference)
+    [train_retrofit.py]       ↔    eval_retrofit.py    (统一入口，--skip_vis 关闭可视化)
+    —                               vis_utils.py        (渲染工具，从 vis_zwerge.py 提取)
+
+    删除的旧文件：
+      eval_layerwise.py → 功能合入 inference_base.py + eval_retrofit.py
+      vis_zwerge.py     → 合入 vis_utils.py + eval_retrofit.py
+      run_vis.sh        → 合入 run_eval.sh
+      zwerge/gui_owl15_grounding_infer.py → eval/inference_guiowl.py
+      zwerge/ui_venus15_grounding_infer.py → eval/inference_uivenus.py
+
+    ─── ValEvalCallback 修复（trainer.py）──────────────────────────────────────────
+
+    新增 model_type 参数（train_retrofit.py 传入 model_args.model_type）。
+    _eval_bench_shard 从直接调 zwerge_predict_layerwise() 改为：
+      InfClass = get_inference_class(self.model_type)
+      grounder = InfClass(model=raw_model, processor=self.processor, ...)
+      pred = grounder.predict_layerwise(image, instruction, device=device, ...)
+    grounder 在循环外创建一次（包装已加载训练模型，无额外开销）。
+    触发时机：每 val_steps 步 + 训练结束。所有三种模型类型均支持。
+
+    ─── 两种评测场景的指令 ────────────────────────────────────────────────────────
+
+    【场景 A：独立评测（训练完成后）】
+      # 仅指标 JSON，不生成 PNG（速度快）：
+      SKIP_VIS=1 MODEL_TYPE=guiowl CKPT=<ckpt> bash eval/run_eval.sh ss_pro
+      SKIP_VIS=1 MODEL_TYPE=uivenus CKPT=<ckpt> bash eval/run_eval.sh all
+      SKIP_VIS=1 bash eval/run_eval.sh all          # uitars 默认
+
+      # 指标 + 全量可视化 PNG（success/failure 分目录）：
+      MODEL_TYPE=guiowl CKPT=<ckpt> bash eval/run_eval.sh ss_pro
+
+      # 直接 Python（不走 shell）：
+      python eval/eval_retrofit.py --model_type guiowl --ckpt <ckpt> --bench ss_pro --skip_vis
+      python eval/eval_retrofit.py --model_type uivenus --ckpt <ckpt> --bench all   # with vis
+
+    【场景 B：训练中附带验证（ValEvalCallback）】
+      # 训练脚本开关：
+      VAL_STEPS=400 MODEL_TYPE=guiowl bash scripts/train_ablation_A3_gaussian_cos_meta.sh
+
+      # 对应训练参数：
+      --val_steps 400 --val_bench ss_pro --val_n_samples 200
+      --val_eval_dir .../datasets/evaluation
+      --val_output_dir .../zwerge/data/results/zwerge_layerwise
+
+      输出路径与场景 A 相同层级结构，可直接对比：
+        {val_output_dir}/{decode_strategy}/{run_name}/checkpoint-{step}/
+          ├── ss_pro_layerwise_summary.json
+          └── details/ss_pro/success/*.png  failure/*.png  results.json
+
+    注：场景 B 使用训练中已加载的模型，无需重新加载（无额外 GPU 开销）；
+        每 val_steps 步触发，on_train_end 额外触发一次。
+

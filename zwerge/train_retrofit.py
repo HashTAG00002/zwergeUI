@@ -621,6 +621,7 @@ def train():
             training_args=training_args,
             processor=processor,
             probe_layers=probe_layers_list,
+            model_type=model_args.model_type,
             system_message=model_constants["system_message"],
             ground_response=model_constants["ground_response"],
             user_prompt_template=model_constants.get("user_prompt_template"),
