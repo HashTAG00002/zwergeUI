@@ -107,9 +107,15 @@ BENCH_CONFIGS = {
         "group_field": "data_type",
     },
     "osworld_g": {
-        "name":        "OSWorld-G (non-refusal)",
+        "name":        "OSWorld-G (refined)",
         "eval_dir":    "OSWorld-G",
         "eval_json":   "eval.json",
+        "group_field": "GUI_types",
+    },
+    "osworld_g_orig": {
+        "name":        "OSWorld-G (original)",
+        "eval_dir":    "OSWorld-G",
+        "eval_json":   "eval_orig.json",
         "group_field": "GUI_types",
     },
     "mmbench": {
@@ -125,6 +131,9 @@ BENCH_CONFIGS = {
         "group_field": "task_type",
     },
 }
+
+# bench="all" 只跑这 5 个主要 bench；osworld_g_orig 需显式指定才运行
+MAIN_BENCH_KEYS = ["ss_pro", "ss_v2", "osworld_g", "mmbench", "ui_vision"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,6 +153,9 @@ def zwerge_predict_layerwise(
     decode_strategy: str = "centroid",
     peak_shift_alpha: float = 0.5,
     temperature: float = 0.5,
+    system_message: Optional[str] = None,
+    ground_response: Optional[str] = None,
+    user_prompt_template: Optional[str] = None,
 ) -> dict:
     """
     ZwerGe-UI 逐层推理（prefill-only）。
@@ -165,12 +177,18 @@ def zwerge_predict_layerwise(
     """
     from zwerge_retrofit.constants import GROUNDING_SYSTEM_MESSAGE, GROUND_RESPONSE_CLICK
 
+    if system_message is None:
+        system_message = GROUNDING_SYSTEM_MESSAGE
+    if ground_response is None:
+        ground_response = GROUND_RESPONSE_CLICK
+
     inputs = build_zwerge_inputs(
         image=image,
         instruction=instruction,
         processor=processor,
-        system_message=GROUNDING_SYSTEM_MESSAGE,
-        ground_response=GROUND_RESPONSE_CLICK,
+        system_message=system_message,
+        ground_response=ground_response,
+        user_prompt_template=user_prompt_template,
     )
 
     input_ids      = inputs["input_ids"].to(device)
@@ -184,54 +202,30 @@ def zwerge_predict_layerwise(
     if image_grid_thw is not None:
         image_grid_thw = image_grid_thw.to(device)
 
-    # Grid size
+    # Grid size — patch_size 从 processor 读取以兼容 Qwen2.5-VL (14) 和 Qwen3-VL (16)
     if image_grid_thw is not None:
         n_width, n_height = grid_thw_to_nwh(image_grid_thw, merge_size=merge_size)
     else:
         w, h = image.size
-        cell = 14 * merge_size
+        patch_size = getattr(
+            getattr(processor, "image_processor", processor), "patch_size", 14
+        )
+        cell = patch_size * merge_size
         n_width  = max(1, w // cell)
         n_height = max(1, h // cell)
 
     token_ids_1d = input_ids[0]
 
-    # ── 1. Embed ──────────────────────────────────────────────────────────────
-    inputs_embeds = model.model.embed_tokens(input_ids)
-    if pixel_values is not None:
-        pv = pixel_values.to(model.dtype)
-        image_embeds = model.visual(pv, grid_thw=image_grid_thw)
-        n_img_tokens = (input_ids == model.config.image_token_id).sum().item()
-        n_img_feats  = image_embeds.shape[0]
-        if n_img_tokens != n_img_feats:
-            warnings.warn(
-                f"Image token mismatch: seq={n_img_tokens}, visual={n_img_feats}"
-            )
-        image_mask = (
-            (input_ids == model.config.image_token_id)
-            .unsqueeze(-1).expand_as(inputs_embeds)
-            .to(inputs_embeds.device)
-        )
-        image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
-
-    # ── 2. RoPE ──────────────────────────────────────────────────────────────
-    position_ids, _ = model.get_rope_index(
-        input_ids, image_grid_thw, None, attention_mask
-    )
-
-    # ── 3. Transformer forward ────────────────────────────────────────────────
-    transformer_out = model.model(
-        input_ids=None,
-        position_ids=position_ids,
+    # ── 1-3. 通过模型的统一接口获取各层 hidden states ────────────────────────
+    # UITARSRetrofitModel: 手动 embed + transformer (Qwen2.5-VL)
+    # GUIOwlRetrofitModel / UIVenusRetrofitModel: Qwen3VL.forward (处理 deepstack)
+    all_hidden_states = model._forward_hidden_states_for_grounding(
+        input_ids=input_ids,
         attention_mask=attention_mask,
-        past_key_values=None,
-        inputs_embeds=inputs_embeds,
-        use_cache=False,
-        output_attentions=False,
-        output_hidden_states=True,
-        return_dict=True,
+        pixel_values=pixel_values,
+        image_grid_thw=image_grid_thw,
+        device=device,
     )
-    all_hidden_states = transformer_out.hidden_states   # (L+1) × [seq_len, d_model]
 
     # ── 4. Anchor & visual indices ────────────────────────────────────────────
     anchor_idx, anchor_strategy = model._find_ground_anchor(
@@ -327,13 +321,16 @@ def evaluate_bench_layerwise(
     start: int = 0,
     end: int = -1,
     save_per_sample: bool = False,
-    verbose: bool = True,      # False → 不打印汇总表（多卡分片子进程用，避免重复输出）
-    force_suffix: bool = False, # True → 文件名强制带 _{start}-{end}（多卡分片子进程用，防止第0片覆盖无后缀文件）
+    verbose: bool = True,
+    force_suffix: bool = False,
     decode_strategy: str = "centroid",
     peak_shift_alpha: float = 0.5,
     temperature: float = 0.5,
-    group_stats: bool = True,        # 是否计算 fusion 的 group 细分域统计
-    fusion_full_topk: bool = True,   # 是否计算 fusion 的完整 topk 指标（hitk/overlapk）
+    group_stats: bool = True,
+    fusion_full_topk: bool = True,
+    system_message: Optional[str] = None,
+    ground_response: Optional[str] = None,
+    user_prompt_template: Optional[str] = None,
 ) -> Dict:
     cfg          = BENCH_CONFIGS[bench_key]
     bench_name   = cfg["name"]
@@ -404,6 +401,9 @@ def evaluate_bench_layerwise(
                 decode_strategy=decode_strategy,
                 peak_shift_alpha=peak_shift_alpha,
                 temperature=temperature,
+                system_message=system_message,
+                ground_response=ground_response,
+                user_prompt_template=user_prompt_template,
             )
         except Exception as e:
             warnings.warn(f"Inference failed for #{global_idx}: {e}")
@@ -653,7 +653,11 @@ def _worker(gpu_id: int, ckpt_path: str, bench_key: str, eval_root: str,
             max_pixels: int, save_per_sample: bool,
             decode_strategy: str = "centroid", peak_shift_alpha: float = 0.5,
             temperature: float = 0.5, group_stats: bool = True,
-            fusion_full_topk: bool = True):
+            fusion_full_topk: bool = True,
+            model_type: str = "uitars",
+            system_message: Optional[str] = None,
+            ground_response: Optional[str] = None,
+            user_prompt_template: Optional[str] = None):
     import torch
     device = torch.device(f"cuda:{gpu_id}")
     model, processor = load_zwerge_model(
@@ -661,6 +665,7 @@ def _worker(gpu_id: int, ckpt_path: str, bench_key: str, eval_root: str,
         attn_implementation=attn_impl,
         device=str(device),
         dtype=torch.bfloat16,
+        model_type=model_type,
     )
     processor.image_processor.max_pixels = max_pixels
     evaluate_bench_layerwise(
@@ -675,13 +680,16 @@ def _worker(gpu_id: int, ckpt_path: str, bench_key: str, eval_root: str,
         start=start,
         end=end,
         save_per_sample=save_per_sample,
-        verbose=False,       # 分片不打印，合并后由主进程统一打印
-        force_suffix=True,   # 始终带 _{start}-{end} 后缀，防止第0片覆盖无后缀文件
+        verbose=False,
+        force_suffix=True,
         decode_strategy=decode_strategy,
         peak_shift_alpha=peak_shift_alpha,
         temperature=temperature,
         group_stats=group_stats,
         fusion_full_topk=fusion_full_topk,
+        system_message=system_message,
+        ground_response=ground_response,
+        user_prompt_template=user_prompt_template,
     )
 
 
@@ -827,6 +835,10 @@ def run_bench_layerwise_parallel(
     temperature: float = 0.5,
     group_stats: bool = True,
     fusion_full_topk: bool = True,
+    model_type: str = "uitars",
+    system_message: Optional[str] = None,
+    ground_response: Optional[str] = None,
+    user_prompt_template: Optional[str] = None,
 ) -> Optional[Dict]:
     import multiprocessing as mp
     import torch
@@ -848,6 +860,7 @@ def run_bench_layerwise_parallel(
             attn_implementation=attn_impl,
             device="cuda:0",
             dtype=torch.bfloat16,
+            model_type=model_type,
         )
         processor.image_processor.max_pixels = max_pixels
         return evaluate_bench_layerwise(
@@ -867,6 +880,9 @@ def run_bench_layerwise_parallel(
             temperature=temperature,
             group_stats=group_stats,
             fusion_full_topk=fusion_full_topk,
+            system_message=system_message,
+            ground_response=ground_response,
+            user_prompt_template=user_prompt_template,
         )
 
     chunk  = (N + n_gpu - 1) // n_gpu
@@ -888,7 +904,9 @@ def run_bench_layerwise_parallel(
                   topk, activation_threshold, attn_impl, s, e,
                   max_pixels, save_per_sample,
                   decode_strategy, peak_shift_alpha, temperature,
-                  group_stats, fusion_full_topk),
+                  group_stats, fusion_full_topk,
+                  model_type, system_message, ground_response,
+                  user_prompt_template),
         )
         p.start()
         procs.append(p)
@@ -910,6 +928,9 @@ def parse_args():
         description="ZwerGe-UI Layer-wise Accuracy Profiling（超集评测脚本，可完全替代 eval_zwerge.py）"
     )
     parser.add_argument("--ckpt",       required=True,  help="Checkpoint 目录")
+    parser.add_argument("--model_type", default="uitars",
+                        choices=["uitars", "guiowl", "uivenus"],
+                        help="模型类型：uitars/guiowl/uivenus（影响 prompt 格式和模型加载类）")
     parser.add_argument("--bench",      default="ss_pro",
                         choices=list(BENCH_CONFIGS.keys()) + ["all"])
     parser.add_argument("--eval_dir",   default="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation")
@@ -964,8 +985,17 @@ def main():
     output_dir = os.path.join(args.output_dir, os.path.join(basedir, basename))
     os.makedirs(output_dir, exist_ok=True)
     print(f"[ZwerGe layerwise] Output dir: {output_dir}")
+    print(f"[ZwerGe layerwise] model_type={args.model_type}")
 
-    bench_keys    = list(BENCH_CONFIGS.keys()) if args.bench == "all" else [args.bench]
+    # Resolve model-specific prompt constants
+    sys.path.insert(0, _SRC_DIR)
+    from zwerge_retrofit.constants import MODEL_TYPE_CONSTANTS
+    model_constants      = MODEL_TYPE_CONSTANTS[args.model_type]
+    system_message       = model_constants["system_message"]
+    ground_response      = model_constants["ground_response"]
+    user_prompt_template = model_constants.get("user_prompt_template")
+
+    bench_keys    = MAIN_BENCH_KEYS if args.bench == "all" else [args.bench]
     all_summaries = {}
 
     for bench_key in bench_keys:
@@ -985,6 +1015,10 @@ def main():
             temperature=args.temperature,
             group_stats=not args.no_group_stats,
             fusion_full_topk=not args.no_fusion_full_topk,
+            model_type=args.model_type,
+            system_message=system_message,
+            ground_response=ground_response,
+            user_prompt_template=user_prompt_template,
         )
         elapsed = time.time() - t0
         if summary:

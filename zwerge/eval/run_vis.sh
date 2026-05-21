@@ -50,7 +50,7 @@ cd "${SCRIPT_DIR}"
 export PYTHONPATH="${ZWERGE_ROOT}/src:${PYTHONPATH:-}"
 
 BENCH="${1:-all}"
-CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_20260519_015331/checkpoint-2193}"
+CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_A4-gaussian_cos_meta_L18-25_20260520_042031/checkpoint-2193}"
 
 DECODE_STRATEGY="${DECODE_STRATEGY:-centroid}"
 PEAK_SHIFT_ALPHA="${PEAK_SHIFT_ALPHA:-0.5}"

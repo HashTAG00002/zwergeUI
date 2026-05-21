@@ -180,3 +180,130 @@ ACTION_PATTERNS_XY = [
     r"\[([0-9.]+),\s*([0-9.]+)\]",
     r"coordinate\s*=\s*\(([0-9.]+),\s*([0-9.]+)\)",
 ]
+
+
+# =============================================================================
+# GUI-Owl-1.5 constants (Qwen3-VL based)
+# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# System message（与 MobileAgent-v3.5 官方推理脚本完全一致）
+# 注意：retrofit 不修改 system message 和 user prompt，
+# 只修改 assistant prefill（加入 <|ground|> 作为坐标前锚点）
+# ─────────────────────────────────────────────────────────────────────────────
+GUI_OWL_SYSTEM_PROMPT = '''# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{"type": "function", "function": {"name": "computer_use", "description": "Use a mouse to interact with a computer.\\n* The screen\'s resolution is 1000x1000.\\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don\'t click boxes on their edges unless asked.\\n* don\'t use any other computer use tool like type, key, scroll, left_click_drag and so on.\\n* you can only use the left_click and mouse_move action to interact with the computer. if you can\'t find the element, you should terminate the task and report the failure.", "parameters": {"properties": {"action": {"description": "The action to perform. The available actions are:\\n* `mouse_move`: Move the cursor to a specified (x, y) pixel coordinate on the screen.\\n* `left_click`: Click the left mouse button with coordinate (x, y) pixel coordinate on the screen.", "enum": ["mouse_move", "left_click"], "type": "string"}, "coordinate": {"description": "(x, y): The x (pixels from the left edge) and y (pixels from the top edge) coordinates to move the mouse to. Required only by `action=mouse_move` and `action=left_click`.", "type": "array"}}, "required": ["action"], "type": "object"}}}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>
+
+Additionally, if you think the task is infeasible (e.g., the task is not related to the image), return <tool_call>
+{"name": "computer_use", "arguments": {"action": "terminate", "status": "failure"}}
+</tool_call>'''
+
+# GUI-Owl-1.5 assistant prefill（将坐标替换为 pointer tokens，<|ground|> 作为坐标前锚点）
+# 原始输出格式：
+#   <tool_call>
+#   {"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [x, y]}}
+#   </tool_call>
+# 改造后：坐标 [x, y] → [<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>]
+GUI_OWL_GROUND_RESPONSE = (
+    "<tool_call>\n"
+    '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": ['
+    f"{DEFAULT_GROUND_TOKEN}"
+    f"{DEFAULT_POINTER_START_TOKEN}"
+    f"{DEFAULT_POINTER_PAD_TOKEN}"
+    f"{DEFAULT_POINTER_END_TOKEN}"
+    "]}}\n"
+    "</tool_call>"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GUI-Owl-1.5 Layer 配置（实测自 GUI-Owl-1.5-8B-Instruct/config.json）
+#   text_config.num_hidden_layers = 36
+#   text_config.hidden_size       = 4096
+#   vision_config.deepstack_visual_indexes = [8, 16, 24]
+#   vision_config.patch_size      = 16  (vs Qwen2.5-VL 的 14)
+#   vision_config.spatial_merge_size = 2
+# ─────────────────────────────────────────────────────────────────────────────
+GUI_OWL_15_NUM_LAYERS  = 36
+GUI_OWL_15_HIDDEN_SIZE = 4096
+GUI_OWL_15_DEFAULT_PROBE_LAYERS = [26, 27, 28, 29, 30, 31, 32, 33, 34, 35]  # last 10 of 36
+
+
+# =============================================================================
+# UI-Venus-1.5 constants (Qwen3-VL based)
+# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# UI-Venus-1.5 无 system message，直接使用 user turn 中的指令模板
+# 模板来源：ui_venus15_grounding_infer.py PROMPT_WITH_REFUSAL
+# retrofit 保持 user prompt 完全不变，只修改 assistant prefill
+# ─────────────────────────────────────────────────────────────────────────────
+UI_VENUS_USER_PROMPT_TEMPLATE_WITH_REFUSAL = (
+    "Output the center point of the position corresponding to the following instruction: \n{}. "
+    "\n\nThe output should just be the coordinates of a point, in the format [x,y]. "
+    "Additionally, if the task is infeasible (e.g., the task is not related to the image), "
+    "the output should be [-1,-1]."
+)
+
+UI_VENUS_USER_PROMPT_TEMPLATE_NO_REFUSAL = (
+    "Output the center point of the position corresponding to the following instruction: \n{}. "
+    "\n\nThe output should just be the coordinates of a point, in the format [x,y]."
+)
+
+# UI-Venus-1.5 assistant prefill（将坐标 [x, y] 替换为 pointer tokens）
+# 原始输出格式：[x, y]
+# 改造后：[<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>]
+UI_VENUS_GROUND_RESPONSE = (
+    f"[{DEFAULT_GROUND_TOKEN}"
+    f"{DEFAULT_POINTER_START_TOKEN}"
+    f"{DEFAULT_POINTER_PAD_TOKEN}"
+    f"{DEFAULT_POINTER_END_TOKEN}]"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UI-Venus-1.5 Layer 配置（实测自 UI-Venus-1.5-8B/config.json，架构与 GUI-Owl 完全相同）
+#   text_config.num_hidden_layers = 36
+#   text_config.hidden_size       = 4096
+#   vision_config.deepstack_visual_indexes = [8, 16, 24]
+# ─────────────────────────────────────────────────────────────────────────────
+UI_VENUS_15_NUM_LAYERS  = 36
+UI_VENUS_15_HIDDEN_SIZE = 4096
+UI_VENUS_15_DEFAULT_PROBE_LAYERS = [26, 27, 28, 29, 30, 31, 32, 33, 34, 35]  # last 10 of 36
+
+
+# =============================================================================
+# Model type → constants 映射（供 train/eval 脚本使用）
+# =============================================================================
+MODEL_TYPE_CONSTANTS = {
+    "uitars": {
+        "system_message": GROUNDING_SYSTEM_MESSAGE,
+        "ground_response": GROUND_RESPONSE_CLICK,
+        "default_probe_layers": DEFAULT_PROBE_LAYERS,
+        "merge_size": 2,
+        # None → user turn = image + instruction (原始格式，无模板包装)
+        "user_prompt_template": None,
+    },
+    "guiowl": {
+        "system_message": GUI_OWL_SYSTEM_PROMPT,
+        "ground_response": GUI_OWL_GROUND_RESPONSE,
+        "default_probe_layers": GUI_OWL_15_DEFAULT_PROBE_LAYERS,
+        "merge_size": 2,
+        "user_prompt_template": None,  # user turn = image + instruction
+    },
+    "uivenus": {
+        "system_message": None,   # UI-Venus 无 system message（传 None 跳过 system turn）
+        "ground_response": UI_VENUS_GROUND_RESPONSE,
+        "default_probe_layers": UI_VENUS_15_DEFAULT_PROBE_LAYERS,
+        "merge_size": 2,
+        # user turn = image + PROMPT_WITH_REFUSAL.format(instruction)
+        "user_prompt_template": UI_VENUS_USER_PROMPT_TEMPLATE_WITH_REFUSAL,
+    },
+}

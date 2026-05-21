@@ -43,11 +43,13 @@ if _SRC_DIR not in sys.path:
 
 from inference_zwerge import (
     load_zwerge_model,
+    load_retrofit_model,
     point_in_bbox,
     do_boxes_overlap,
 )
 from eval_layerwise import (
     BENCH_CONFIGS,
+    MAIN_BENCH_KEYS,
     zwerge_predict_layerwise,
     scores_to_point_and_topk,
     _get_group_key,
@@ -343,11 +345,16 @@ def _vis_worker(
     cell_h: int,
     alpha: float,
     group_stats: bool,
+    model_type: str = "uitars",
+    system_message: Optional[str] = None,
+    ground_response: Optional[str] = None,
+    user_prompt_template: Optional[str] = None,
 ):
     import torch
     device = torch.device(f"cuda:{gpu_id}")
-    model, processor = load_zwerge_model(
+    model, processor = load_retrofit_model(
         ckpt_path=ckpt_path,
+        model_type=model_type,
         attn_implementation=attn_impl,
         device=str(device),
         dtype=torch.bfloat16,
@@ -408,6 +415,9 @@ def _vis_worker(
                 activation_threshold=activation_threshold,
                 topk=topk,
                 decode_strategy=decode_strategy,
+                system_message=system_message,
+                ground_response=ground_response,
+                user_prompt_template=user_prompt_template,
                 peak_shift_alpha=peak_shift_alpha,
                 temperature=temperature,
             )
@@ -733,6 +743,10 @@ def run_bench_vis_parallel(
     cell_h: int,
     alpha: float,
     group_stats: bool = True,
+    model_type: str = "uitars",
+    system_message: Optional[str] = None,
+    ground_response: Optional[str] = None,
+    user_prompt_template: Optional[str] = None,
 ) -> Dict:
     import multiprocessing as mp
     import torch
@@ -762,6 +776,10 @@ def run_bench_vis_parallel(
         cell_h=cell_h,
         alpha=alpha,
         group_stats=group_stats,
+        model_type=model_type,
+        system_message=system_message,
+        ground_response=ground_response,
+        user_prompt_template=user_prompt_template,
     )
 
     chunk  = (N + n_gpu - 1) // n_gpu
@@ -798,6 +816,9 @@ def parse_args():
         description="ZwerGe-UI Evaluation + Visualization (All-in-One, Multi-GPU)"
     )
     parser.add_argument("--ckpt",       required=True)
+    parser.add_argument("--model_type", default="uitars",
+                        choices=["uitars", "guiowl", "uivenus"],
+                        help="模型类型：uitars/guiowl/uivenus（影响 prompt 格式和模型加载类）")
     parser.add_argument("--bench",      default="ss_pro",
                         choices=list(BENCH_CONFIGS.keys()) + ["all"])
     parser.add_argument("--eval_dir",
@@ -829,8 +850,17 @@ def main():
     output_dir = os.path.join(args.output_dir, basedir, basename)
     os.makedirs(output_dir, exist_ok=True)
     print(f"[ZwerGe vis] Output dir: {output_dir}")
+    print(f"[ZwerGe vis] model_type={args.model_type}")
 
-    bench_keys    = list(BENCH_CONFIGS.keys()) if args.bench == "all" else [args.bench]
+    # Resolve model-specific prompt constants
+    sys.path.insert(0, _SRC_DIR)
+    from zwerge_retrofit.constants import MODEL_TYPE_CONSTANTS
+    model_constants      = MODEL_TYPE_CONSTANTS[args.model_type]
+    system_message       = model_constants["system_message"]
+    ground_response      = model_constants["ground_response"]
+    user_prompt_template = model_constants.get("user_prompt_template")
+
+    bench_keys    = MAIN_BENCH_KEYS if args.bench == "all" else [args.bench]
     all_summaries = {}
 
     for bench_key in bench_keys:
@@ -851,6 +881,10 @@ def main():
             cell_h=args.cell_h,
             alpha=args.alpha,
             group_stats=not args.no_group_stats,
+            model_type=args.model_type,
+            system_message=system_message,
+            ground_response=ground_response,
+            user_prompt_template=user_prompt_template,
         )
         elapsed = time.time() - t0
         summary["elapsed_s"] = round(elapsed, 1)

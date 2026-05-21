@@ -23,15 +23,31 @@ from accelerate.utils import GradientAccumulationPlugin, InitProcessGroupKwargs
 from torch.utils.data import DataLoader, RandomSampler
 from transformers import Trainer, TrainerCallback
 from transformers.trainer import (
-    ALL_LAYERNORM_LAYERS,
     get_parameter_names,
     has_length,
     is_accelerate_available,
     is_datasets_available,
     is_sagemaker_mp_enabled,
 )
+# ALL_LAYERNORM_LAYERS moved to pytorch_utils in transformers>=4.56; fall back gracefully
+try:
+    from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+except ImportError:
+    from transformers.trainer import ALL_LAYERNORM_LAYERS
 from transformers.trainer_pt_utils import LengthGroupedSampler as HFLengthGroupedSampler
-from transformers.trainer_utils import seed_worker
+try:
+    import inspect as _inspect
+    from transformers.trainer_utils import seed_worker as _seed_worker
+    _sw_sig = _inspect.signature(_seed_worker)
+    if len(_sw_sig.parameters) > 1:
+        # New transformers (>=4.57): seed_worker(worker_id, num_workers, rank)
+        # Must be wrapped with partial to fill num_workers/rank at DataLoader creation time
+        _SEED_WORKER_NEW_API = True
+    else:
+        _SEED_WORKER_NEW_API = False
+except ImportError:
+    _seed_worker = None
+    _SEED_WORKER_NEW_API = False
 from transformers.utils import logging
 
 if is_datasets_available():
@@ -96,10 +112,12 @@ class SyncNewTokenEmbCallback(TrainerCallback):
             return
         if args.local_rank not in (0, -1):
             return
+        # get_input_embeddings() works for both Qwen2.5-VL and Qwen3-VL
+        emb_module = raw.get_input_embeddings()
         with torch.no_grad():
             for tid, ri in raw._new_token_id_to_row.items():
-                raw.model.embed_tokens.weight.data[tid] = (
-                    raw._new_token_emb.data[ri].to(raw.model.embed_tokens.weight.dtype)
+                emb_module.weight.data[tid] = (
+                    raw._new_token_emb.data[ri].to(emb_module.weight.dtype)
                 )
 
 
@@ -197,7 +215,15 @@ class ValEvalCallback(TrainerCallback):
             └── results.json
     """
 
-    def __init__(self, training_args, processor, probe_layers: List[int]):
+    def __init__(
+        self,
+        training_args,
+        processor,
+        probe_layers: List[int],
+        system_message: Optional[str] = None,
+        ground_response: Optional[str] = None,
+        user_prompt_template: Optional[str] = None,
+    ):
         self.val_steps       = getattr(training_args, "val_steps", -1)
         self.val_bench       = getattr(training_args, "val_bench", "all")
         self.val_n_samples   = getattr(training_args, "val_n_samples", -1)
@@ -207,6 +233,10 @@ class ValEvalCallback(TrainerCallback):
         self.max_pixels      = getattr(training_args, "val_max_pixels", 12_845_056)
         self.processor       = processor
         self.probe_layers    = probe_layers
+        # model-specific prompt constants (None → use UITARS defaults in eval code)
+        self.system_message       = system_message
+        self.ground_response      = ground_response
+        self.user_prompt_template = user_prompt_template
 
         # Cell sizes for vis (use vis_zwerge defaults)
         self.cell_w = getattr(training_args, "val_cell_w", 300)
@@ -359,6 +389,9 @@ class ValEvalCallback(TrainerCallback):
                         image=orig_img, instruction=example["instruction"],
                         model=raw_model, processor=self.processor, device=device,
                         decode_strategy=self.decode_strategy, topk=TOPK,
+                        system_message=self.system_message,
+                        ground_response=self.ground_response,
+                        user_prompt_template=self.user_prompt_template,
                     )
                     n_w, n_h = pred["n_width"], pred["n_height"]
                     phx, phy = 0.5/n_w, 0.5/n_h
@@ -528,11 +561,11 @@ class ValEvalCallback(TrainerCallback):
     # ------------------------------------------------------------------
     def _bench_list(self) -> List[str]:
         try:
-            from eval_layerwise import BENCH_CONFIGS
+            from eval_layerwise import MAIN_BENCH_KEYS
         except ImportError:
             return [self.val_bench]
         if self.val_bench == "all":
-            return list(BENCH_CONFIGS.keys())
+            return MAIN_BENCH_KEYS
         return [self.val_bench]
 
     def _report_wandb(self, summaries: Dict, step: int):
@@ -609,6 +642,8 @@ class RetrofitTrainer(Trainer):
         self.gather_function = self.accelerator.gather_for_metrics
         self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
         self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
+        # is_tp_enabled added in transformers>=4.57 (Tensor Parallelism); we don't use TP
+        self.is_tp_enabled = getattr(self.accelerator.state, "torch_tp_plugin", None) is not None
 
         if self.is_fsdp_enabled:
             fsdp_plugin = self.accelerator.state.fsdp_plugin
@@ -660,7 +695,16 @@ class RetrofitTrainer(Trainer):
         if not isinstance(train_dataset, torch.utils.data.IterableDataset):
             dataloader_params["sampler"] = self._get_train_sampler()
             dataloader_params["drop_last"] = self.args.dataloader_drop_last
-            dataloader_params["worker_init_fn"] = seed_worker
+            if _seed_worker is not None:
+                if _SEED_WORKER_NEW_API:
+                    from functools import partial as _partial
+                    dataloader_params["worker_init_fn"] = _partial(
+                        _seed_worker,
+                        num_workers=self.args.dataloader_num_workers,
+                        rank=getattr(self.args, "process_index", 0),
+                    )
+                else:
+                    dataloader_params["worker_init_fn"] = _seed_worker
             dataloader_params["prefetch_factor"] = (
                 self.args.dataloader_num_workers * 2 if self.args.dataloader_num_workers != 0 else None
             )

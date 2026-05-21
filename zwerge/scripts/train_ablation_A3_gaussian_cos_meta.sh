@@ -68,23 +68,56 @@ export http_proxy=http://10.70.11.143:8412
 export https_proxy=http://10.70.11.143:8412
 export WANDB_API_KEY=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
 export WANDB_PROJECT=zwerge
-export WANDB_RUN_NAME="zwerge-A3-gaussian_cos_meta-$(date +%Y%m%d-%H%M%S)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/UI-TARS-1.5-7B"
+# ── 模型类型（决定使用哪个 backbone 和 prompt 格式）──────────────
+# 可选值：uitars | guiowl | uivenus
+# 用法：MODEL_TYPE=guiowl bash scripts/train_ablation_A3_gaussian_cos_meta.sh
+MODEL_TYPE="${MODEL_TYPE:-uitars}"
+
+# ── 根据 MODEL_TYPE 设置 backbone 路径、输出目录、probe 层 ────────
+if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
+    # GUI-Owl-1.5-8B: Qwen3-VL, 36层, hidden=4096, deepstack=[8,16,24]
+    MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/GUI-Owl-1.5-8B-Instruct"
+    PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30,31,32,33,34,35"   # last 10 of 36
+    VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-guiowl"
+    # Qwen3-VL 需要 transformers>=4.57.1，使用 qwen3 环境
+    CONDA_ENV="qwen3-verl"
+elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
+    # UI-Venus-1.5-8B: Qwen3-VL, 36层, hidden=4096, deepstack=[8,16,24]
+    MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/UI-Venus-1.5-8B"
+    PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30,31,32,33,34,35"   # last 10 of 36
+    VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-uivenus"
+    # Qwen3-VL 需要 transformers>=4.57.1，使用 qwen3 环境
+    CONDA_ENV="qwen3-verl"
+else
+    # uitars（默认）: Qwen2.5-VL-7B, 28层, hidden=3584
+    MODEL_TYPE="uitars"
+    MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/UI-TARS-1.5-7B"
+    PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27"   # last 10 of 28
+    VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-uitars"
+    # Qwen2.5-VL 使用 gui_actor 环境（transformers 4.51.3）
+    CONDA_ENV="gui_actor"
+fi
+
 DATA_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/grounding_50k.json"
 
 RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_A3-gaussian_cos_meta_L18-27_${RUN_TIMESTAMP}"
+OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/${MODEL_TYPE}_grounding50k_A3-gaussian_cos_meta_${RUN_TIMESTAMP}"
 mkdir -p "${OUTPUT_DIR}"
 
+export WANDB_RUN_NAME="zwerge-${MODEL_TYPE}-A3-gaussian_cos_meta-$(date +%Y%m%d-%H%M%S)"
+
+echo "MODEL_TYPE     = ${MODEL_TYPE}"
+echo "MODEL_PATH     = ${MODEL_PATH}"
 echo "WANDB_RUN_NAME = ${WANDB_RUN_NAME}"
 echo "OUTPUT_DIR     = ${OUTPUT_DIR}"
+echo "VAL_OUTPUT_DIR = ${VAL_OUTPUT_DIR}"
 
 # ── 5. 消融参数 ─────────────────────────────────────────────────
-PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27"
+# PROBE_LAYERS 已在上方 MODEL_TYPE 分支中设置
 GT_LABEL_TYPE="gaussian"          # ← A3 核心：Gaussian GT
 GAUSSIAN_SIGMA_FACTOR="0.5"
 FUSION_TYPE="cos_meta"            # ← A3 核心：cos_meta fusion
@@ -103,13 +136,19 @@ VAL_STEPS=400
 VAL_BENCH="all"
 VAL_N_SAMPLES=-1
 VAL_DECODE_STRATEGY="centroid"
-VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge_layerwise"
+# VAL_OUTPUT_DIR is set above based on MODEL_TYPE
 VAL_CELL_W=300
 VAL_CELL_H=220
 VAL_ALPHA=0.55
 
-CONDA_TORCHRUN="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs/gui_actor/bin/torchrun"
+# torchrun 路径：根据 MODEL_TYPE 选择对应 conda 环境
+# uitars → gui_actor (transformers 4.51.3, Qwen2.5-VL)
+# guiowl / uivenus → qwen3 (transformers 4.57.1, Qwen3-VL)
+CONDA_BASE="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs"
+CONDA_TORCHRUN="${CONDA_BASE}/${CONDA_ENV}/bin/torchrun"
 TORCHRUN="$([ -f "${CONDA_TORCHRUN}" ] && echo "${CONDA_TORCHRUN}" || which torchrun 2>/dev/null || echo torchrun)"
+echo "CONDA_ENV      = ${CONDA_ENV}"
+echo "TORCHRUN       = ${TORCHRUN}"
 
 cd "${PROJECT_ROOT}"
 
@@ -122,6 +161,7 @@ ${TORCHRUN} \
     train_retrofit.py \
     \
     --model_name_or_path "${MODEL_PATH}" \
+    --model_type "${MODEL_TYPE}" \
     --flash_attn_2_enabled ${FLASH_ATTN} \
     \
     --probe_layers "${PROBE_LAYERS}" \
@@ -188,4 +228,4 @@ ${TORCHRUN} \
     --verbose_logging False \
     2>&1 | tee "${OUTPUT_DIR}/train.log"
 
-echo "===== [A3-gaussian+cos_meta] Training complete. Output: ${OUTPUT_DIR} ====="
+echo "===== [A3-gaussian+cos_meta] MODEL_TYPE=${MODEL_TYPE} Training complete. Output: ${OUTPUT_DIR} ====="

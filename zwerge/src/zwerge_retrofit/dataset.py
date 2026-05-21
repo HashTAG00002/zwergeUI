@@ -438,6 +438,14 @@ class RetrofitDataset(Dataset):
         self.pointer_start_token_id = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_START_TOKEN)
         self.pointer_end_token_id   = tokenizer.convert_tokens_to_ids(DEFAULT_POINTER_END_TOKEN)
 
+        # Model-specific prompt constants (injected from data_args in train_retrofit.py)
+        # ground_response: assistant prefill template (e.g. GUI-Owl uses tool_call format)
+        # user_prompt_template: None or a .format(instruction) template (e.g. UI-Venus)
+        # system_message: None → skip system turn (UI-Venus); non-None → include system turn
+        self._ground_response      = getattr(data_args, "ground_response",      GROUND_RESPONSE_CLICK)
+        self._user_prompt_template = getattr(data_args, "user_prompt_template", None)
+        self._system_message       = getattr(data_args, "system_message",       GROUNDING_SYSTEM_MESSAGE)
+
         self.gt_label_type = getattr(data_args, "gt_label_type", "binary")
         self.gaussian_sigma_factor = getattr(data_args, "gaussian_sigma_factor", 0.5)
         rank0_print(f"[RetrofitDataset] gt_label_type={self.gt_label_type}"
@@ -540,19 +548,15 @@ class RetrofitDataset(Dataset):
                 # Compute GT point as bbox center
                 cx = (bbox[0] + bbox[2]) / 2.0
                 cy = (bbox[1] + bbox[3]) / 2.0
+                human_text = self._user_prompt_template.format(inst) if self._user_prompt_template else inst
                 convs = [
                     {
                         "from": "human",
-                        "value": f"<image>\n{inst}",
+                        "value": f"<image>\n{human_text}",
                     },
                     {
                         "from": "gpt",
-                        # click(start_box='<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>')
-                        # <|ground|> 在 start_box=' 之后，作为 pre-coordinate action-prefix token：
-                        # - 已看过 image + instruction + "click(start_box='"
-                        # - 还没看到任何坐标数字（无 label leakage）
-                        # - 对应 UI-TARS-1.5 真实固化格式（issue #183/#138 确认）
-                        "value": GROUND_RESPONSE_CLICK,
+                        "value": self._ground_response,
                     },
                 ]
                 results.append({
@@ -615,10 +619,15 @@ class RetrofitDataset(Dataset):
                 gt_point = _try_parse_point_from_text(response)
 
             # 注入 <|ground|> token（自动处理各种格式）
-            response = inject_ground_token_into_response(response)
+            # 若 response 为空且 self._ground_response 已经是 retrofit 格式，直接使用
+            if response:
+                response = inject_ground_token_into_response(response)
+            else:
+                response = self._ground_response
 
+            human_text = self._user_prompt_template.format(query) if self._user_prompt_template else query
             convs = [
-                {"from": "human", "value": f"<image>\n{query}"},
+                {"from": "human", "value": f"<image>\n{human_text}"},
                 {"from": "gpt", "value": response},
             ]
 
@@ -771,11 +780,12 @@ class RetrofitDataset(Dataset):
         # Build messages list for chat template
         messages = []
 
-        # System message
-        messages.append({
-            "role": "system",
-            "content": [{"type": "text", "text": GROUNDING_SYSTEM_MESSAGE}],
-        })
+        # System message (None or empty → skip; UI-Venus has no system message)
+        if self._system_message:
+            messages.append({
+                "role": "system",
+                "content": [{"type": "text", "text": self._system_message}],
+            })
 
         # User/assistant turns
         for conv in conversations:

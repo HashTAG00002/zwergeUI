@@ -225,44 +225,45 @@ def build_zwerge_inputs(
     image: Image.Image,
     instruction: str,
     processor,
-    system_message: str,
+    system_message: Optional[str],
     ground_response: str,
     max_pixels: int = 5_760_000,
+    user_prompt_template: Optional[str] = None,
 ) -> dict:
     """
     构造 ZwerGe 评测时的 model inputs（单样本，batch_size=1）。
 
-    注意：
-      - 我们注入完整的 ground_response（含 <|ground|> 及 pointer tokens）作为 assistant turn
-        的起始内容，整个序列一次性 prefill 进去，然后读取 <|ground|> 处的 hidden state。
-      - 不需要 generate()，只需要 forward() 一次。
+    Args:
+        system_message:       系统提示词，None 则跳过 system turn（UI-Venus 无 system message）
+        user_prompt_template: 如果非 None，则 user turn 文本 = template.format(instruction)
+                              （UI-Venus 的 PROMPT_WITH_REFUSAL 模板）
 
     Returns: dict with keys: input_ids, attention_mask, pixel_values, image_grid_thw
     """
-    from zwerge_retrofit.constants import GROUNDING_SYSTEM_MESSAGE, GROUND_RESPONSE_CLICK
+    user_text = user_prompt_template.format(instruction) if user_prompt_template else instruction
 
-    conversation = [
-        {
+    conversation = []
+    if system_message:   # None or empty string → skip system turn
+        conversation.append({
             "role": "system",
             "content": [{"type": "text", "text": system_message}],
-        },
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": image},
-                {"type": "text", "text": instruction},
-            ],
-        },
-        {
-            "role": "assistant",
-            "content": [{"type": "text", "text": ground_response}],
-        },
-    ]
+        })
+    conversation.append({
+        "role": "user",
+        "content": [
+            {"type": "image", "image": image},
+            {"type": "text", "text": user_text},
+        ],
+    })
+    conversation.append({
+        "role": "assistant",
+        "content": [{"type": "text", "text": ground_response}],
+    })
 
     text = processor.apply_chat_template(
         conversation,
         tokenize=False,
-        add_generation_prompt=False,   # assistant turn already included
+        add_generation_prompt=False,
     )
     image_inputs, video_inputs = process_vision_info(conversation)
     inputs = processor(
@@ -290,6 +291,7 @@ def zwerge_predict(
     activation_threshold: float = 0.3,
     system_message: Optional[str] = None,
     ground_response: Optional[str] = None,
+    user_prompt_template: Optional[str] = None,
     merge_size: int = 2,
     decode_strategy: str = "centroid",
     peak_shift_alpha: float = 0.5,
@@ -341,6 +343,7 @@ def zwerge_predict(
         processor=processor,
         system_message=system_message,
         ground_response=ground_response,
+        user_prompt_template=user_prompt_template,
     )
 
     input_ids = inputs["input_ids"].to(device)
@@ -412,65 +415,29 @@ def _run_grounding_head(
     device: torch.device,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], str]:
     """
-    内部函数：运行完整 forward 并手动调用 grounding head。
+    通用 grounding 推理入口（prefill-only）。
 
-    由于 model.forward 在 inference 模式（multi_patch_labels=None）下
-    不运行 grounding head，我们在这里：
-      1. 做一次完整 forward 取 all_hidden_states
-      2. 手动调用 model.layerwise_grounding_head
-      3. 用 model._find_ground_anchor 定位 anchor
+    通过 model._forward_hidden_states_for_grounding() 获取各层 hidden states，
+    该方法由各模型类各自实现：
+      - UITARSRetrofitModel (Qwen2.5-VL): 手动 embed + transformer forward
+      - GUIOwlRetrofitModel / UIVenusRetrofitModel (Qwen3-VL):
+          调用 Qwen3VL.forward() 以正确触发 deepstack 中间层视觉注入
 
     Returns: (p_final [N_vis], omega [num_probes], anchor_strategy_str)
     """
     model.eval()
-
-    # Step 1: Embed tokens + visual tokens
     token_ids_1d = input_ids[0]   # [seq_len]
 
-    # Build inputs_embeds
-    with torch.no_grad():
-        inputs_embeds = model.model.embed_tokens(input_ids)
-        if pixel_values is not None:
-            pv = pixel_values.to(model.dtype)
-            image_embeds = model.visual(pv, grid_thw=image_grid_thw)
-            n_img_tokens = (input_ids == model.config.image_token_id).sum().item()
-            n_img_feats  = image_embeds.shape[0]
-            if n_img_tokens != n_img_feats:
-                warnings.warn(
-                    f"Image token count mismatch: seq has {n_img_tokens} "
-                    f"but visual encoder produced {n_img_feats} features. "
-                    f"Attempting to proceed anyway."
-                )
-            image_mask = (
-                (input_ids == model.config.image_token_id)
-                .unsqueeze(-1)
-                .expand_as(inputs_embeds)
-                .to(inputs_embeds.device)
-            )
-            image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-            inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
-
-    # Step 2: Get RoPE position ids
-    position_ids, rope_deltas = model.get_rope_index(
-        input_ids, image_grid_thw, None, attention_mask
+    # Step 1: Get all layer hidden states via model-specific path
+    all_hidden_states = model._forward_hidden_states_for_grounding(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        pixel_values=pixel_values,
+        image_grid_thw=image_grid_thw,
+        device=device,
     )
 
-    # Step 3: Full transformer forward (output_hidden_states=True)
-    with torch.no_grad():
-        transformer_out = model.model(
-            input_ids=None,
-            position_ids=position_ids,
-            attention_mask=attention_mask,
-            past_key_values=None,
-            inputs_embeds=inputs_embeds,
-            use_cache=False,
-            output_attentions=False,
-            output_hidden_states=True,
-            return_dict=True,
-        )
-    all_hidden_states = transformer_out.hidden_states  # tuple (L+1) × [seq_len, d_model]
-
-    # Step 4: Find anchor and visual indices
+    # Step 2: Find anchor and visual indices
     anchor_idx, anchor_strategy = model._find_ground_anchor(
         token_ids=token_ids_1d,
         external_hint=None,
@@ -480,14 +447,13 @@ def _run_grounding_head(
 
     if visual_indices.numel() == 0:
         warnings.warn("No visual tokens found in sequence! Check image_token_id config.")
-        N_vis_fallback = 1
-        p_final = torch.ones(N_vis_fallback, device=device) / N_vis_fallback
+        p_final = torch.ones(1, device=device)
         return p_final, None, anchor_strategy.value
 
-    # Step 5: Per-sample hidden states slice (single sample → same as full)
-    sample_hidden_states = tuple(hs[0] for hs in all_hidden_states)  # [seq_len, d_model]
+    # Step 3: Per-sample hidden states (single sample, same as full)
+    sample_hidden_states = tuple(hs[0] for hs in all_hidden_states)
 
-    # Step 6: Run grounding head (no labels → no loss)
+    # Step 4: Run grounding head (no labels → no loss)
     with torch.no_grad():
         head_out = model.layerwise_grounding_head(
             all_hidden_states=sample_hidden_states,
@@ -557,40 +523,38 @@ def topk_hit(
 # Model loader
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_zwerge_model(
+def load_retrofit_model(
     ckpt_path: str,
+    model_type: str = "uitars",
     attn_implementation: str = "flash_attention_2",
     device: str = "cuda:0",
     dtype: torch.dtype = torch.bfloat16,
 ):
     """
-    加载 UITARSRetrofitModel + processor。
+    通用 retrofit 模型加载函数。支持三种模型类型：
+      - "uitars"  → UITARSRetrofitModel  (Qwen2.5-VL)
+      - "guiowl"  → GUIOwlRetrofitModel  (Qwen3-VL)
+      - "uivenus" → UIVenusRetrofitModel (Qwen3-VL)
 
     Args:
         ckpt_path:           checkpoint 目录（含 config.json + safetensors）
+        model_type:          模型类型（"uitars"/"guiowl"/"uivenus"）
         attn_implementation: "flash_attention_2" | "sdpa" | "eager"
         device:              目标设备
         dtype:               torch dtype
 
     Returns: (model, processor)
-
-    注意：
-      - config.json 中已经保存了 probe_layers / grounding_proj_dim 等参数，
-        从 from_pretrained 读取时会自动读取这些 custom config 字段。
-      - ground_token_id / pointer_start_token_id / vision_end_token_id
-        也保存在 config 中，setup_special_token_ids() 会自动从 config 读取。
-      - tokenizer 中的 added_tokens 也已经保存在 checkpoint，
-        from_pretrained 会自动恢复。
     """
     import sys, os
-    # 确保 zwerge_retrofit 包可以 import
     _zwerge_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
     if _zwerge_src not in sys.path:
         sys.path.insert(0, _zwerge_src)
 
     from transformers import AutoProcessor, AutoConfig
-    from zwerge_retrofit.modeling_uitars import UITARSRetrofitModel
+    from zwerge_retrofit import get_model_class
 
+    ModelClass = get_model_class(model_type)
+    print(f"[ZwerGe] model_type={model_type}, class={ModelClass.__name__}")
     print(f"[ZwerGe] Loading model from {ckpt_path}")
     print(f"[ZwerGe] attn_implementation={attn_implementation}, dtype={dtype}, device={device}")
 
@@ -598,7 +562,7 @@ def load_zwerge_model(
     print(f"[ZwerGe] probe_layers={getattr(config, 'probe_layers', 'N/A')}")
     print(f"[ZwerGe] grounding_proj_dim={getattr(config, 'grounding_proj_dim', 'N/A')}")
 
-    model = UITARSRetrofitModel.from_pretrained(
+    model = ModelClass.from_pretrained(
         ckpt_path,
         config=config,
         attn_implementation=attn_implementation,
@@ -606,8 +570,7 @@ def load_zwerge_model(
         low_cpu_mem_usage=True,
     )
 
-    # Register special token IDs
-    # These are saved in config by training script; setup_special_token_ids also re-inits head LN.
+    # Register special token IDs (saved in config during training)
     ground_token_id         = getattr(config, "ground_token_id", None)
     pointer_start_token_id  = getattr(config, "pointer_start_token_id", None)
     vision_end_token_id     = getattr(config, "vision_end_token_id", None)
@@ -627,6 +590,7 @@ def load_zwerge_model(
         ground_token_id=ground_token_id,
         pointer_start_token_id=pointer_start_token_id,
         vision_end_token_id=vision_end_token_id,
+        reinit_grounding_head=False,   # loading trained checkpoint, don't re-init
     )
     print(f"[ZwerGe] ground_token_id={ground_token_id}, "
           f"pointer_start_token_id={pointer_start_token_id}, "
@@ -636,12 +600,30 @@ def load_zwerge_model(
     model = model.to(device=device)
     model.eval()
 
-    # Freeze all params (inference only)
     for p in model.parameters():
         p.requires_grad_(False)
 
-    # Load processor
     processor = AutoProcessor.from_pretrained(ckpt_path)
     print(f"[ZwerGe] Model loaded. Total params: "
           f"{sum(p.numel() for p in model.parameters()):,}")
     return model, processor
+
+
+def load_zwerge_model(
+    ckpt_path: str,
+    attn_implementation: str = "flash_attention_2",
+    device: str = "cuda:0",
+    dtype: torch.dtype = torch.bfloat16,
+    model_type: str = "uitars",
+):
+    """
+    向后兼容的模型加载函数。内部调用 load_retrofit_model()。
+    新代码请直接使用 load_retrofit_model()。
+    """
+    return load_retrofit_model(
+        ckpt_path=ckpt_path,
+        model_type=model_type,
+        attn_implementation=attn_implementation,
+        device=device,
+        dtype=dtype,
+    )

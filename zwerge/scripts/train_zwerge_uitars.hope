@@ -3,9 +3,9 @@ type = ml-easy-job
 
 [resource]
 usergroup = hadoop-mt-ocr
-#queue = root.zw05_training_cluster.hadoop-vision.basevacv
+queue = root.zw05_training_cluster.hadoop-vision.basevacv
 #queue = root.zw05_training_cluster.hadoop-aipnlp.elastic
-queue = root.zw05_training_cluster.hadoop-vision.elastic_job
+#queue = root.zw05_training_cluster.hadoop-vision.elastic_job
 
 [dataset]
 dataset_path =
@@ -19,7 +19,7 @@ workers = 1
 worker.memory = 524288
 worker.vcore = 64
 worker.gcores80g = 8
-worker.script = bash /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/scripts/train_ablation_A5_gaussian_cos_meta_nomlp.sh
+worker.script = MODEL_TYPE=uivenus bash /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/scripts/train_ablation_A3_gaussian_cos_meta.sh
 
 [user_args]
 

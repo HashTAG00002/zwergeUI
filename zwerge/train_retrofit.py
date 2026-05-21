@@ -71,9 +71,10 @@ from zwerge_retrofit.constants import (
     DEFAULT_PROBE_LAYERS,
     IGNORE_INDEX,
     CHAT_TEMPLATE,
+    MODEL_TYPE_CONSTANTS,
 )
 from zwerge_retrofit.dataset import RetrofitDataset, RetrofitDataCollator
-from zwerge_retrofit.modeling_uitars import UITARSRetrofitModel
+from zwerge_retrofit import get_model_class
 from zwerge_retrofit.trainer import (
     RetrofitTrainer,
     EmptyCacheCallback,
@@ -100,6 +101,16 @@ class ModelArguments:
     model_name_or_path: Optional[str] = field(
         default=None,
         metadata={"help": "Path to pretrained model (UI-TARS-1.5-7B or any Qwen2.5-VL agent)"},
+    )
+    model_type: str = field(
+        default="uitars",
+        metadata={
+            "help": (
+                "Model type: 'uitars' (Qwen2.5-VL, default), "
+                "'guiowl' (GUI-Owl-1.5, Qwen3-VL), "
+                "'uivenus' (UI-Venus-1.5, Qwen3-VL)"
+            )
+        },
     )
     flash_attn_2_enabled: bool = field(
         default=True,
@@ -320,7 +331,7 @@ def update_model_config_for_retrofit(
 
 
 def setup_trainable_params(
-    model: UITARSRetrofitModel,
+    model,   # any RetrofitModelMixin subclass
     training_args: TrainingArguments,
 ):
     """
@@ -399,6 +410,35 @@ def train():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     local_rank = training_args.local_rank
 
+    # ── Qwen3-VL retrofit: DDP / gradient-checkpointing hardening ──────────────
+    # Why the slowness:
+    #   use_reentrant=False (saved_tensors_hooks) intercepts EVERY tensor op in all
+    #   36 backbone layers on FORWARD — huge overhead even with no backward.
+    # Why we can use use_reentrant=True safely:
+    #   - use_reentrant=True only saves layer INPUT tensors (near-zero overhead)
+    #   - probe layer hooks do .detach() → backward stops there → GC recompute
+    #     never actually runs (no gradient reaches backbone)
+    #   - Memory: GC saves layer inputs (~8 GB) not all activations (~50 GB)
+    #   - _new_token_emb stays in graph (consistent with UI-TARS: it CAN be trained
+    #     if probe detach is ever removed; currently has no gradient path anyway)
+    # Correct fix: keep gc=True + use_reentrant=True (default) + find_unused=True.
+    if model_args.model_type in ("guiowl", "uivenus"):
+        # Keep gradient_checkpointing=True — needed for memory with 8B model.
+        # Do NOT set use_reentrant=False (that caused 600s/step overhead).
+        # use_reentrant=True (default) is free when backward doesn't run through backbone.
+        if training_args.gradient_checkpointing and training_args.gradient_checkpointing_kwargs is not None:
+            # If someone explicitly passed use_reentrant=False, override it.
+            if training_args.gradient_checkpointing_kwargs.get("use_reentrant") is False:
+                training_args.gradient_checkpointing_kwargs["use_reentrant"] = True
+                rank0_print("[INFO] Overriding use_reentrant=False → True for Qwen3-VL retrofit.")
+        if training_args.ddp_find_unused_parameters is None:
+            training_args.ddp_find_unused_parameters = True
+            rank0_print(
+                "[INFO] ddp_find_unused_parameters=True for Qwen3-VL retrofit "
+                "(explicit; Trainer default find_unused = not gc = False → broken)."
+            )
+    # ─────────────────────────────────────────────────────────────────────────────
+
     if training_args.verbose_logging:
         rank0_print(f"model_args = {vars(model_args)}")
         rank0_print(f"data_args = {vars(data_args)}")
@@ -406,24 +446,27 @@ def train():
 
     # ── Load model ──────────────────────────────────────────────────────────
     rank0_print(f"Loading model from {model_args.model_name_or_path}...")
+    rank0_print(f"model_type = {model_args.model_type}")
+
+    # Resolve model class and model-specific constants
+    ModelClass = get_model_class(model_args.model_type)
+    model_constants = MODEL_TYPE_CONSTANTS[model_args.model_type]
 
     # Parse probe layers from string to list
     probe_layers_list = [int(x.strip()) for x in model_args.probe_layers.split(",")]
 
     # Build a temporary config to pass grounding head params at init time
-    # We load the base config first, then add our retrofit params
     base_config = transformers.AutoConfig.from_pretrained(model_args.model_name_or_path)
     base_config.probe_layers = probe_layers_list
     base_config.grounding_proj_dim = model_args.grounding_proj_dim
     base_config.grounding_adapter_rank = model_args.grounding_adapter_rank
     base_config.grounding_lambda_layer = model_args.grounding_lambda_layer
-    base_config.grounding_fusion_type = model_args.grounding_fusion_type  # MUST be set before from_pretrained
+    base_config.grounding_fusion_type    = model_args.grounding_fusion_type
+    base_config.grounding_use_shared_mlp = model_args.grounding_use_shared_mlp
 
-    # flash_attention_2 要求 gcc >= 7（stdatomic.h），codelab 环境可能缺失
-    # 关闭时退回到 sdpa（PyTorch 原生实现，无需 triton 编译，A100 也有加速）
     attn_impl = "flash_attention_2" if model_args.flash_attn_2_enabled else "sdpa"
     rank0_print(f"Using attn_implementation={attn_impl}")
-    model = UITARSRetrofitModel.from_pretrained(
+    model = ModelClass.from_pretrained(
         model_args.model_name_or_path,
         config=base_config,
         attn_implementation=attn_impl,
@@ -460,6 +503,9 @@ def train():
     )
     update_model_config_for_retrofit(model.config, tokenizer, model_args)
 
+    # Save model_type into config for auto-detection at inference time
+    model.config.model_type_retrofit = model_args.model_type
+
     # CRITICAL: register special token IDs for _find_ground_anchor P0-P3.
     # reinit_grounding_head=True only when starting fresh from a base model;
     # False when resuming from a retrofit checkpoint (trained weights must not be reset).
@@ -478,6 +524,11 @@ def train():
         f"vision_end={_vision_end_id}"
     )
 
+    # ── Inject model-specific constants into data_args for RetrofitDataset ──
+    data_args.system_message       = model_constants["system_message"]
+    data_args.ground_response      = model_constants["ground_response"]
+    data_args.user_prompt_template = model_constants.get("user_prompt_template")
+
     # ── Processor ────────────────────────────────────────────────────────────
     processor = AutoProcessor.from_pretrained(
         model_args.model_name_or_path,
@@ -485,9 +536,11 @@ def train():
         max_pixels=data_args.max_pixels,
     )
     processor.tokenizer = tokenizer
-    # 确保使用我们定义的 CHAT_TEMPLATE（而非模型原始的 tokenizer_config.json 里的 chat_template）
-    # 这样可以确保 <|ground|> 等新 token 在 apply_chat_template 时被正确处理
-    processor.tokenizer.chat_template = CHAT_TEMPLATE
+    # 对 Qwen2.5-VL (uitars)，强制使用项目内定义的 CHAT_TEMPLATE，
+    # 确保 <|ground|> 等新 token 在 apply_chat_template 时被正确处理。
+    # 对 Qwen3-VL (guiowl/uivenus)，保留模型自带的 chat_template（更完整，含 Qwen3 特殊标签）。
+    if model_args.model_type == "uitars":
+        processor.tokenizer.chat_template = CHAT_TEMPLATE
     data_args.processor = processor
 
     # ── Freeze / unfreeze params ─────────────────────────────────────────────
@@ -507,7 +560,10 @@ def train():
         if not new_token_ids:
             rank0_print("[WARN] No new token IDs found; skipping new-token embedding setup")
         else:
-            embed_weight = model.model.embed_tokens.weight
+            # Use get_input_embeddings() — works for both Qwen2.5-VL (model.model.embed_tokens)
+            # and Qwen3-VL (model.model.language_model.embed_tokens)
+            embed_module = model.get_input_embeddings()
+            embed_weight  = embed_module.weight
             # embed_tokens stays FROZEN — no requires_grad, no Adam state for 543M rows
             embed_weight.requires_grad_(False)
             # Standalone trainable parameter for just the new token rows
@@ -533,7 +589,7 @@ def train():
                     mask = (token_ids == tid)
                     out[mask] = model._new_token_emb[ri].to(out.dtype)
                 return out
-            model.model.embed_tokens.register_forward_hook(_patch_new_token_outputs)
+            embed_module.register_forward_hook(_patch_new_token_outputs)
 
     # ── Output directory ─────────────────────────────────────────────────────
     os.makedirs(training_args.output_dir, exist_ok=True)
@@ -565,6 +621,9 @@ def train():
             training_args=training_args,
             processor=processor,
             probe_layers=probe_layers_list,
+            system_message=model_constants["system_message"],
+            ground_response=model_constants["ground_response"],
+            user_prompt_template=model_constants.get("user_prompt_template"),
         ))
 
     # ── Trainer ──────────────────────────────────────────────────────────────
