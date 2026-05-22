@@ -182,7 +182,10 @@ def get_prediction_region_point(
 
 def grid_thw_to_nwh(image_grid_thw: torch.Tensor, merge_size: int = 2) -> Tuple[int, int]:
     """
-    image_grid_thw: [T, H, W]  patch-level grid (patch_size=14 per dim).
+    image_grid_thw: [T, H, W]  patch-level grid.
+      Qwen2.5-VL (uitars):    patch_size=14, merge_size=2 → token_cell=28px
+      Qwen3-VL (guiowl/uivenus): patch_size=16, merge_size=2 → token_cell=32px
+    Note: n_width/n_height = H//merge_size, W//merge_size (independent of patch_size).
     visual token grid = (T * (H // merge_size) * (W // merge_size)) 个 token，
     排列为 (H // merge_size) rows × (W // merge_size) cols（per frame）。
 
@@ -343,9 +346,13 @@ def zwerge_predict(
     if image_grid_thw is not None:
         n_width, n_height = grid_thw_to_nwh(image_grid_thw, merge_size=merge_size)
     else:
-        # Fallback: compute from image size
+        # Fallback: compute from image size.
+        # Read patch_size from processor to support both Qwen2.5-VL (14) and Qwen3-VL (16).
+        # Do NOT hard-code 14 here — that would give wrong n_width/n_height for Qwen3-VL.
         w, h = image.size
-        token_cell = 14 * merge_size   # patch_size=14, merge_size=2
+        _ip = getattr(processor, "image_processor", processor)
+        _patch_size = getattr(_ip, "patch_size", 14)   # 14 for Qwen2.5-VL, 16 for Qwen3-VL
+        token_cell = _patch_size * merge_size
         n_width  = max(1, w // token_cell)
         n_height = max(1, h // token_cell)
 

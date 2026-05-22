@@ -64,9 +64,12 @@ echo "CONDA_ENV            = $CONDA_ENV"
 
 # ── Checkpoint ────────────────────────────────────────────────────────────────
 if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
-    CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl_grounding/checkpoint-latest}"
+    # 最新 guiowl checkpoint（grounding-only system prompt, 1255 chars）
+    # system_message 从 checkpoint 目录的 args.json 自动读取（inference_base.py 已支持）
+    CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl_grounding50k_A3-gaussian_cos_meta_20260522_034634/checkpoint-1600}"
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
-    CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_grounding/checkpoint-latest}"
+    # 最新 uivenus checkpoint
+    CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_grounding50k_A3-gaussian_cos_meta_20260522_031059/checkpoint-1600}"
 else
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_20260519_015331/checkpoint-2193}"
 fi
@@ -75,6 +78,20 @@ fi
 DECODE_STRATEGY="${DECODE_STRATEGY:-peak_shift}"
 PEAK_SHIFT_ALPHA="${PEAK_SHIFT_ALPHA:-0.5}"
 TEMPERATURE="${TEMPERATURE:-0.5}"
+
+# ── MAX_PIXELS（与训练时一致）─────────────────────────────────────────────────
+# uitars (Qwen2.5-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
+# guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
+# 用 uitars 的值跑 Qwen3-VL 会导致输入图片被压缩过度（仅约 12544 tokens），
+# 造成坐标精度下降。必须与训练脚本中的 MAX_PIXELS 保持一致。
+if [[ -z "${MAX_PIXELS:-}" ]]; then
+    if [[ "${MODEL_TYPE}" == "guiowl" || "${MODEL_TYPE}" == "uivenus" ]]; then
+        MAX_PIXELS=16777216
+    else
+        MAX_PIXELS=12845056
+    fi
+fi
+echo "MAX_PIXELS           = $MAX_PIXELS"
 
 # ── 可视化控制 ────────────────────────────────────────────────────────────────
 # SKIP_VIS=1 → 只输出指标 JSON，不生成 PNG（快，等价于旧 eval_layerwise.py）
@@ -92,7 +109,7 @@ python eval_retrofit.py \
     --bench      "${BENCH}" \
     --eval_dir   "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation" \
     --output_dir "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge_layerwise/${DECODE_STRATEGY}" \
-    --max_pixels 12845056 \
+    --max_pixels "${MAX_PIXELS}" \
     --decode_strategy  "${DECODE_STRATEGY}" \
     --peak_shift_alpha "${PEAK_SHIFT_ALPHA}" \
     --temperature      "${TEMPERATURE}" \

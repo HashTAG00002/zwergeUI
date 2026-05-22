@@ -186,34 +186,15 @@ ACTION_PATTERNS_XY = [
 # GUI-Owl-1.5 constants (Qwen3-VL based)
 # =============================================================================
 # ─────────────────────────────────────────────────────────────────────────────
-# System message（与 MobileAgent-v3.5 官方推理脚本完全一致）
-# 注意：retrofit 不修改 system message 和 user prompt，
-# 只修改 assistant prefill（加入 <|ground|> 作为坐标前锚点）
+# Ground response（assistant prefill）— 定义在 system prompt 之前，以便 system prompt 引用
+#
+# 格式：tool_call JSON，坐标部分 [x, y] → [<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>]
+# <|ground|> 是坐标前锚点（pre-coordinate action-prefix token，无 label leakage）。
+#
+# _find_ground_anchor() P1：candidates = positions[positions > vision_cut]，取最后一个
+#   → system prompt 里的 <|ground|> 位于 <|vision_end|> 之前，被 vision_cut 过滤
+#   → P1 始终命中 assistant prefill 里的 <|ground|>，与 UI-TARS 完全等价
 # ─────────────────────────────────────────────────────────────────────────────
-GUI_OWL_SYSTEM_PROMPT = '''# Tools
-
-You may call one or more functions to assist with the user query.
-
-You are provided with function signatures within <tools></tools> XML tags:
-<tools>
-{"type": "function", "function": {"name": "computer_use", "description": "Use a mouse to interact with a computer.\\n* The screen\'s resolution is 1000x1000.\\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don\'t click boxes on their edges unless asked.\\n* don\'t use any other computer use tool like type, key, scroll, left_click_drag and so on.\\n* you can only use the left_click and mouse_move action to interact with the computer. if you can\'t find the element, you should terminate the task and report the failure.", "parameters": {"properties": {"action": {"description": "The action to perform. The available actions are:\\n* `mouse_move`: Move the cursor to a specified (x, y) pixel coordinate on the screen.\\n* `left_click`: Click the left mouse button with coordinate (x, y) pixel coordinate on the screen.", "enum": ["mouse_move", "left_click"], "type": "string"}, "coordinate": {"description": "(x, y): The x (pixels from the left edge) and y (pixels from the top edge) coordinates to move the mouse to. Required only by `action=mouse_move` and `action=left_click`.", "type": "array"}}, "required": ["action"], "type": "object"}}}
-</tools>
-
-For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
-<tool_call>
-{"name": <function-name>, "arguments": <args-json-object>}
-</tool_call>
-
-Additionally, if you think the task is infeasible (e.g., the task is not related to the image), return <tool_call>
-{"name": "computer_use", "arguments": {"action": "terminate", "status": "failure"}}
-</tool_call>'''
-
-# GUI-Owl-1.5 assistant prefill（将坐标替换为 pointer tokens，<|ground|> 作为坐标前锚点）
-# 原始输出格式：
-#   <tool_call>
-#   {"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [x, y]}}
-#   </tool_call>
-# 改造后：坐标 [x, y] → [<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>]
 GUI_OWL_GROUND_RESPONSE = (
     "<tool_call>\n"
     '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": ['
@@ -224,6 +205,30 @@ GUI_OWL_GROUND_RESPONSE = (
     "]}}\n"
     "</tool_call>"
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompt（grounding-only 改造版，基于 MobileAgent-v3.5 / GUI-Owl-1.5 官方格式）
+#
+# 对原始 system prompt 的两处修改：
+#   1. 动作空间仅保留 left_click（移除 mouse_move；移除 infeasible/terminate 指令）
+#   2. "For each function call" 示例中，坐标改为 pointer tokens（与 assistant prefill 完全一致）
+#      模型在 context 中见到该格式，有助于对齐坐标输出方式
+# ─────────────────────────────────────────────────────────────────────────────
+_GUI_OWL_SYSTEM_PREFIX = '''# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{"type": "function", "function": {
+"name": "computer_use", 
+"description": "Use a mouse and keyboard to interact with a computer, and take screenshots. This is an interface to a desktop GUI. You do not have access to a terminal or applications menu. You must click on desktop icons to start applications. * The screen\'s resolution is 1000x1000.\\n* Make sure to click buttons, links, icons, etc with the cursor tip in the center of the element. Don\'t click boxes on their edges unless asked.", 
+"parameters": {"properties": {"action": {"description": "The action to perform. The available actions are:\\n* `left_click`: Click the left mouse button at coordinate (x, y) pixel coordinate on the screen.", "enum": ["left_click"], "type": "string"}, "coordinate": {"description": "(x, y): The x (pixels from the left edge) and y (pixels from the top edge) coordinates to click. Required only by `action=left_click`.", "type": "array"}}, "required": ["action", "coordinate"], "type": "object"}}}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+'''
+GUI_OWL_SYSTEM_PROMPT = _GUI_OWL_SYSTEM_PREFIX + GUI_OWL_GROUND_RESPONSE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GUI-Owl-1.5 Layer 配置（实测自 GUI-Owl-1.5-8B-Instruct/config.json）
@@ -243,8 +248,8 @@ GUI_OWL_15_DEFAULT_PROBE_LAYERS = [26, 27, 28, 29, 30, 31, 32, 33, 34, 35]  # la
 # =============================================================================
 # ─────────────────────────────────────────────────────────────────────────────
 # UI-Venus-1.5 无 system message，直接使用 user turn 中的指令模板
-# 模板来源：ui_venus15_grounding_infer.py PROMPT_WITH_REFUSAL
-# retrofit 保持 user prompt 完全不变，只修改 assistant prefill
+#
+# 原始 native 推理模板保留（backward compat，供 UIVenusNativeInference 使用）：
 # ─────────────────────────────────────────────────────────────────────────────
 UI_VENUS_USER_PROMPT_TEMPLATE_WITH_REFUSAL = (
     "Output the center point of the position corresponding to the following instruction: \n{}. "
@@ -258,14 +263,35 @@ UI_VENUS_USER_PROMPT_TEMPLATE_NO_REFUSAL = (
     "\n\nThe output should just be the coordinates of a point, in the format [x,y]."
 )
 
-# UI-Venus-1.5 assistant prefill（将坐标 [x, y] 替换为 pointer tokens）
-# 原始输出格式：[x, y]
-# 改造后：[<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>]
+# ─────────────────────────────────────────────────────────────────────────────
+# Ground response（assistant prefill）— 坐标 [x, y] → [<|ground|>...]
+#
+# _find_ground_anchor() P1：
+#   user prompt 里的 <|ground|> 在 <|vision_end|> 之后 → 候选
+#   assistant prefill 里的 <|ground|> 更靠后 → P1 取最后一个 = assistant prefill ✅
+# ─────────────────────────────────────────────────────────────────────────────
 UI_VENUS_GROUND_RESPONSE = (
     f"[{DEFAULT_GROUND_TOKEN}"
     f"{DEFAULT_POINTER_START_TOKEN}"
     f"{DEFAULT_POINTER_PAD_TOKEN}"
     f"{DEFAULT_POINTER_END_TOKEN}]"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retrofit grounding 专用 user prompt 模板（grounding-only 改造版）
+#
+# 对原始 native 模板的两处修改：
+#   1. 移除 infeasible / [-1,-1] 选项（grounding 训练不需要拒绝分支）
+#   2. 输出格式示例由 [x,y] 改为 pointer tokens（与 assistant prefill 完全一致）
+#      → 模型在 user turn 中见到 pointer tokens 格式，有助于对齐输出
+#      → user turn 里的 <|ground|> 在 <|vision_end|> 之后，但 assistant prefill 更靠后，
+#         P1 仍取 assistant prefill（见注释 above）
+# ─────────────────────────────────────────────────────────────────────────────
+UI_VENUS_USER_PROMPT_TEMPLATE = (
+    f"Output the center point of the position corresponding to the following instruction: \n{{}}. "
+    f"\n\nThe output should just be the coordinates of a point, in the format "
+    f"[{DEFAULT_GROUND_TOKEN}{DEFAULT_POINTER_START_TOKEN}"
+    f"{DEFAULT_POINTER_PAD_TOKEN}{DEFAULT_POINTER_END_TOKEN}]."
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -303,7 +329,8 @@ MODEL_TYPE_CONSTANTS = {
         "ground_response": UI_VENUS_GROUND_RESPONSE,
         "default_probe_layers": UI_VENUS_15_DEFAULT_PROBE_LAYERS,
         "merge_size": 2,
-        # user turn = image + PROMPT_WITH_REFUSAL.format(instruction)
-        "user_prompt_template": UI_VENUS_USER_PROMPT_TEMPLATE_WITH_REFUSAL,
+        # user turn = image + UI_VENUS_USER_PROMPT_TEMPLATE.format(instruction)
+        # grounding-only: no refusal branch, format example uses pointer tokens
+        "user_prompt_template": UI_VENUS_USER_PROMPT_TEMPLATE,
     },
 }

@@ -1436,3 +1436,84 @@
     注：场景 B 使用训练中已加载的模型，无需重新加载（无额外 GPU 开销）；
         每 val_steps 步触发，on_train_end 额外触发一次。
 
+  - [2026-05-22] 【A6/A7 消融：独立层监督 + CrossAttn Probe 架构升级】
+
+    ─── A6：独立层监督（grounding_independent_layers=True）────────────────────────────
+
+    背景：LayerFusionScorer 的跨层融合监督在 guiowl/uivenus 上效果不稳定，
+    希望验证每层独立监督的基线能力。
+
+    核心改动（modeling_base.py LayerWiseGroundingHead）：
+      independent_layers=True 时：
+        - 强制关闭共享 MLP（use_shared_mlp=False）
+        - 不创建 LayerFusionScorer（无 omega 参数）
+        - Loss = mean_l KL(y ‖ p_l)（仅 per-layer loss，无 L_fuse 项）
+        - p_final = uniform mean of per_layer_probs（eval 用，不反传梯度）
+        - omega = uniform [1/L, ..., 1/L]（eval display only）
+
+    训练脚本：scripts/train_ablation_A6_independent_layers.sh
+      支持 MODEL_TYPE=uitars/guiowl/uivenus
+      参数量：~2.5M (uitars) / ~2.8M (guiowl)（vs A3 ~12-14M）
+
+    开关：--grounding_independent_layers true/false（默认 false）
+
+    ─── A7：CrossAttn Probe（多头全秩注意力 adapter）──────────────────────────────────
+
+    背景：LoRA rank=16 在 d_model=4096 的 Qwen3-VL 空间中仅有 16 个自由度，
+    对 guiowl/uivenus 表达能力不足，导致"灾难性掉点"。
+
+    核心新类：modeling_base.py CrossAttnGroundingProbe
+      取代 LayerGroundingProbe，当 adapter_type="attn" 时使用。
+
+    架构（单 probe）：
+      1. h_query, h_vis → RMS 预归一化（沿用现有数值稳定方案）
+      2. LayerNorm（q_ln, k_ln）+ 二次 RMS 缩放
+      3. W_q: Linear(d_model, n_heads*d_head)  ← 全秩投影，无 bottleneck
+         W_k: Linear(d_model, n_heads*d_head)  ← 全秩投影
+      4. Q = W_q(h_q_norm).view(n_heads, d_head)
+         K = W_k(h_v_norm).view(N_vis, n_heads, d_head)
+      5. scores_h = einsum("hd,nhd->nh", Q, K) / √d_head  → [N_vis, n_heads]
+      6. omega = softmax(head_gate)  ← 可学习 head 组合权重，初始 zeros → uniform
+         logits = scores_h @ omega   → [N_vis]
+      7. p = softmax(logits)
+      返回 (p, logits, Q.view(-1)) — q_l 仅用于 fusion compat，A6/A7 中不被 fusion 使用
+
+    参数量（默认 n_heads=8, d_head=64, d_attn=512）：
+      Per probe: 2×(d_model×512) + 2×LN + head_gate
+        uitars (d=3584): ~3.68M per probe → 10 probes → ~36.8M  (0.53% of 7B) ✓
+        guiowl (d=4096): ~4.21M per probe → 10 probes → ~42.1M  (0.53% of 8B) ✓
+      目标 0.5–0.75% → 精确命中。
+
+    为何不能用 FA2：
+      计算是 S_q=1 × N_vis（单 query 对所有视觉 token），是 matrix-vector product，
+      而非 S×S 矩阵。FA2 针对 O(S²) 场景，此处无需 FA2，torch.einsum 已足够快。
+      真正瓶颈是 W_k 的线性投影（N_vis × d_model × d_attn），不是注意力点积本身。
+
+    初始化（reinit_grounding_head）：
+      CrossAttnGroundingProbe: xavier_uniform(W_q/W_k, gain=0.02), zeros(head_gate), ones/zeros(LN)
+      LayerGroundingProbe (LoRA):  原有逻辑不变（B zeros, A xavier gain=0.1）
+
+    开关：
+      --grounding_adapter_type  lora|attn  （默认 lora，backward compat）
+      --grounding_attn_heads    N           （默认 8）
+      --grounding_attn_head_dim D           （默认 64，d_attn=N×D=512）
+      attn 模式自动强制 use_shared_mlp=False
+
+    训练脚本：scripts/train_ablation_A7_crossattn_probe.sh
+      支持 MODEL_TYPE=uitars/guiowl/uivenus，继承 A6 的 independent_layers=True
+      可通过 ATTN_HEADS / ATTN_HEAD_DIM 环境变量调参
+
+    消融对比表（10 probe layers）：
+      A3  MLP共享 + cos_meta fusion + LoRA r=16 :  ~12M / ~14M
+      A5  无MLP   + cos_meta fusion + LoRA r=16 :  ~2.5M / ~2.8M
+      A6  无MLP   + 无fusion        + LoRA r=16 :  ~2.5M / ~2.8M   (per-layer only)
+      A7  无MLP   + 无fusion        + CrossAttn :  ~37M  / ~42M    (0.53%, per-layer only)
+
+    代码变更：
+      modeling_base.py: 新增 CrossAttnGroundingProbe 类；
+                        LayerWiseGroundingHead.__init__() 新增 adapter_type/attn_n_heads/attn_d_head；
+                        _init_retrofit_from_config() 读取 grounding_adapter_type 等；
+                        reinit_grounding_head() 按 isinstance 分支初始化
+      train_retrofit.py: ModelArguments 新增 grounding_adapter_type/grounding_attn_heads/grounding_attn_head_dim；
+                         update_model_config_for_retrofit() + build_model() 各补三行
+

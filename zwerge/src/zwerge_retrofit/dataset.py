@@ -101,19 +101,21 @@ def get_patch_soft_label_from_point(
 
     sigma = sigma_ratio * min(image_width, image_height) in pixel space
 
-    NOTE on Qwen2.5-VL patch layout:
-      image_grid_thw [T, H, W] uses H, W = patch-level grid (patch_size=14).
+    NOTE on patch layout (applies to both Qwen2.5-VL and Qwen3-VL):
+      image_grid_thw [T, H, W] uses H, W = patch-level grid.
+        Qwen2.5-VL (uitars):    patch_size=14, merge_size=2 → token_cell=28px
+        Qwen3-VL (guiowl/uivenus): patch_size=16, merge_size=2 → token_cell=32px
       Each visual token in input_ids corresponds to merge_size² patches merged.
       So the actual token grid is (H // merge_size) × (W // merge_size).
       This function computes label at the MERGED token level, i.e.
         grid_h = image_height // (patch_size * merge_size)
         grid_w = image_width  // (patch_size * merge_size)
       which equals T * (H // merge_size) * (W // merge_size).
-      Token-level grid cell size = patch_size * merge_size pixels.
+      token_cell_size is read dynamically from image_processor.patch_size × merge_size.
     """
     w, h = image.size
-    # Each visual token spans patch_size * merge_size pixels
-    # (merge_size² raw patches are merged into one token)
+    # Each visual token spans patch_size * merge_size pixels.
+    # patch_size is read dynamically: 14 for Qwen2.5-VL, 16 for Qwen3-VL.
     token_cell_size = image_processor.patch_size * image_processor.merge_size
     grid_w = max(1, w // token_cell_size)
     grid_h = max(1, h // token_cell_size)
@@ -149,13 +151,16 @@ def get_patch_binary_label_from_bbox(
     Patches with any overlap with bbox are positive.
     Normalizes to sum=1.
 
-    NOTE on Qwen2.5-VL patch layout (same as get_patch_soft_label_from_point):
+    NOTE on patch layout (Qwen2.5-VL and Qwen3-VL):
       Each visual token corresponds to a token_cell_size × token_cell_size pixel region,
-      where token_cell_size = patch_size * merge_size.
+      where token_cell_size = patch_size * merge_size (read dynamically from image_processor).
+        uitars (Qwen2.5-VL): patch_size=14, merge_size=2 → token_cell=28px
+        guiowl/uivenus (Qwen3-VL): patch_size=16, merge_size=2 → token_cell=32px
       Grid size matches n_image_tokens in input_ids (= H * W / merge_size²).
     """
     w, h = image.size
-    # Token-level cell size: each visual token covers this many pixels
+    # Token-level cell size: each visual token covers this many pixels.
+    # patch_size read dynamically: 14 for Qwen2.5-VL, 16 for Qwen3-VL.
     token_cell_size = image_processor.patch_size * image_processor.merge_size
 
     # Handle potentially non-divisible sizes
@@ -456,19 +461,29 @@ class RetrofitDataset(Dataset):
         self.samples = []  # list of dicts: {image_path, instruction, bbox, conversations}
 
         self._load_data(data_path)
-        rank0_print(f"[RetrofitDataset] Total samples loaded: {len(self.samples)}")
+        random.shuffle(self.samples)
+        rank0_print(f"[RetrofitDataset] Total samples loaded: {len(self.samples)} (shuffled)")
 
     def _load_data(self, data_path: str):
-        """Load data from single JSON, multiple JSONs, or YAML config."""
-        # Use data_args.image_folder as the default images_folder for non-YAML paths
+        """Load data from single JSON, comma/newline-separated paths, brace-pattern, or YAML."""
         default_images_folder = getattr(self.data_args, "image_folder", "") or ""
         if data_path.endswith(".yaml"):
             self._load_yaml(data_path)
         elif "{" in data_path and "}" in data_path:
-            # Multi-file pattern: /path/to/{file1,file2,file3}.json
+            # Brace-expansion pattern: /path/to/{file1,file2,file3}.json
             base, pattern = re.match(r"^(.*)\{(.*)\}\.json$", data_path).groups()
             for fn in pattern.split(","):
                 self._load_json(f"{base}{fn.strip()}.json", default_images_folder)
+        elif "," in data_path or "\n" in data_path:
+            # Comma- or newline-separated list of full paths
+            for path in re.split(r"[,\n]+", data_path):
+                path = path.strip()
+                if not path:
+                    continue
+                if path.endswith(".yaml"):
+                    self._load_yaml(path)
+                else:
+                    self._load_json(path, default_images_folder)
         else:
             self._load_json(data_path, default_images_folder)
 
@@ -584,8 +599,11 @@ class RetrofitDataset(Dataset):
                     # 先尝试从原始 response 解析 GT point（替换前）
                     if bbox is None and gt_point is None:
                         gt_point = _try_parse_point_from_text(original_val)
-                    # 注入 <|ground|> token（主方案：pre-coordinate action-prefix）
-                    conv["value"] = inject_ground_token_into_response(original_val)
+                    # 替换 gpt response 为 model-specific ground_response 格式
+                    # 注意：不直接使用 inject_ground_token_into_response()，因为它硬编码
+                    # 替换为 UITARS 的 GROUND_RESPONSE_CLICK 格式，对 guiowl/uivenus 不适用。
+                    # 正确做法：始终用 self._ground_response（由 MODEL_TYPE_CONSTANTS 决定）。
+                    conv["value"] = self._ground_response
 
             return {
                 "image_path": img_path,
@@ -618,12 +636,13 @@ class RetrofitDataset(Dataset):
             if bbox is None and gt_point is None:
                 gt_point = _try_parse_point_from_text(response)
 
-            # 注入 <|ground|> token（自动处理各种格式）
-            # 若 response 为空且 self._ground_response 已经是 retrofit 格式，直接使用
-            if response:
-                response = inject_ground_token_into_response(response)
-            else:
-                response = self._ground_response
+            # 始终用 model-specific ground_response 格式替换 gpt 部分
+            # 不使用 inject_ground_token_into_response()，因为它硬编码替换为 UITARS 的
+            # GROUND_RESPONSE_CLICK 格式（click(start_box='...')），对 guiowl/uivenus 不适用。
+            # 正确做法：始终用 self._ground_response（由 MODEL_TYPE_CONSTANTS 决定），
+            # 这样 uitars → GROUND_RESPONSE_CLICK, guiowl → GUI_OWL_GROUND_RESPONSE,
+            #      uivenus → UI_VENUS_GROUND_RESPONSE，每个模型训练时格式完全一致。
+            response = self._ground_response
 
             human_text = self._user_prompt_template.format(query) if self._user_prompt_template else query
             convs = [
@@ -768,7 +787,8 @@ class RetrofitDataset(Dataset):
         image_path: str,
     ) -> Optional[Dict]:
         """
-        Tokenize conversations with image using Qwen2.5-VL processor.
+        Tokenize conversations with image using the model's processor
+        (Qwen2.5-VL for uitars, Qwen3-VL for guiowl/uivenus).
         Builds input_ids and labels (mask human turns with IGNORE_INDEX).
 
         Returns dict with: input_ids, labels, pixel_values, image_grid_thw,
@@ -873,8 +893,9 @@ class RetrofitDataset(Dataset):
 
         # Compute processed image dimensions for patch label.
         #
-        # Qwen2.5-VL image_grid_thw [T, H, W]:
+        # image_grid_thw [T, H, W] (same for Qwen2.5-VL uitars and Qwen3-VL guiowl/uivenus):
         #   H, W = raw patch count (each patch is patch_size × patch_size pixels).
+        #   patch_size: 14 for Qwen2.5-VL, 16 for Qwen3-VL (read dynamically).
         #   Actual pixel size = H * patch_size × W * patch_size.
         #   Visual tokens = T * (H / merge_size) * (W / merge_size).
         #
@@ -886,7 +907,7 @@ class RetrofitDataset(Dataset):
         processed_w, processed_h = image.width, image.height
         if image_grid_thw is not None:
             _, H, W = image_grid_thw[0].tolist()
-            patch_size = processor.image_processor.patch_size
+            patch_size = processor.image_processor.patch_size  # 14 (Qwen2.5-VL) or 16 (Qwen3-VL)
             # Image pixel size = raw patch grid × patch size (NOT × merge_size)
             processed_w = int(W * patch_size)
             processed_h = int(H * patch_size)

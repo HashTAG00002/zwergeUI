@@ -35,11 +35,12 @@ cd "${EVAL_DIR}"
 export PYTHONPATH="${ZWERGE_ROOT}/src:${PYTHONPATH:-}"
 
 # ── 固定参数 ──────────────────────────────────────────────────────────────────
-CKPT="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_A4-gaussian_cos_meta_L18-25_20260520_042031/checkpoint-2193"
-MODEL_TYPE="uitars"
+# 最新 guiowl checkpoint（grounding-only system prompt, 1255 chars, checkpoint-1600）
+CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl_grounding50k_A3-gaussian_cos_meta_20260522_034634/checkpoint-1600}"
+MODEL_TYPE="guiowl"
 BENCH="${1:-all}"
 
-OUTPUT_DIR_FINAL="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-uitars/retry"
+OUTPUT_DIR_FINAL="${OUTPUT_DIR_FINAL:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-guiowl/peak_shift}"
 
 DECODE_STRATEGY="centroid"
 PEAK_SHIFT_ALPHA="0.5"
@@ -54,7 +55,7 @@ echo "[eval] bench       = ${BENCH}"
 echo "[eval] output_dir  = ${OUTPUT_DIR_FINAL}"
 echo "[eval] skip_vis    = ${SKIP_VIS}"
 
-conda run --no-capture-output -n gui_actor \
+conda run --no-capture-output -n qwen25 \
 python eval_retrofit.py \
     --model_type       "${MODEL_TYPE}" \
     --ckpt             "${CKPT}" \

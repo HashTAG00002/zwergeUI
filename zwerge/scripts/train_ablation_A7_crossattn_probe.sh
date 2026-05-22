@@ -1,18 +1,38 @@
 #!/bin/bash
 # ============================================================
-# Ablation A3: Gaussian GT + cos_meta fusion
+# Ablation A7: Cross-Attention Probe（多头全秩注意力 adapter）
 # ============================================================
-# 变量点：
-#   GT_LABEL_TYPE = gaussian   ← 各向异性高斯 GT
-#   FUSION_TYPE   = cos_meta   ← alpha_l + cos(q_meta, q_l)
-#   PROBE_LAYERS  = 18-27      ← 不变
-# A1 + A2 同时启用，验证两项改进是否有协同效果。
+# 在 A6 基础上替换 adapter 架构：
+#   A6: LoRA rank=16（每方向 16 自由度，表达力受限）
+#   A7: CrossAttnProbe（全秩 W_q/W_k + 多头注意力打分）
+#
+# 核心参数：
+#   ADAPTER_TYPE   = attn            ← 替换 LoRA
+#   ATTN_HEADS     = 8               ← n_heads
+#   ATTN_HEAD_DIM  = 64              ← d_head，d_attn = 8×64 = 512
+#   INDEPENDENT_LAYERS = true        ← 继承自 A6（每层独立监督，无 fusion）
+#
+# 参数量对比（10 probe layers）：
+#   A6  LoRA r=16:          ~2.5M / ~2.8M
+#   A7  CrossAttn n=8,d=64: ~36M  / ~42M  (≈0.52% of 7B/8B)  ← 在 0.5-0.75% 目标区间内
+#
+# 实验目标：
+#   A6 中 LoRA rank=16 限制了 guiowl/uivenus 在 4096-d 空间的表达能力
+#   CrossAttn 通过全秩投影 + 多头注意力提升每层的定位判别力
+#
+# 用法：
+#   bash scripts/train_ablation_A7_crossattn_probe.sh          # uitars 默认
+#   MODEL_TYPE=guiowl  bash scripts/train_ablation_A7_crossattn_probe.sh
+#   MODEL_TYPE=uivenus bash scripts/train_ablation_A7_crossattn_probe.sh
+#
+#   # 自定义 head 数（减小参数量）：
+#   ATTN_HEADS=4 ATTN_HEAD_DIM=64 bash scripts/train_ablation_A7_crossattn_probe.sh
 # ============================================================
 
 unset http_proxy https_proxy
 
 if [[ -z "${AFO_ENV_CLUSTER_SPEC:-}" ]]; then
-    echo "===== [A3-gaussian+cos_meta] DEBUG MODE ====="
+    echo "===== [A7-crossattn_probe] DEBUG MODE ====="
     export NPROC_PER_NODE=2
     export NODE_RANK=0
     export NNODES=1
@@ -23,11 +43,10 @@ if [[ -z "${AFO_ENV_CLUSTER_SPEC:-}" ]]; then
     NUM_EPOCHS=1
     MAX_STEPS=30
     SAVE_STEPS=30
-    # MAX_PIXELS 将在 MODEL_TYPE 分支中设置（与 JOB MODE 保持一致）
     FLASH_ATTN=False
     conda config --add envs_dirs /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs 2>/dev/null || true
 else
-    echo "===== [A3-gaussian+cos_meta] JOB MODE ====="
+    echo "===== [A7-crossattn_probe] JOB MODE ====="
     nvidia-smi
     conda config --add envs_dirs /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs
     conda env list
@@ -60,7 +79,6 @@ else
     NUM_EPOCHS=3
     MAX_STEPS=-1
     SAVE_STEPS=400
-    # MAX_PIXELS 将在 MODEL_TYPE 分支中设置（与 JOB MODE 保持一致）
     FLASH_ATTN=True
 fi
 
@@ -72,69 +90,58 @@ export WANDB_PROJECT=zwerge
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# ── 模型类型（决定使用哪个 backbone 和 prompt 格式）──────────────
-# 可选值：uitars | guiowl | uivenus
-# 用法：MODEL_TYPE=guiowl bash scripts/train_ablation_A3_gaussian_cos_meta.sh
+# ── 模型类型 ─────────────────────────────────────────────────
 MODEL_TYPE="${MODEL_TYPE:-uitars}"
 
-# ── 根据 MODEL_TYPE 设置 backbone 路径、输出目录、probe 层 ────────
 if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
-    # GUI-Owl-1.5-8B: Qwen3-VL, 36层, hidden=4096, deepstack=[8,16,24]
-    # patch_size=16, merge_size=2 → token_cell=32px
-    # MAX_PIXELS: 16384 tokens × 16² × 2² = 16384 × 1024 = 16,777,216
-    # (保持与 uitars 相同的 16384 token 预算; 使用 uitars 的 12845056 则仅约 12544 tokens)
     MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/GUI-Owl-1.5-8B-Instruct"
-    PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"   # last 10 of 36
+    PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"
     VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-guiowl"
-    # Qwen3-VL 需要 transformers>=4.57.1，使用 qwen3 环境
     CONDA_ENV="qwen3-verl"
-    MAX_PIXELS="${MAX_PIXELS:-16777216}"   # 16384 × 16² × 4 = 16,777,216
+    MAX_PIXELS="${MAX_PIXELS:-16777216}"
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
-    # UI-Venus-1.5-8B: Qwen3-VL, 36层, hidden=4096, deepstack=[8,16,24]
-    # patch_size=16, merge_size=2 → token_cell=32px
-    # MAX_PIXELS: 16384 tokens × 16² × 2² = 16,777,216
     MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/UI-Venus-1.5-8B"
-    PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"   # last 10 of 36
+    PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"
     VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-uivenus"
-    # Qwen3-VL 需要 transformers>=4.57.1，使用 qwen3 环境
     CONDA_ENV="qwen3-verl"
-    MAX_PIXELS="${MAX_PIXELS:-16777216}"   # 16384 × 16² × 4 = 16,777,216
+    MAX_PIXELS="${MAX_PIXELS:-16777216}"
 else
-    # uitars（默认）: Qwen2.5-VL-7B, 28层, hidden=3584
-    # patch_size=14, merge_size=2 → token_cell=28px
-    # MAX_PIXELS: 16384 tokens × 14² × 2² = 16384 × 784 = 12,845,056
     MODEL_TYPE="uitars"
     MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/UI-TARS-1.5-7B"
-    PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27"   # last 10 of 28
+    PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27"
     VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-uitars"
-    # Qwen2.5-VL 使用 gui_actor 环境（transformers 4.51.3）
     CONDA_ENV="gui_actor"
-    MAX_PIXELS="${MAX_PIXELS:-12845056}"   # 16384 × 14² × 4 = 12,845,056
+    MAX_PIXELS="${MAX_PIXELS:-12845056}"
 fi
 
-DATA_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/grounding_50k.json"
+# 训练集：多个文件换行分隔，dataset.py 合并后随机打乱
+_DS=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets
+DATA_PATH="${_DS}/grounding_50k.json
+${_DS}/grounding_jedi_4k.json"
 
 RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/${MODEL_TYPE}_grounding50k_A3-gaussian_cos_meta_${RUN_TIMESTAMP}"
+OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/${MODEL_TYPE}_grounding50k_A7-crossattn_probe_${RUN_TIMESTAMP}"
 mkdir -p "${OUTPUT_DIR}"
 
-export WANDB_RUN_NAME="zwerge-${MODEL_TYPE}-A3-gaussian_cos_meta-$(date +%Y%m%d-%H%M%S)"
+export WANDB_RUN_NAME="zwerge-${MODEL_TYPE}-A7-crossattn_probe-$(date +%Y%m%d-%H%M%S)"
 
 echo "MODEL_TYPE     = ${MODEL_TYPE}"
 echo "MODEL_PATH     = ${MODEL_PATH}"
 echo "WANDB_RUN_NAME = ${WANDB_RUN_NAME}"
 echo "OUTPUT_DIR     = ${OUTPUT_DIR}"
-echo "VAL_OUTPUT_DIR = ${VAL_OUTPUT_DIR}"
 
-# ── 5. 消融参数 ─────────────────────────────────────────────────
-# PROBE_LAYERS 已在上方 MODEL_TYPE 分支中设置
-GT_LABEL_TYPE="gaussian"          # ← A3 核心：Gaussian GT
+# ── A7 核心参数 ─────────────────────────────────────────────────
+# CrossAttn probe: 全秩 W_q/W_k + 多头注意力，替换 LoRA adapter
+GT_LABEL_TYPE="gaussian"
 GAUSSIAN_SIGMA_FACTOR="0.5"
-FUSION_TYPE="cos_meta"            # ← A3 核心：cos_meta fusion
+INDEPENDENT_LAYERS=true       # 每层独立监督（继承自 A6）
+ADAPTER_TYPE="attn"           # ← A7 核心：CrossAttnGroundingProbe
+ATTN_HEADS="${ATTN_HEADS:-8}"          # n_heads（默认 8）
+ATTN_HEAD_DIM="${ATTN_HEAD_DIM:-64}"   # d_head（默认 64，d_attn=512）
 
-GROUNDING_PROJ_DIM=1024
-GROUNDING_ADAPTER_RANK=16
-GROUNDING_LAMBDA_LAYER=0.5
+GROUNDING_PROJ_DIM=1024    # 不影响 attn 模式（probe 有自己的 W_q/W_k），保留以防 compat
+GROUNDING_ADAPTER_RANK=16  # 不影响 attn 模式
+GROUNDING_LAMBDA_LAYER=0.5 # 不影响 independent 模式（只有 loss_layer）
 GROUNDING_LOSS_WEIGHT=1.0
 LM_LOSS_WEIGHT=0.0
 LEARNING_RATE=2e-4
@@ -146,14 +153,14 @@ VAL_STEPS=400
 VAL_BENCH="all"
 VAL_N_SAMPLES=-1
 VAL_DECODE_STRATEGY="centroid"
-# VAL_OUTPUT_DIR is set above based on MODEL_TYPE
 VAL_CELL_W=300
 VAL_CELL_H=220
 VAL_ALPHA=0.55
 
-# torchrun 路径：根据 MODEL_TYPE 选择对应 conda 环境
-# uitars → gui_actor (transformers 4.51.3, Qwen2.5-VL)
-# guiowl / uivenus → qwen3 (transformers 4.57.1, Qwen3-VL)
+echo "ADAPTER_TYPE   = ${ADAPTER_TYPE}"
+echo "ATTN_HEADS     = ${ATTN_HEADS}"
+echo "ATTN_HEAD_DIM  = ${ATTN_HEAD_DIM}  (d_attn = $((ATTN_HEADS * ATTN_HEAD_DIM)))"
+
 CONDA_BASE="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs"
 CONDA_TORCHRUN="${CONDA_BASE}/${CONDA_ENV}/bin/torchrun"
 TORCHRUN="$([ -f "${CONDA_TORCHRUN}" ] && echo "${CONDA_TORCHRUN}" || which torchrun 2>/dev/null || echo torchrun)"
@@ -178,6 +185,10 @@ ${TORCHRUN} \
     --grounding_proj_dim ${GROUNDING_PROJ_DIM} \
     --grounding_adapter_rank ${GROUNDING_ADAPTER_RANK} \
     --grounding_lambda_layer ${GROUNDING_LAMBDA_LAYER} \
+    --grounding_independent_layers ${INDEPENDENT_LAYERS} \
+    --grounding_adapter_type ${ADAPTER_TYPE} \
+    --grounding_attn_heads ${ATTN_HEADS} \
+    --grounding_attn_head_dim ${ATTN_HEAD_DIM} \
     \
     --data_path "${DATA_PATH}" \
     --image_folder "" \
@@ -186,19 +197,9 @@ ${TORCHRUN} \
     --max_conv_turns 10 \
     --gt_label_type ${GT_LABEL_TYPE} \
     --gaussian_sigma_factor ${GAUSSIAN_SIGMA_FACTOR} \
-    --grounding_fusion_type ${FUSION_TYPE} \
     \
-    --val_steps           ${VAL_STEPS} \
-    --val_bench           ${VAL_BENCH} \
-    --val_n_samples       ${VAL_N_SAMPLES} \
-    --val_decode_strategy ${VAL_DECODE_STRATEGY} \
-    --val_eval_dir        "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation" \
-    --val_output_dir      "${VAL_OUTPUT_DIR}" \
-    --val_max_pixels      "${MAX_PIXELS}" \
-    --val_cell_w          "${VAL_CELL_W}" \
-    --val_cell_h          "${VAL_CELL_H}" \
-    --val_alpha           "${VAL_ALPHA}" \
-    \
+    --grounding_loss_weight ${GROUNDING_LOSS_WEIGHT} \
+    --lm_loss_weight ${LM_LOSS_WEIGHT} \
     --output_dir "${OUTPUT_DIR}" \
     --num_train_epochs ${NUM_EPOCHS} \
     --max_steps ${MAX_STEPS} \
@@ -206,36 +207,26 @@ ${TORCHRUN} \
     --gradient_accumulation_steps ${GRADIENT_ACCUMULATION_STEPS} \
     --learning_rate ${LEARNING_RATE} \
     --learning_rate_new_tokens ${LEARNING_RATE_NEW_TOKENS} \
-    --weight_decay 0.01 \
+    --weight_decay 0.0 \
     --warmup_ratio 0.03 \
-    --lr_scheduler_type "cosine" \
-    \
-    --model_max_length ${MODEL_MAX_LENGTH} \
+    --lr_scheduler_type cosine \
     --bf16 True \
-    --fp16 False \
+    --tf32 True \
     --gradient_checkpointing True \
-    \
-    --grounding_loss_weight ${GROUNDING_LOSS_WEIGHT} \
-    --lm_loss_weight ${LM_LOSS_WEIGHT} \
-    \
-    --unfreeze_all_parameters False \
-    --unfreeze_grounding_head True \
-    --unfreeze_new_tokens True \
-    --unfreeze_lm_head False \
-    --unfreeze_last_n_layers -1 \
-    --unfreeze_visual_encoder False \
-    \
-    --empty_cache_every_n_steps 20 \
-    \
-    --save_strategy "steps" \
-    --save_steps ${SAVE_STEPS} \
-    --logging_steps 10 \
     --dataloader_num_workers 4 \
-    \
+    --save_steps ${SAVE_STEPS} \
+    --save_total_limit 3 \
+    --model_max_length ${MODEL_MAX_LENGTH} \
     --report_to wandb \
-    --run_name "${WANDB_RUN_NAME}" \
     \
-    --verbose_logging False \
+    --val_steps ${VAL_STEPS} \
+    --val_bench "${VAL_BENCH}" \
+    --val_n_samples ${VAL_N_SAMPLES} \
+    --val_eval_dir "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation" \
+    --val_output_dir "${VAL_OUTPUT_DIR}" \
+    --val_decode_strategy "${VAL_DECODE_STRATEGY}" \
+    --val_max_pixels ${MAX_PIXELS} \
+    --val_cell_w ${VAL_CELL_W} \
+    --val_cell_h ${VAL_CELL_H} \
+    --val_alpha ${VAL_ALPHA} \
     2>&1 | tee "${OUTPUT_DIR}/train.log"
-
-echo "===== [A3-gaussian+cos_meta] MODEL_TYPE=${MODEL_TYPE} Training complete. Output: ${OUTPUT_DIR} ====="

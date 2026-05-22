@@ -197,6 +197,85 @@ class LayerGroundingProbe(nn.Module):
         return p, logits, q
 
 
+class CrossAttnGroundingProbe(nn.Module):
+    """
+    Cross-attention grounding probe for a single layer.
+
+    Replaces LayerGroundingProbe when adapter_type="attn".
+    Key difference: removes the rank-16 LoRA bottleneck and shared MLP,
+    uses full-rank per-probe projections W_q/W_k with multi-head attention scoring.
+
+    Architecture:
+      1. RMS pre-normalize (bfloat16 safety, same as LayerGroundingProbe)
+      2. LayerNorm + second RMS (stability)
+      3. W_q [d_model → n_heads*d_head]: full-rank query projection
+         W_k [d_model → n_heads*d_head]: full-rank key projection
+      4. Per-head dot-product scores: [N_vis, n_heads]
+      5. Learnable head_gate (softmax) → weighted sum → logits [N_vis]
+      6. p = softmax(logits)
+
+    Parameter budget (8B model, d_model=4096, n_heads=8, d_head=64):
+      W_q + W_k: 2 × 4096×512 ≈ 4.19M per probe
+      10 probes: ~42M  (0.52% of 8B)  ← within 0.5–0.75% target
+    """
+
+    def __init__(self, d_model: int, n_heads: int = 8, d_head: int = 64):
+        super().__init__()
+        self.d_model  = d_model
+        self.n_heads  = n_heads
+        self.d_head   = d_head
+        d_attn = n_heads * d_head
+        self.q_ln     = nn.LayerNorm(d_model)
+        self.k_ln     = nn.LayerNorm(d_model)
+        self.W_q      = nn.Linear(d_model, d_attn, bias=False)
+        self.W_k      = nn.Linear(d_model, d_attn, bias=False)
+        # head_gate: learnable head-combination weights, init zeros → uniform softmax at start
+        self.head_gate = nn.Parameter(torch.zeros(n_heads))
+        nn.init.xavier_uniform_(self.W_q.weight, gain=0.02)
+        nn.init.xavier_uniform_(self.W_k.weight, gain=0.02)
+
+    def forward(
+        self,
+        h_query: torch.Tensor,
+        h_vis: torch.Tensor,
+        q_proj: Optional[nn.Module],   # ignored (probe has its own W_q/W_k)
+        k_proj: Optional[nn.Module],   # ignored
+        d_eff: int,                    # ignored
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns (p, logits, q_l): p and logits [N_vis], q_l [n_heads*d_head]."""
+        d_model     = h_query.shape[-1]
+        target_norm = math.sqrt(d_model)
+
+        # Stage 1: RMS pre-normalize (same bfloat16 safety as LayerGroundingProbe)
+        rms_q = (h_query.norm(dim=-1, keepdim=True) / target_norm).clamp(min=1e-6)
+        rms_v = (h_vis.norm(dim=-1, keepdim=True)   / target_norm).clamp(min=1e-6)
+        h_q_safe = h_query / rms_q
+        h_v_safe = h_vis   / rms_v
+
+        # Stage 2: LayerNorm
+        h_q_ln = self.q_ln(h_q_safe)
+        h_v_ln = self.k_ln(h_v_safe)
+
+        # Stage 3: second RMS before projection
+        rms_q2 = (h_q_ln.norm(dim=-1, keepdim=True) / target_norm).clamp(min=1e-6)
+        rms_v2 = (h_v_ln.norm(dim=-1, keepdim=True) / target_norm).clamp(min=1e-6)
+
+        # Stage 4: full-rank multi-head projections
+        Q = self.W_q(h_q_ln / rms_q2).view(self.n_heads, self.d_head)     # [n_heads, d_head]
+        K = self.W_k(h_v_ln / rms_v2).view(-1, self.n_heads, self.d_head) # [N_vis, n_heads, d_head]
+
+        # Stage 5: per-head attention scores → [N_vis, n_heads]
+        scores_h = torch.einsum("hd,nhd->nh", Q, K) / math.sqrt(self.d_head)
+
+        # Stage 6: learnable head combination
+        omega  = torch.softmax(self.head_gate.to(scores_h.dtype), dim=-1)  # [n_heads]
+        logits = scores_h @ omega                                            # [N_vis]
+
+        p   = torch.softmax(logits, dim=-1)
+        q_l = Q.detach().view(-1)   # [n_heads*d_head], for fusion compat; detach since not used in A6
+        return p, logits, q_l
+
+
 # =============================================================================
 # Readiness Features
 # =============================================================================
@@ -289,22 +368,21 @@ class LayerWiseGroundingHead(nn.Module):
     """
     Complete layer-wise coordinate-free grounding head.
 
-    Architecture:
+    Two modes controlled by `independent_layers`:
+
+    Normal mode (independent_layers=False, default):
       Shared:    q_proj (MLP d_model → d_proj), k_proj (MLP d_model → d_proj)
-      Per-layer: LayerGroundingProbe (q_adapter + k_adapter + q_ln + k_ln)
-      Fusion:    LayerFusionScorer
+      Per-layer: LayerGroundingProbe (LoRA adapter + q_ln + k_ln)
+      Fusion:    LayerFusionScorer → omega → p_final
+      Loss:      L_fuse + lambda_layer * L_layer
 
-    Forward:
-      For each probe layer l:
-        (p_l, logits_l) = probe_l(h_query_l, h_vis_l)
-        feat_l = readiness_features(p_l.detach())
-      omega = fusion_scorer(feats)
-      p_final = sum_l(omega_l * p_l)
-
-    Loss (when labels provided):
-      L_fuse = KL(y || p_final)
-      L_layer = mean_l KL(y || p_l)
-      L_total = L_fuse + lambda_layer * L_layer
+    Independent mode (independent_layers=True):
+      No shared MLP (forced use_shared_mlp=False)
+      No LayerFusionScorer (no omega parameters)
+      Each probe supervised only by its own per-layer KL
+      Loss:      mean_l KL(y || p_l)   [no fusion term]
+      p_final:   uniform mean of per-layer probs (for eval only, no gradient)
+      omega:     uniform [1/L, ..., 1/L]  (for eval display only)
     """
 
     def __init__(
@@ -317,14 +395,24 @@ class LayerWiseGroundingHead(nn.Module):
         lambda_layer: float = 0.5,
         fusion_type: str = "cos_meta",
         use_shared_mlp: bool = True,
+        independent_layers: bool = False,
+        adapter_type: str = "lora",
+        attn_n_heads: int = 8,
+        attn_d_head: int = 64,
     ):
         super().__init__()
-        self.probe_layers    = sorted(probe_layers)
-        self.num_probes      = len(self.probe_layers)
-        self.d_model         = d_model
-        self.d_proj          = d_proj
-        self.lambda_layer    = lambda_layer
-        self.use_shared_mlp  = use_shared_mlp
+        self.probe_layers      = sorted(probe_layers)
+        self.num_probes        = len(self.probe_layers)
+        self.d_model           = d_model
+        self.d_proj            = d_proj
+        self.lambda_layer      = lambda_layer
+        self.independent_layers = independent_layers
+        self.adapter_type      = adapter_type
+
+        # "attn" probe has its own W_q/W_k — shared MLP not needed
+        if independent_layers or adapter_type == "attn":
+            use_shared_mlp = False
+        self.use_shared_mlp = use_shared_mlp
 
         if use_shared_mlp:
             self.q_proj = MLP2(d_model, d_proj, d_proj)
@@ -333,19 +421,27 @@ class LayerWiseGroundingHead(nn.Module):
             self.q_proj = None   # type: ignore[assignment]
             self.k_proj = None   # type: ignore[assignment]
 
-        self.probes = nn.ModuleList([
-            LayerGroundingProbe(d_model, adapter_rank)
-            for _ in range(self.num_probes)
-        ])
+        if adapter_type == "attn":
+            self.probes = nn.ModuleList([
+                CrossAttnGroundingProbe(d_model, n_heads=attn_n_heads, d_head=attn_d_head)
+                for _ in range(self.num_probes)
+            ])
+        else:
+            self.probes = nn.ModuleList([
+                LayerGroundingProbe(d_model, adapter_rank)
+                for _ in range(self.num_probes)
+            ])
 
-        d_for_fusion = d_proj if use_shared_mlp else d_model
-        self.fusion = LayerFusionScorer(
-            num_layers=self.num_probes,
-            feature_dim=5,
-            layer_emb_dim=layer_emb_dim,
-            fusion_type=fusion_type,
-            d_proj=d_for_fusion,
-        )
+        # No fusion scorer in independent mode
+        if not independent_layers:
+            d_for_fusion = d_proj if use_shared_mlp else d_model
+            self.fusion = LayerFusionScorer(
+                num_layers=self.num_probes,
+                feature_dim=5,
+                layer_emb_dim=layer_emb_dim,
+                fusion_type=fusion_type,
+                d_proj=d_for_fusion,
+            )
 
     def forward(
         self,
@@ -373,13 +469,20 @@ class LayerWiseGroundingHead(nn.Module):
                 self.d_proj if self.use_shared_mlp else self.d_model,
             )
             per_layer_probs.append(p_l)
-            readiness_feats.append(compute_readiness_features(p_l.detach()))
-            per_layer_queries.append(q_l)
+            if not self.independent_layers:
+                readiness_feats.append(compute_readiness_features(p_l.detach()))
+                per_layer_queries.append(q_l)
 
-        omega = self.fusion(
-            readiness_feats, list(range(self.num_probes)), per_layer_queries
-        )
-        p_final = sum(omega[i] * per_layer_probs[i] for i in range(self.num_probes))
+        if self.independent_layers:
+            # Uniform mean for eval convenience; no gradient through fusion weights
+            p_final = sum(per_layer_probs) / self.num_probes
+            omega   = torch.full(
+                (self.num_probes,), 1.0 / self.num_probes,
+                device=p_final.device, dtype=p_final.dtype,
+            )
+        else:
+            omega   = self.fusion(readiness_feats, list(range(self.num_probes)), per_layer_queries)
+            p_final = sum(omega[i] * per_layer_probs[i] for i in range(self.num_probes))
 
         result = {
             "p_final": p_final,
@@ -389,27 +492,33 @@ class LayerWiseGroundingHead(nn.Module):
 
         if labels is not None:
             eps = 1e-8
-            labels_f = labels.float()
+            labels_f   = labels.float()
             label_dist = labels_f / (labels_f.sum() + eps)
 
-            loss_fuse = F.kl_div(
-                torch.log(p_final.clamp(min=eps)),
-                label_dist,
-                reduction="sum",
-            )
-
-            loss_layer = torch.zeros((), device=p_final.device)
-            for p_l in per_layer_probs:
-                loss_layer = loss_layer + F.kl_div(
-                    torch.log(p_l.clamp(min=eps)),
-                    label_dist,
-                    reduction="sum",
+            if self.independent_layers:
+                # Loss = mean per-layer KL only; no fusion term
+                loss_layer = torch.zeros((), device=label_dist.device)
+                for p_l in per_layer_probs:
+                    loss_layer = loss_layer + F.kl_div(
+                        torch.log(p_l.clamp(min=eps)), label_dist, reduction="sum",
+                    )
+                loss_layer = loss_layer / self.num_probes
+                result["loss_fuse"]           = torch.zeros_like(loss_layer)
+                result["loss_layer"]          = loss_layer
+                result["total_grounding_loss"] = loss_layer
+            else:
+                loss_fuse = F.kl_div(
+                    torch.log(p_final.clamp(min=eps)), label_dist, reduction="sum",
                 )
-            loss_layer = loss_layer / self.num_probes
-
-            result["loss_fuse"] = loss_fuse
-            result["loss_layer"] = loss_layer
-            result["total_grounding_loss"] = loss_fuse + self.lambda_layer * loss_layer
+                loss_layer = torch.zeros((), device=p_final.device)
+                for p_l in per_layer_probs:
+                    loss_layer = loss_layer + F.kl_div(
+                        torch.log(p_l.clamp(min=eps)), label_dist, reduction="sum",
+                    )
+                loss_layer = loss_layer / self.num_probes
+                result["loss_fuse"]           = loss_fuse
+                result["loss_layer"]          = loss_layer
+                result["total_grounding_loss"] = loss_fuse + self.lambda_layer * loss_layer
 
         return result
 
@@ -440,12 +549,16 @@ class RetrofitModelMixin:
 
     def _init_retrofit_from_config(self, config) -> None:
         """Initialize the grounding head and retrofit state from model config."""
-        probe_layers    = getattr(config, "probe_layers",              [14, 18, 21, 24, 26, 27])
-        d_proj          = getattr(config, "grounding_proj_dim",         512)
-        adapter_rank    = getattr(config, "grounding_adapter_rank",     16)
-        lambda_layer    = getattr(config, "grounding_lambda_layer",     0.5)
-        fusion_type     = getattr(config, "grounding_fusion_type",     "readiness")
-        use_shared_mlp  = getattr(config, "grounding_use_shared_mlp",  True)
+        probe_layers        = getattr(config, "probe_layers",                    [14, 18, 21, 24, 26, 27])
+        d_proj              = getattr(config, "grounding_proj_dim",               512)
+        adapter_rank        = getattr(config, "grounding_adapter_rank",           16)
+        lambda_layer        = getattr(config, "grounding_lambda_layer",           0.5)
+        fusion_type         = getattr(config, "grounding_fusion_type",           "readiness")
+        use_shared_mlp      = getattr(config, "grounding_use_shared_mlp",        True)
+        independent_layers  = getattr(config, "grounding_independent_layers",    False)
+        adapter_type        = getattr(config, "grounding_adapter_type",          "lora")
+        attn_n_heads        = getattr(config, "grounding_attn_heads",             8)
+        attn_d_head         = getattr(config, "grounding_attn_head_dim",          64)
 
         self.layerwise_grounding_head = LayerWiseGroundingHead(
             d_model=config.hidden_size,
@@ -455,6 +568,10 @@ class RetrofitModelMixin:
             lambda_layer=lambda_layer,
             fusion_type=fusion_type,
             use_shared_mlp=use_shared_mlp,
+            independent_layers=independent_layers,
+            adapter_type=adapter_type,
+            attn_n_heads=attn_n_heads,
+            attn_d_head=attn_d_head,
         )
 
         self.grounding_loss_weight: float = 1.0
@@ -483,20 +600,30 @@ class RetrofitModelMixin:
         reinit_grounding_head=True.
         """
         for probe in self.layerwise_grounding_head.probes:
-            for adapter in [probe.q_adapter, probe.k_adapter]:
-                nn.init.ones_(adapter.ln.weight)
-                nn.init.zeros_(adapter.ln.bias)
-                nn.init.xavier_uniform_(adapter.A.weight, gain=0.1)
-                nn.init.zeros_(adapter.B.weight)
-            nn.init.ones_(probe.q_ln.weight)
-            nn.init.zeros_(probe.q_ln.bias)
-            nn.init.ones_(probe.k_ln.weight)
-            nn.init.zeros_(probe.k_ln.bias)
-        fusion = self.layerwise_grounding_head.fusion
-        if hasattr(fusion, "q_meta"):
-            nn.init.normal_(fusion.q_meta, std=0.01)
-        if hasattr(fusion, "alpha"):
-            nn.init.zeros_(fusion.alpha)
+            if isinstance(probe, CrossAttnGroundingProbe):
+                nn.init.xavier_uniform_(probe.W_q.weight, gain=0.02)
+                nn.init.xavier_uniform_(probe.W_k.weight, gain=0.02)
+                nn.init.zeros_(probe.head_gate)
+                nn.init.ones_(probe.q_ln.weight)
+                nn.init.zeros_(probe.q_ln.bias)
+                nn.init.ones_(probe.k_ln.weight)
+                nn.init.zeros_(probe.k_ln.bias)
+            else:   # LayerGroundingProbe (LoRA)
+                for adapter in [probe.q_adapter, probe.k_adapter]:
+                    nn.init.ones_(adapter.ln.weight)
+                    nn.init.zeros_(adapter.ln.bias)
+                    nn.init.xavier_uniform_(adapter.A.weight, gain=0.1)
+                    nn.init.zeros_(adapter.B.weight)
+                nn.init.ones_(probe.q_ln.weight)
+                nn.init.zeros_(probe.q_ln.bias)
+                nn.init.ones_(probe.k_ln.weight)
+                nn.init.zeros_(probe.k_ln.bias)
+        fusion = getattr(self.layerwise_grounding_head, "fusion", None)
+        if fusion is not None:
+            if hasattr(fusion, "q_meta"):
+                nn.init.normal_(fusion.q_meta, std=0.01)
+            if hasattr(fusion, "alpha"):
+                nn.init.zeros_(fusion.alpha)
 
     def setup_special_token_ids(
         self,

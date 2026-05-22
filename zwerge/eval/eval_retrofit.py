@@ -555,7 +555,15 @@ def parse_args():
     )
     parser.add_argument("--attn_impl", default="flash_attention_2",
                         choices=["flash_attention_2", "sdpa", "eager"])
-    parser.add_argument("--max_pixels",           type=int,   default=12_845_056)
+    parser.add_argument(
+        "--max_pixels", type=int, default=None,
+        help=(
+            "Max image pixels for processor. Defaults to model-type-specific value if not set: "
+            "uitars=12845056 (16384 tokens @ patch14×merge2), "
+            "guiowl/uivenus=16777216 (16384 tokens @ patch16×merge2). "
+            "Always pass the same value used at training time."
+        ),
+    )
     parser.add_argument("--activation_threshold", type=float, default=0.3)
     parser.add_argument("--topk",                 type=int,   default=3)
     parser.add_argument(
@@ -579,6 +587,17 @@ def parse_args():
 def main():
     args = parse_args()
     assert os.path.isdir(args.ckpt), f"Checkpoint not found: {args.ckpt}"
+
+    # ── Resolve max_pixels default based on model_type ────────────────────────
+    # uitars  (Qwen2.5-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
+    # guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
+    # Using uitars' max_pixels for Qwen3-VL would give only ~12544 tokens instead of 16384.
+    if args.max_pixels is None:
+        if args.model_type in ("guiowl", "uivenus"):
+            args.max_pixels = 16_777_216
+        else:
+            args.max_pixels = 12_845_056
+    print(f"[ZwerGe] max_pixels={args.max_pixels} (model_type={args.model_type})")
 
     if args.output_dir_final:
         output_dir = args.output_dir_final

@@ -379,11 +379,15 @@ class BaseZwergeInference(ABC):
         attn_impl: str = "flash_attention_2",
         device: str = "cuda:0",
         dtype: torch.dtype = torch.bfloat16,
-        max_pixels: int = 12_845_056,
+        max_pixels: Optional[int] = None,
     ) -> "BaseZwergeInference":
         """
         Load model + processor from checkpoint, look up model-specific constants,
         return an initialized inference instance.
+
+        max_pixels: if None, resolved per model_type:
+          uitars (Qwen2.5-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
+          guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
         """
         raise NotImplementedError
 
@@ -428,8 +432,16 @@ class RetrofitInference(BaseZwergeInference):
         attn_impl: str = "flash_attention_2",
         device: str = "cuda:0",
         dtype: torch.dtype = torch.bfloat16,
-        max_pixels: int = 12_845_056,
+        max_pixels: Optional[int] = None,
     ) -> "RetrofitInference":
+        # Resolve max_pixels per model_type if not explicitly provided.
+        # uitars (Qwen2.5-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
+        # guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
+        if max_pixels is None:
+            if cls.model_type in ("guiowl", "uivenus"):
+                max_pixels = 16_777_216
+            else:
+                max_pixels = 12_845_056
         from zwerge_retrofit import get_model_class
         from zwerge_retrofit.constants import MODEL_TYPE_CONSTANTS
         from transformers import AutoProcessor, AutoConfig
@@ -467,12 +479,55 @@ class RetrofitInference(BaseZwergeInference):
         if hasattr(processor, "image_processor"):
             processor.image_processor.max_pixels = max_pixels
 
+        # ── Resolve system_message / ground_response ──────────────────────────
+        # Priority: (1) args.json saved at training time — guaranteed to match
+        #               what the checkpoint was trained with (handles multiple
+        #               guiowl system-prompt variants, e.g. native vs. grounding-only)
+        #           (2) MODEL_TYPE_CONSTANTS fallback — used when checkpoint was
+        #               not produced by our training pipeline (e.g., raw base model)
         constants = MODEL_TYPE_CONSTANTS[cls.model_type]
+        system_message       = constants["system_message"]
+        ground_response      = constants["ground_response"]
+        user_prompt_template = constants.get("user_prompt_template")
+
+        # Look for args.json one level up from ckpt_path (i.e., the output_dir)
+        ckpt_parent = os.path.dirname(ckpt_path)
+        args_json_path = os.path.join(ckpt_parent, "args.json")
+        if os.path.isfile(args_json_path):
+            try:
+                import json as _json
+                with open(args_json_path) as _f:
+                    _saved_args = _json.load(_f)
+                _data_args = _saved_args.get("data_args", {})
+                _sys = _data_args.get("system_message")
+                _grd = _data_args.get("ground_response")
+                _upt = _data_args.get("user_prompt_template")
+                if _sys is not None:
+                    system_message = _sys
+                if _grd is not None:
+                    ground_response = _grd
+                if _upt is not None:
+                    user_prompt_template = _upt
+                print(
+                    f"[RetrofitInference] system_message / ground_response loaded from "
+                    f"{args_json_path} (len={len(system_message or '')})"
+                )
+            except Exception as _e:
+                print(
+                    f"[RetrofitInference] WARNING: failed to load args.json from "
+                    f"{args_json_path}: {_e}. Falling back to MODEL_TYPE_CONSTANTS."
+                )
+        else:
+            print(
+                f"[RetrofitInference] args.json not found at {args_json_path}. "
+                f"Using MODEL_TYPE_CONSTANTS defaults."
+            )
+
         return cls(
             model=model, processor=processor,
-            system_message=constants["system_message"],
-            ground_response=constants["ground_response"],
-            user_prompt_template=constants.get("user_prompt_template"),
+            system_message=system_message,
+            ground_response=ground_response,
+            user_prompt_template=user_prompt_template,
         )
 
     @torch.no_grad()

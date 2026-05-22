@@ -141,13 +141,46 @@ class ModelArguments:
         default=True,
         metadata={"help": "If False, skip shared q/k MLP projectors and use LoRA-adapted states directly for dot product (pure LoRA mode)"},
     )
+    grounding_independent_layers: bool = field(
+        default=False,
+        metadata={"help": (
+            "Independent per-layer mode: no fusion scorer, no shared MLP (forced). "
+            "Each probe layer is supervised only by its own grounding accuracy. "
+            "Loss = mean_l KL(y || p_l). "
+            "Eval: p_final = uniform mean of per-layer probs (for display only)."
+        )},
+    )
+    grounding_adapter_type: str = field(
+        default="lora",
+        metadata={"help": (
+            "Probe adapter type: 'lora' (default, rank-16 LoRA + dot-product) | "
+            "'attn' (cross-attention probe, full-rank W_q/W_k, multi-head scoring, ~0.52% of 8B). "
+            "When 'attn', shared MLP is automatically disabled."
+        )},
+    )
+    grounding_attn_heads: int = field(
+        default=8,
+        metadata={"help": "Number of attention heads in cross-attention probe (adapter_type='attn', default 8)"},
+    )
+    grounding_attn_head_dim: int = field(
+        default=64,
+        metadata={"help": "Per-head dimension in cross-attention probe (adapter_type='attn', default 64 → d_attn=512)"},
+    )
 
 
 @dataclass
 class DataArguments:
     data_path: str = field(
         default=None,
-        metadata={"help": "Path to training data (.json, .jsonl, .yaml, or {file1,file2}.json pattern)"},
+        metadata={"help": (
+            "Training data path. Supported formats:\n"
+            "  Single file:       /path/a.json\n"
+            "  Comma-separated:   /path/a.json,/path/b.json\n"
+            "  Newline-separated: $'path/a.json\\npath/b.json' (shell multiline var)\n"
+            "  Brace expansion:   /path/{a,b,c}.json (same dir/suffix)\n"
+            "  YAML config:       /path/config.yaml\n"
+            "Multiple files are merged then globally shuffled."
+        )},
     )
     image_folder: Optional[str] = field(
         default=None,
@@ -158,8 +191,14 @@ class DataArguments:
         metadata={"help": "Minimum number of pixels for image resizing"},
     )
     max_pixels: Optional[int] = field(
-        default=12_845_056,  # 16384 * 28 * 28 = 12845056，对应 MODEL_MAX_LENGTH=18432
-        metadata={"help": "Maximum number of pixels for image resizing"},
+        default=12_845_056,
+        # uitars (Qwen2.5-VL, patch_size=14): 16384 × 14² × 2² = 16384 × 784 = 12,845,056
+        # guiowl/uivenus (Qwen3-VL, patch_size=16): 12544 × 16² × 2² = 12544 × 1024 = 12,845,056
+        #   OR use 16,777,216 (= 16384 × 1024) to keep same token budget of 16384 for Qwen3-VL.
+        # Pass via --max_pixels in training scripts (see train_ablation_A3_gaussian_cos_meta.sh).
+        metadata={"help": "Maximum number of pixels for image resizing. "
+                          "uitars: 12845056 (16384 tokens @ 14×14×4). "
+                          "guiowl/uivenus: 16777216 (16384 tokens @ 16×16×4)."},
     )
     max_conv_turns: Optional[int] = field(
         default=10,
@@ -180,8 +219,11 @@ class TrainingArguments(transformers.TrainingArguments):
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     model_max_length: int = field(
-        default=18432,  # 16384 visual tokens (MAX_PIXELS/28/28) + ~2048 text budget
-        metadata={"help": "Maximum sequence length"},
+        default=18432,
+        # uitars (Qwen2.5-VL): 12845056 / (14*14*4) = 16384 tokens + ~2048 text budget
+        # guiowl (Qwen3-VL): 16777216 / (16*16*4) = 16384 tokens + ~2048 text budget
+        # Both result in ~16384 visual tokens → same model_max_length.
+        metadata={"help": "Maximum sequence length (visual_tokens + text_budget)"},
     )
     gradient_checkpointing: bool = field(default=True)
     verbose_logging: bool = field(default=False)
@@ -259,7 +301,12 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     val_max_pixels: int = field(
         default=12_845_056,
-        metadata={"help": "max_pixels for val eval (should match training)"},
+        # Default matches uitars (Qwen2.5-VL, patch_size=14).
+        # For guiowl/uivenus (Qwen3-VL, patch_size=16) override with --val_max_pixels 16777216.
+        # Training scripts (train_ablation_A3_gaussian_cos_meta.sh) pass --val_max_pixels ${MAX_PIXELS}
+        # which is already set correctly per MODEL_TYPE.
+        metadata={"help": "max_pixels for val eval (must match training max_pixels). "
+                          "uitars: 12845056, guiowl/uivenus: 16777216."},
     )
     val_cell_w: int = field(default=300, metadata={"help": "Vis PNG cell width"})
     val_cell_h: int = field(default=220, metadata={"help": "Vis PNG cell height"})
@@ -315,8 +362,12 @@ def update_model_config_for_retrofit(
     model_config.grounding_proj_dim = model_args.grounding_proj_dim
     model_config.grounding_adapter_rank = model_args.grounding_adapter_rank
     model_config.grounding_lambda_layer = model_args.grounding_lambda_layer
-    model_config.grounding_fusion_type    = model_args.grounding_fusion_type
-    model_config.grounding_use_shared_mlp = model_args.grounding_use_shared_mlp
+    model_config.grounding_fusion_type        = model_args.grounding_fusion_type
+    model_config.grounding_use_shared_mlp     = model_args.grounding_use_shared_mlp
+    model_config.grounding_independent_layers = model_args.grounding_independent_layers
+    model_config.grounding_adapter_type       = model_args.grounding_adapter_type
+    model_config.grounding_attn_heads         = model_args.grounding_attn_heads
+    model_config.grounding_attn_head_dim      = model_args.grounding_attn_head_dim
 
     # Special token IDs (needed for inference)
     # convert_tokens_to_ids is safer than encode()[0] — avoids BOS/extra-token prepending
@@ -461,8 +512,12 @@ def train():
     base_config.grounding_proj_dim = model_args.grounding_proj_dim
     base_config.grounding_adapter_rank = model_args.grounding_adapter_rank
     base_config.grounding_lambda_layer = model_args.grounding_lambda_layer
-    base_config.grounding_fusion_type    = model_args.grounding_fusion_type
-    base_config.grounding_use_shared_mlp = model_args.grounding_use_shared_mlp
+    base_config.grounding_fusion_type        = model_args.grounding_fusion_type
+    base_config.grounding_use_shared_mlp     = model_args.grounding_use_shared_mlp
+    base_config.grounding_independent_layers = model_args.grounding_independent_layers
+    base_config.grounding_adapter_type       = model_args.grounding_adapter_type
+    base_config.grounding_attn_heads         = model_args.grounding_attn_heads
+    base_config.grounding_attn_head_dim      = model_args.grounding_attn_head_dim
 
     attn_impl = "flash_attention_2" if model_args.flash_attn_2_enabled else "sdpa"
     rank0_print(f"Using attn_implementation={attn_impl}")
