@@ -108,7 +108,7 @@ fi
 # ── 2. WandB & 代理（job 队列也需要通过代理连外网）──────────────
 export http_proxy=http://10.70.11.143:8412
 export https_proxy=http://10.70.11.143:8412
-export WANDB_API_KEY=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
+export WANDB_API_KEY="${WANDB_API_KEY:-your_wandb_api_key_here}"
 export WANDB_PROJECT=zwerge
 # ── 3. 打印环境信息 ────────────────────────────────────────────
 echo "NPROC_PER_NODE = ${NPROC_PER_NODE}"

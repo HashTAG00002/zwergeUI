@@ -89,6 +89,8 @@ export http_proxy=http://10.70.11.143:8412
 export https_proxy=http://10.70.11.143:8412
 export WANDB_API_KEY=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
 export WANDB_PROJECT=zwerge
+# 允许非连续内存块，避免碎片化导致的大块分配失败（对 uivenus 等长序列模型尤其重要）
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

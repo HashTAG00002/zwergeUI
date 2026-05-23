@@ -1133,36 +1133,34 @@
       train/grounding_loss, train/lm_loss, train/total_loss, train/grad_norm, train/lr
       layer_omega/L{xx}（每个 probe 层的 fusion 权重）
 
-    ─── ValEvalCallback ─────────────────────────────────────────────────────────────
+    ─── ValEvalCallback（同步训练内评估，已不推荐用于正式实验）────────────────────────
 
     新增类 ValEvalCallback（trainer.py），触发时机：
       - 每 val_steps 步（global_step % val_steps == 0）
       - 训练结束（on_train_end）
 
-    行为（rank-0 only，全 rank barrier 同步保证 DDP 不超时）：
-      1. 从 val_eval_dir/bench/eval.json 取前 val_n_samples 条
-      2. 调用 zwerge_predict_layerwise（直接用当前模型，eval mode + no_grad）
-      3. 计算 hit_top1, overlap_top1
-      4. 上报 WandB：val/{bench}/hit_top1, val/{bench}/overlap_top1
-      5. 保存 JSON：{val_output_dir}/{decode_strategy}/{run_name}/checkpoint-{step}/
-                    {bench}_quick_eval.json
+    行为（所有 DDP rank 同步参与，全 rank barrier 防止超时）：
+      1. 从 val_eval_dir/bench/eval.json 取前 val_n_samples 条，按 rank 分片
+      2. 用当前训练模型（eval mode + no_grad）调用 grounder.predict_layerwise()
+      3. 计算 hit_top1, overlap_top1（含 per-layer 和 fusion 指标）
+      4. rank-0 聚合各 shard 结果，上报 WandB：val/{bench}/hit_top1, overlap_top1
+      5. 保存 JSON 到 {val_output_dir}/{decode_strategy}/{run_name}/checkpoint-{step}/
 
-    输出路径和 run_vis.sh 相同层级结构，可直接比对
+    【为什么不再推荐】
+    同步评估占用训练进程本身的 GPU 资源，每次评估期间训练被完全阻塞。
+    弹性队列（hope）随时可能中断训练进程，若中断发生在评估中途，
+    不仅浪费该轮评估时间，还可能导致下次恢复时重复触发同一 step 的评估。
+    → 已被异步评估方案（eval_daemon.py）取代，正式实验请将 val_steps=-1 关闭此回调。
 
-    ─── 新增参数（TrainingArguments / train_zwerge_uitars.sh 开关）────────────────
-
+    TrainingArguments 参数（保留以维持 backward-compat）：
     参数                    默认值          说明
-    val_steps               -1             -1=关闭，正数=每 N 步评估
+    val_steps               -1             -1=关闭，正数=每 N 步同步评估
     val_bench               ss_pro         评测 bench
     val_n_samples           200            快速评估样本数
     val_eval_dir            .../evaluation 评测数据根目录
     val_output_dir          .../zwerge_layerwise  结果根目录
     val_decode_strategy     centroid       与训练一致
     val_max_pixels          12845056       与训练一致
-
-    bash 开关：
-      VAL_STEPS=400 bash scripts/train_zwerge_uitars.sh  # 每 400 步评估一次
-      VAL_STEPS=-1  ...                                  # 关闭（默认）
 
   - [2026-05-21] 【GUI-Owl-1.5 / UI-Venus-1.5 多模型支持 + Qwen3-VL 兼容性全面修复】
 
@@ -1404,9 +1402,9 @@
     grounder 在循环外创建一次（包装已加载训练模型，无额外开销）。
     触发时机：每 val_steps 步 + 训练结束。所有三种模型类型均支持。
 
-    ─── 两种评测场景的指令 ────────────────────────────────────────────────────────
+    ─── 三种评测场景的指令 ────────────────────────────────────────────────────────
 
-    【场景 A：独立评测（训练完成后）】
+    【场景 A：独立评测（训练完成后，手动触发）】
       # 仅指标 JSON，不生成 PNG（速度快）：
       SKIP_VIS=1 MODEL_TYPE=guiowl CKPT=<ckpt> bash eval/run_eval.sh ss_pro
       SKIP_VIS=1 MODEL_TYPE=uivenus CKPT=<ckpt> bash eval/run_eval.sh all
@@ -1419,22 +1417,18 @@
       python eval/eval_retrofit.py --model_type guiowl --ckpt <ckpt> --bench ss_pro --skip_vis
       python eval/eval_retrofit.py --model_type uivenus --ckpt <ckpt> --bench all   # with vis
 
-    【场景 B：训练中附带验证（ValEvalCallback）】
+    【场景 B：同步训练内评估（ValEvalCallback，已不推荐）】
       # 训练脚本开关：
       VAL_STEPS=400 MODEL_TYPE=guiowl bash scripts/train_ablation_A3_gaussian_cos_meta.sh
 
-      # 对应训练参数：
-      --val_steps 400 --val_bench ss_pro --val_n_samples 200
-      --val_eval_dir .../datasets/evaluation
-      --val_output_dir .../zwerge/data/results/zwerge_layerwise
+      注：正式实验请用场景 C（eval_daemon 异步评估），val_steps=-1 关闭此回调。
 
-      输出路径与场景 A 相同层级结构，可直接对比：
-        {val_output_dir}/{decode_strategy}/{run_name}/checkpoint-{step}/
-          ├── ss_pro_layerwise_summary.json
-          └── details/ss_pro/success/*.png  failure/*.png  results.json
+    【场景 C：异步评估（eval_daemon.py，推荐，正式实验标准流程）】
+      见下方 [2026-05-26] 节。
 
-    注：场景 B 使用训练中已加载的模型，无需重新加载（无额外 GPU 开销）；
-        每 val_steps 步触发，on_train_end 额外触发一次。
+    输出路径统一格式：
+      场景 A / 场景 B：{val_output_dir}/{decode_strategy}/{run_name}/checkpoint-{step}/
+      场景 C（eval_daemon）：{ckpt_dir}/results/   （结果与 ckpt 同目录，自包含）
 
   - [2026-05-22] 【A6/A7 消融：独立层监督 + CrossAttn Probe 架构升级】
 
@@ -1516,4 +1510,365 @@
                         reinit_grounding_head() 按 isinstance 分支初始化
       train_retrofit.py: ModelArguments 新增 grounding_adapter_type/grounding_attn_heads/grounding_attn_head_dim；
                          update_model_config_for_retrofit() + build_model() 各补三行
+
+  - [2026-05-22] 【新采样策略：zoom_backbone（两阶段 ZwerGe → backbone 精化）】
+
+    ─── 设计动机 ──────────────────────────────────────────────────────────────────────
+
+    现有采样策略（centroid/argmax/peak_shift/temperature）都只使用 p_final 的分布做坐标提取，
+    存在粗粒度网格量化误差（28px/32px per token，小目标时 hit < overlap 差距 ~13pp）。
+    zoom_backbone 策略利用 ZwerGe 的感兴趣区域定位能力，引导原始 backbone 在局部放大图上做精细 grounding。
+
+    ─── 实现流程 ──────────────────────────────────────────────────────────────────────
+
+    Stage 1（ZwerGe，不变）：
+      prefill → p_final [N_vis] → threshold（0.3×max）→ BFS 4-连通聚类
+      → 选 peak score 最高的连通区域 → 确定 pixel 级 bounding box（加 padding_cells 上下文）
+
+    Stage 2（backbone 精化）：
+      crop_img = image.crop(zoom_crop_box)          ← 裁剪感兴趣区域
+      inputs = build_generation_inputs(crop_img, instruction)  ← 无 ground_response 前缀
+      raw_text = model.generate(inputs, ...)        ← backbone 自由生成坐标
+      (bx, by) = parse_backbone_coordinate(raw_text)  ← 解析 [0,1000] → [0,1] in crop
+      final_point = (x_min + bx*crop_w)/W, (y_min + by*crop_h)/H  ← 映射回原图
+
+    backbone 解析失败时 fallback 到 ZwerGe centroid（p_final 的加权质心）。
+
+    ─── 坐标解析（模型特有，parse_backbone_coordinate per subclass）──────────────────
+
+    UI-TARS:   click(start_box='<|box_start|>(x,y)<|box_end|>')  → x/1000, y/1000
+    GUI-Owl:   {"coordinate": [x, y]}                            → x/1000, y/1000
+    UI-Venus:  [x, y]（parse_venus_point，[-1,-1]=infeasible→None）→ already [0,1]
+
+    ─── overlap@1 指标说明 ───────────────────────────────────────────────────────────
+
+    overlap@1 = "以 top-1 预测点为中心、1 个 patch 大小的方框是否与 GT bbox 相交"。
+    方框大小：phx=0.5/n_w, phy=0.5/n_h（归一化），对应 uitars=28px, guiowl=32px 容差。
+    hit@1 要求预测点严格在 bbox 内，overlap@1 只要 1-patch 方框碰到 GT bbox 即可。
+    hit@k / overlap@k：扩展到 top-k 候选点（有任意一个命中即算）。
+    zoom_backbone 策略：fusion/final 只有 1 个点（backbone 输出），f_centers=[zoom_point]。
+
+    ─── 代码位置 ─────────────────────────────────────────────────────────────────────
+
+    eval/inference_base.py:
+      get_zoom_crop_box(p_final, n_width, n_height, image_w, image_h,
+                        token_cell_px, activation_threshold, padding_cells)
+        → 同 BFS 逻辑，返回 (x_min, y_min, x_max, y_max) 像素坐标
+      RetrofitInference.parse_backbone_coordinate(raw_text) → Optional[(x,y)]  [abstract]
+      RetrofitInference._build_generation_inputs(image, instruction)            [no ground prefix]
+      RetrofitInference.predict_zoom_backbone(...)
+        → 返回 predict_layerwise 全部字段 + zoom_point / zoom_crop_box / backbone_raw
+
+    eval/inference_uitars.py:   UITARSRetrofitInference.parse_backbone_coordinate()
+    eval/inference_guiowl.py:   GUIOwlRetrofitInference.parse_backbone_coordinate()
+    eval/inference_uivenus.py:  UIVenusRetrofitInference.parse_backbone_coordinate()
+
+    eval/eval_retrofit.py:
+      decode_strategy 新增 "zoom_backbone" 选项
+      _worker(): 当 decode_strategy=="zoom_backbone" 时调用 predict_zoom_backbone()，
+                 fusion/final 指标使用 pred["zoom_point"] 而非 scores_to_point_and_topk
+      新增 CLI 参数：--zoom_padding_cells (default=3), --zoom_max_new_tokens (default=256)
+
+    ─── 使用方式 ─────────────────────────────────────────────────────────────────────
+
+    DECODE_STRATEGY=zoom_backbone bash eval/run_eval.sh ss_pro
+
+    python eval/eval_retrofit.py \
+        --model_type uitars --ckpt <ckpt> --bench ss_pro \
+        --decode_strategy zoom_backbone \
+        --zoom_padding_cells 3 --zoom_max_new_tokens 256
+
+    注意：zoom_backbone 比其他策略慢（每个样本多一次 backbone generate），
+    建议先跑 SKIP_VIS=1 快速验证准确率，有改善再开完整 vis。
+
+  - [2026-05-22] 【zoom_backbone 坐标映射 Bug 修复 + 系统消息设计说明】
+
+    ─── 两个关键 Bug（已修复）──────────────────────────────────────────────────────
+
+    Bug 1：_build_generation_inputs 使用 retrofit 训练消息（含 <|ground|>）
+      现象：backbone generate 看到 "Action Space: click(start_box='<|ground|>...')"
+            → 照样输出特殊 token，parse_backbone_coordinate 无法解析坐标
+      修复：新增 _zoom_native_system_message / _zoom_native_user_template 类属性，
+            使用 sentinel _ZOOM_NOT_SET，各 subclass 覆盖为原始坐标格式消息
+
+    Bug 2：UI-TARS parse_backbone_coordinate 除以 1000（错误！）
+      现象：UI-TARS 输出**绝对像素坐标**（如 (640, 360)），除以 1000 得 (0.64, 0.36) 偏差
+      修复：predict_zoom_backbone() 从 gen_inputs["image_grid_thw"] 提取
+            crop_w_resized = W_patches * patch_size（uitars=14, guiowl=16）
+            UITARSRetrofitInference.parse_backbone_coordinate() 改为 / crop_w_resized
+
+    ─── 坐标格式完整说明 ─────────────────────────────────────────────────────────
+
+    各模型 backbone generate 的坐标格式：
+      Qwen3-VL（GUI-Owl, UI-Venus）：[0,1000] 相对坐标（与分辨率无关）→ /1000 ✅
+      Qwen2.5-VL（UI-TARS）        ：smart_resize 后的绝对像素坐标 → /crop_w_resized ✅
+
+    crop_w_resized 计算方法：
+      image_grid_thw[W_patches] * patch_size = W_patches * 14（uitars）
+      → W_patches = image_grid_thw[0,2]（当 dim==2 时）
+      → 由 predict_zoom_backbone() 在 gen_inputs 中提取并传入 parse_backbone_coordinate()
+
+    crop→大图映射（一直正确）：
+      bx_crop ∈ [0,1]（上述归一化后）
+      ox = (x_min + bx_crop * crop_w) / W_orig   ← 原图归一化坐标 ∈ [0,1] ✅
+
+    ─── 系统消息设计原则（Stage 1 vs Stage 2 的分工）─────────────────────────────
+
+    Stage 1（ZwerGe prefill）：
+      build_zwerge_inputs() 使用 self.system_message（retrofit 训练消息，含 <|ground|>）
+      + ground_response（含 <|ground|>... 的 assistant prefix）
+      → _find_ground_anchor() P1 找到 assistant 里最后的 <|ground|>
+      → grounding head 读该位置 hidden state，输出 patch posteriors ✅
+
+    Stage 2（backbone generate）：
+      _build_generation_inputs() 使用 _zoom_native_system_message（原始坐标格式）
+      + add_generation_prompt=True（无 assistant prefix）
+      → backbone 自由生成坐标文本 ✅
+      model.generate() 调用的是 backbone 的 LM head，与 retrofit grounding head 无关 ✅
+      backbone 权重冻结（bit-level 与原始预训练模型完全一致，见2026-05-18记录）✅
+
+    各模型 Stage 2 使用的系统消息：
+      UI-TARS:   _UITARS_NATIVE_GROUNDING_SYSTEM_MESSAGE
+                 "## Action Space\nclick(start_box='<|box_start|>(x,y)<|box_end|>')"
+                 （无 <|ground|> token，backbone 输出真实坐标）
+      GUI-Owl:   ONLY_TWO_ACTION_SYSTEM_PROMPT（原始完整格式，含 mouse_move+left_click）
+                 （backbone 输出 [0,1000] 相对坐标）
+      UI-Venus:  system=None，user 模板=PROMPT_NO_REFUSAL（无 [-1,-1] 拒绝分支）
+                 （backbone 输出 [0,1000] 相对坐标）
+
+    ─── vLLM 加速可行性分析 ─────────────────────────────────────────────────────
+
+    vLLM 可行：qwen25 和 qwen3-verl 环境均已安装 vLLM。
+    当前实现：使用 model.generate()（PyTorch 原生），backbone 在与 ZwerGe head 相同的 GPU 上运行。
+
+    80GB 单卡内存估算（当前方式，已够用）：
+      Retrofit model BF16 (7B/8B):  ~14-16GB
+      ZwerGe grounding head:         ~0.1GB（A6≈2.8M, A7≈42M≈84MB）
+      KV cache for generate (256t):  ~0.5GB
+      Activation memory:             ~2GB
+      合计:                          ~17-19GB（80GB 单卡绰绰有余）
+
+    vLLM 优化时机：当 zoom_backbone 成为主要评测瓶颈时再引入，
+    方案是独立 vLLM engine + 同一 base model（不含 retrofit head），需额外 ~16GB。
+    目前 256 token generate 单样本 ~1-2s，不是主要瓶颈，优先验证准确率。
+
+    ─── 代码位置（修复后）──────────────────────────────────────────────────────
+
+    eval/inference_base.py:
+      _ZOOM_NOT_SET sentinel（模块级）
+      RetrofitInference._zoom_native_system_message = _ZOOM_NOT_SET（默认）
+      RetrofitInference._zoom_native_user_template  = _ZOOM_NOT_SET（默认）
+      _build_generation_inputs(): 优先用 _zoom_native_* 属性，fallback 到 self.system_message
+      predict_zoom_backbone(): 从 image_grid_thw 提取 crop_w/h_resized → 传入 parse
+      parse_backbone_coordinate(raw_text, crop_w_resized=None, crop_h_resized=None)
+
+    eval/inference_uitars.py:
+      _UITARS_NATIVE_GROUNDING_SYSTEM_MESSAGE（模块级常量，含 <|box_start|>）
+      UITARSRetrofitInference._zoom_native_system_message = <上述常量>
+      parse_backbone_coordinate: x_abs/crop_w_resized（绝对像素归一化，非/1000）
+
+    eval/inference_guiowl.py:
+      GUIOwlRetrofitInference._zoom_native_system_message（模块级后赋值，=ONLY_TWO_ACTION_SYSTEM_PROMPT）
+      parse_backbone_coordinate: /1000（Qwen3-VL [0,1000] 格式，忽略 resized dims）
+
+    eval/inference_uivenus.py:
+      UIVenusRetrofitInference._zoom_native_system_message = None
+      UIVenusRetrofitInference._zoom_native_user_template（模块级后赋值，=PROMPT_NO_REFUSAL）
+      parse_backbone_coordinate: parse_venus_point()（已返回 [0,1]，忽略 resized dims）
+
+  - [2026-05-26] 【异步评估架构（eval_daemon.py）— 训练与评估解耦】
+
+    ─── 动机：为什么不用同步训练内评估 ─────────────────────────────────────────────────
+
+    ValEvalCallback 在每 val_steps 步触发，评估期间训练完全阻塞（GPU 被占用），
+    引入了两个关键问题：
+
+    ① 弹性队列（hope）随时中断风险：
+       中断若恰好发生在评估中途，该轮评估结果丢失，下次 resume 后
+       相同 step 的 global_step % val_steps == 0 条件再次触发，造成重复评估。
+
+    ② 训练时间浪费：
+       每次全量评估（bench=all，N=全量样本）耗时可能超过若干训练 step 时长，
+       把弹性 GPU 资源浪费在评估上，而非训练本身。
+
+    ─── 解决方案：eval_daemon.py 异步评估守护进程 ─────────────────────────────────────
+
+    核心思路：训练和评估彻底解耦——
+      - 训练进程（弹性集群）：只负责训练 + 保存 ckpt，不做任何评估
+      - eval_daemon（CodeLab tmux 本地）：监控挂载盘，自动提交评估 hope job
+
+    两端通过持久化挂载盘通信，唯一约定是 checkpoint 目录下的标记文件：
+      {ckpt_dir}/is_permanent_ckpt   ← 由 ResumeCheckpointManagerCallback 在保存
+                                        save_steps 整数倍 ckpt 时自动 touch
+
+    ─── 架构总览 ──────────────────────────────────────────────────────────────────────
+
+    训练机（弹性集群，随时可能被中断）
+      └── train_retrofit.py
+            └── ResumeCheckpointManagerCallback.on_save()
+                  ├── checkpoint-100/          ← resume-only（无标记文件）
+                  ├── checkpoint-200/          ← resume-only（无标记文件）
+                  ├── checkpoint-400/
+                  │     └── is_permanent_ckpt  ← 此文件触发评估
+                  └── .wandb_run_id            ← SaveWandbRunIdCallback 写入
+
+    CodeLab（tmux 保活，长期运行）
+      └── eval_daemon.py --config experiments/A7_uitars_1.5.yaml
+            Phase 1: 提交训练 hope job（注入 ZWERGE_JOB_NAME）
+            Phase 2: 每 poll_interval_sec 扫描 checkpoint-*/is_permanent_ckpt
+                      发现未提交的 permanent ckpt → 生成临时 eval.hope → hope run
+            Phase 3: 轮询 {ckpt_dir}/results/layerwise_all_summary.json
+                      评估完成后读取指标 → wandb.log(step=ckpt_step)（附到训练 run）
+            退出条件: 训练完成（trainer_state.json 显示已达 max_steps/epochs）
+                      且所有 permanent ckpt 均已提交 + WandB 已上报
+
+    ─── 关键实现细节 ──────────────────────────────────────────────────────────────────
+
+    1. permanent ckpt 识别
+       ResumeCheckpointManagerCallback.on_save()（trainer.py）：
+         ckpt_step % permanent_save_steps == 0 → touch(ckpt_dir / "is_permanent_ckpt")
+         resume-only ckpt 不写此文件，eval_daemon 扫描时自然跳过
+
+    2. 动态 hope 文件生成（eval_daemon.py generate_hope_file）
+       以 eval.hope 为模板，worker.script 行整行替换：
+         CKPT={ckpt_path} OUTPUT_DIR_FINAL={ckpt_path}/results {env_vars} bash eval_zoom_backbone.sh {bench}
+       结果目录 OUTPUT_DIR_FINAL 固定为 {ckpt_dir}/results/，使评估产物与 ckpt 自包含
+       临时文件写到 {output_dir}/.eval_daemon_tmp/eval_{exp_name}_ckpt{step}.hope
+
+    3. 训练提交（eval_daemon.py submit_train_job）
+       同样动态生成训练 hope 文件，注入 ZWERGE_JOB_NAME={experiment_name}，
+       使每次弹性重启都写入相同目录，实现 resume 透明化（见 [2026-05-25] 弹性恢复节）
+
+    4. WandB 指标回传
+       SaveWandbRunIdCallback（trainer.py）在 on_train_begin 写 .wandb_run_id
+       eval_daemon 读取该文件，eval 完成后调用 wandb.init(id=run_id, resume="must")
+       将评估指标 log 到同一个训练 run，WandB 曲线上训练 loss 和 eval hit@1 在同一 panel
+
+    5. 并发控制
+       max_concurrent_jobs（YAML 配置，默认 2）限制同时运行的评估 job 数
+       通过 hope ls --status RUNNING 轮询，超限时延迟到下一轮 poll 再提交
+       注：若 hope ls 输出格式不含 experiment_name，此限制退化为不限制（安全降级）
+
+    6. 幂等性
+       {output_dir}/.eval_submitted.json 记录已提交的 ckpt 和 WandB 上报状态
+       daemon 重启（tmux session 意外关闭后重新连接）后自动跳过已处理条目
+
+    ─── 文件结构 ──────────────────────────────────────────────────────────────────────
+
+    zwerge/eval_daemon.py               守护进程主体
+    zwerge/experiments/A3_guiowl.yaml   A3 guiowl 实验配置示例（有完整注释）
+    zwerge/experiments/A3_uitars.yaml   A3 uitars 实验配置
+    zwerge/experiments/A7_uitars_1.5.yaml  A7 uitars 实验配置（推荐参考）
+    zwerge/experiments/A7_uivenus_1.5.yaml A7 uivenus 配置（qwen3-verl conda）
+    zwerge/experiments/A7_guiowl_7b.yaml   A7 guiowl-7b 配置
+
+    eval hope 模板（按 conda 环境分开）：
+      scripts/eval/eval_zwerge.hope       → Qwen2.5-VL（uitars/guiowl-7b），conda=qwen25
+      scripts/eval/eval_zwerge_qwen3.hope → Qwen3-VL（guiowl-8b/uivenus），conda=qwen3-verl
+
+    ─── YAML 配置字段说明 ─────────────────────────────────────────────────────────────
+
+    experiment_name: str          # → ZWERGE_JOB_NAME，也是 OUTPUT_DIR 末尾，全局唯一
+
+    train:
+      hope_file: str              # 训练 hope 模板路径（相对 zwerge/）
+      bash_script: str            # 训练 bash 脚本（覆盖 hope 里的脚本路径）
+      queue: str | null           # 覆盖 hope 文件里的队列（null=保留模板默认值）
+      env: {K: V}                 # 注入 worker.script 前缀的环境变量（除 ZWERGE_JOB_NAME）
+      save_steps: int             # 与 bash 脚本 SAVE_STEPS 一致（仅用于训练完成检测）
+      num_train_epochs: int       # 与 bash 脚本 NUM_EPOCHS 一致（仅用于训练完成检测）
+      skip_submit: bool           # true=跳过训练提交（训练已在跑时使用）
+
+    eval:
+      hope_template: str          # 评估 hope 模板路径（按 conda 环境选择）
+      queue: str | null           # 覆盖评估 hope 队列
+      env: {K: V}                 # 注入 CKPT、OUTPUT_DIR_FINAL 之后的附加环境变量
+      bench: str                  # "all" 或单个 bench 名（作为 $1 传给 eval bash）
+      max_concurrent_jobs: int    # 最多同时运行几个评估 job（默认 2）
+      wandb_project: str          # WandB project 名（默认 "zwerge"）
+
+    watch:
+      output_dir: str | null      # 监控目录（null → BASE_CKPT_DIR/{experiment_name}）
+      poll_interval_sec: int      # 扫描间隔秒数（默认 60）
+
+    daemon:
+      tmp_dir: str | null         # 临时 hope 文件目录（null → output_dir/.eval_daemon_tmp/）
+      log_file: str | null        # 日志路径（null → output_dir/eval_daemon.log）
+
+    ─── 使用方法 ──────────────────────────────────────────────────────────────────────
+
+    # 标准流程：新实验，一条命令提交训练 + 启动异步评估守护
+    tmux new -s A7_uitars
+    cd /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge
+    python eval_daemon.py --config experiments/A7_uitars_1.5.yaml
+    Ctrl+b d   # detach，tmux 后台保活
+
+    # 训练已在跑（已手动提交），只启动 watch：
+    python eval_daemon.py --config experiments/A7_uitars_1.5.yaml --skip_train
+
+    # 验证生成的 hope 文件（不实际提交，调试用）：
+    python eval_daemon.py --config experiments/A7_uitars_1.5.yaml --dry_run
+
+    # 查看守护日志：
+    tail -f /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars_A7_exp001/eval_daemon.log
+
+    ─── 评估结果位置 ──────────────────────────────────────────────────────────────────
+
+    {BASE_CKPT_DIR}/{experiment_name}/
+      ├── checkpoint-400/
+      │     ├── is_permanent_ckpt          ← 标记文件（训练端写）
+      │     └── results/
+      │           ├── layerwise_all_summary.json    ← 全 bench 汇总指标
+      │           └── details/{bench}/
+      │                 ├── results.json             ← per-sample 结果
+      │                 ├── success/*.png            ← 可视化（SKIP_VIS=0 时）
+      │                 └── failure/*.png
+      ├── checkpoint-100/                  ← resume-only，无 is_permanent_ckpt，不评估
+      ├── .eval_submitted.json             ← daemon 提交记录（幂等）
+      ├── .wandb_run_id                    ← 训练 run ID（eval 指标 log 到同一 run）
+      └── eval_daemon.log                  ← daemon 日志
+
+    ─── 注意事项 ──────────────────────────────────────────────────────────────────────
+
+    - hope login 需要在 CodeLab 上执行一次；token 存在 ~/.hope/ 下，tmux session 继承
+    - eval_daemon.py 本身无 GPU 资源占用，在 CodeLab CPU 环境运行即可
+    - 每个实验对应一个 YAML + 一个 tmux session，多实验并发时分别开 session
+    - 若 tmux session 意外关闭，重新 attach 或新建 session 后加 --skip_train 重启 daemon，
+      .eval_submitted.json 保证已提交的 ckpt 不会重复提交
+
+  - [2026-05-23] 【A7 四实验（CrossAttn Probe）正式启动 — 当前代码状态】
+
+    ─── 实验配置总览（以现行 train_ablation_A7_crossattn_probe.sh 为准）─────────────────
+
+    架构核心：CrossAttnGroundingProbe（全秩 W_q/W_k，无 LoRA bottleneck）
+    监督方式：grounding_independent_layers=True（每层独立 KL loss，无 fusion scorer）
+    GT 标签：Gaussian，σ = bbox_size × 0.35（bbox 内质量 ≈ 72%）
+    训练数据：grounding_200k.jsonl（200k 条：GroundCUA 110k / OS-Atlas 48k / AgentNet 42k）
+    训练轮数：1 epoch（NUM_EPOCHS=1）
+
+    实验名               backbone              
+    uitars_A7_exp001     Qwen2.5-VL 28层 d=3584  
+    guiowl7b_A7_exp001   Qwen2.5-VL 28层 d=3584  
+    guiowl_A7_exp001     Qwen3-VL  36层 d=4096   
+    uivenus_A7_exp001    Qwen3-VL  36层 d=4096  
+
+    ─── eval_daemon WandB 接入要点 ──────────────────────────────────────────────────
+
+    eval_daemon.py 本地访问 WandB 必须设置代理（CodeLab 容器无直接外网访问）。
+    eval_daemon.py 启动时自动注入：
+      http_proxy / https_proxy = http://10.70.11.143:8412
+      WANDB_API_KEY = <key in script>
+      WANDB_PROJECT = zwerge
+      WANDB_ENTITY  = yangwenkui-cas     ← WandB entity（非 yangwenkui03）
+
+    WandB 项目地址：https://wandb.ai/yangwenkui-cas/zwerge
+
+    ─── 启动命令（各开一个 tmux session）──────────────────────────────────────────────
+
+    cd /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge
+
+    tmux new -s A7_uitars   && python eval_daemon.py --config experiments/A7_uitars_1.5.yaml
+    tmux new -s A7_guiowl7b && python eval_daemon.py --config experiments/A7_guiowl_7b.yaml
+    tmux new -s A7_guiowl   && python eval_daemon.py --config experiments/A7_guiowl_1.5.yaml
+    tmux new -s A7_uivenus  && python eval_daemon.py --config experiments/A7_uivenus_1.5.yaml
 
