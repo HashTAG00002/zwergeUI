@@ -1,0 +1,72 @@
+# ============================================================
+# ZwerGe Experiment Config — A7 快速验证 (uitars-1.5)
+# ============================================================
+# 用途：验证完整链路是否正常，包括：
+#   1. 弹性队列 resume（checkpoint 频繁保存，kill 后能续跑）
+#   2. eval_daemon 检测 permanent ckpt 并自动提交 eval job
+#   3. eval 结果写到 checkpoint/results/
+#   4. WandB 收到 eval 信号
+#
+# 关键参数（通过 train.env 注入 bash 脚本）：
+#   SAVE_STEPS=50              → 每 50 步落盘一个 permanent ckpt
+#   SAVE_STEPS_ONLY_FOR_RESUME=50 → 与 SAVE_STEPS 相等，所有 ckpt 均为 permanent
+#   MAX_STEPS=500              → 约 8 分钟训练，足够产出 ~10 个 ckpt 用于验证
+#
+# 快速测试流程：
+#   tmux new -s A7_test
+#   python eval_daemon.py --config experiments/A7_test.yaml
+#   Ctrl+b d
+#   # 等待 ~5 分钟，查看 checkpoint 目录是否出现 checkpoint-50, 100, ...
+#   # 查看 eval_daemon.log 是否有 "Submitted eval job" 日志
+#   # 查看 checkpoint-50/results/layerwise_all_summary.json 是否生成
+#   # 查看 WandB 是否收到 eval/ss_pro/fusion_hit1 指标
+# ============================================================
+
+experiment_name: "uitars_A7_test"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  hope_file: "scripts/train_zwerge_uitars.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "uitars"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    SAVE_STEPS: "10"                   # 覆盖 bash 脚本 JOB MODE 默认的 400
+    SAVE_STEPS_ONLY_FOR_RESUME: "10"   # 与 SAVE_STEPS 相等 → 所有 ckpt 均为 permanent
+    MAX_STEPS: "500"                   # 快速结束：~500 steps ≈ 少于 1 epoch
+
+  # daemon 据此识别 permanent ckpt，必须与 SAVE_STEPS 一致
+  save_steps: 50
+  # 训练 500 步后退出（num_train_epochs 设大一点，靠 MAX_STEPS 控制结束）
+  num_train_epochs: 99
+
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  hope_template: "scripts/eval/eval_zwerge.hope"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "uitars"
+    SKIP_VIS: "1"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  # 快速验证只跑 ss_pro（最小 bench，约 3 分钟）
+  bench: "ss_pro"
+
+  max_concurrent_jobs: 1   # test 时只跑 1 个 eval job，避免资源争抢
+  wandb_project: "zwerge"
+
+# ── 监控配置 ──────────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 30    # 测试时缩短轮询间隔，更快看到反馈
+
+# ── 守护进程配置 ──────────────────────────────────────────────────────────────
+daemon:
+  tmp_dir: null
+  log_file: null

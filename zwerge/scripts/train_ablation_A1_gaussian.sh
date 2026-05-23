@@ -24,6 +24,7 @@ if [[ -z "${AFO_ENV_CLUSTER_SPEC:-}" ]]; then
     NUM_EPOCHS=1
     MAX_STEPS=30
     SAVE_STEPS=30
+    SAVE_STEPS_ONLY_FOR_RESUME=-1
     MAX_PIXELS=2494464
     FLASH_ATTN=False
     conda config --add envs_dirs /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs 2>/dev/null || true
@@ -61,6 +62,7 @@ else
     NUM_EPOCHS=3
     MAX_STEPS=-1
     SAVE_STEPS=400
+    SAVE_STEPS_ONLY_FOR_RESUME=100
     MAX_PIXELS=12845056
     FLASH_ATTN=True
 fi
@@ -69,17 +71,21 @@ export http_proxy=http://10.70.11.143:8412
 export https_proxy=http://10.70.11.143:8412
 export WANDB_API_KEY=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
 export WANDB_PROJECT=zwerge
-export WANDB_RUN_NAME="zwerge-A1-gaussian-$(date +%Y%m%d-%H%M%S)"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/UI-TARS-1.5-7B"
 DATA_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/grounding_50k.json"
 
-RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_A1-gaussian_readiness_L18-27_${RUN_TIMESTAMP}"
+BASE_CKPT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge"
+if [ -n "${ZWERGE_JOB_NAME}" ]; then
+    OUTPUT_DIR="${BASE_CKPT_DIR}/${ZWERGE_JOB_NAME}"
+else
+    RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    OUTPUT_DIR="${BASE_CKPT_DIR}/uitars7b_grounding50k_A1-gaussian_readiness_L18-27_${RUN_TIMESTAMP}"
+fi
 mkdir -p "${OUTPUT_DIR}"
+export WANDB_RUN_NAME="$(basename "${OUTPUT_DIR}")"
 
 echo "WANDB_RUN_NAME = ${WANDB_RUN_NAME}"
 echo "OUTPUT_DIR     = ${OUTPUT_DIR}"
@@ -181,6 +187,7 @@ ${TORCHRUN} \
     \
     --save_strategy "steps" \
     --save_steps ${SAVE_STEPS} \
+    --save_steps_only_for_resume ${SAVE_STEPS_ONLY_FOR_RESUME} \
     --logging_steps 10 \
     --dataloader_num_workers 4 \
     \

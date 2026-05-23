@@ -42,6 +42,7 @@ if [[ -z "${AFO_ENV_CLUSTER_SPEC:-}" ]]; then
     NUM_EPOCHS=1
     MAX_STEPS=30
     SAVE_STEPS=30
+    SAVE_STEPS_ONLY_FOR_RESUME=-1
     FLASH_ATTN=False
     conda config --add envs_dirs /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs 2>/dev/null || true
 else
@@ -78,6 +79,7 @@ else
     NUM_EPOCHS=1
     MAX_STEPS=-1
     SAVE_STEPS=400
+    SAVE_STEPS_ONLY_FOR_RESUME=100
     FLASH_ATTN=True
 fi
 
@@ -118,11 +120,15 @@ _DS=/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets
 DATA_PATH="${_DS}/grounding_50k.json
 ${_DS}/grounding_jedi_4k.json"
 
-RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/${MODEL_TYPE}_grounding50k_A6-independent_layers_${RUN_TIMESTAMP}"
+BASE_CKPT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge"
+if [ -n "${ZWERGE_JOB_NAME}" ]; then
+    OUTPUT_DIR="${BASE_CKPT_DIR}/${ZWERGE_JOB_NAME}"
+else
+    RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    OUTPUT_DIR="${BASE_CKPT_DIR}/${MODEL_TYPE}_grounding50k_A6-independent_layers_${RUN_TIMESTAMP}"
+fi
 mkdir -p "${OUTPUT_DIR}"
-
-export WANDB_RUN_NAME="zwerge-${MODEL_TYPE}-A6-independent_layers-$(date +%Y%m%d-%H%M%S)"
+export WANDB_RUN_NAME="$(basename "${OUTPUT_DIR}")"
 
 echo "MODEL_TYPE     = ${MODEL_TYPE}"
 echo "MODEL_PATH     = ${MODEL_PATH}"
@@ -206,6 +212,7 @@ ${TORCHRUN} \
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \
     --save_steps ${SAVE_STEPS} \
+    --save_steps_only_for_resume ${SAVE_STEPS_ONLY_FOR_RESUME} \
     --save_total_limit 3 \
     --model_max_length ${MODEL_MAX_LENGTH} \
     --report_to wandb \

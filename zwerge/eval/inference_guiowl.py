@@ -24,7 +24,7 @@ from PIL import Image
 from tqdm import tqdm
 from qwen_vl_utils import process_vision_info
 
-from inference_base import RetrofitInference
+from inference_base import RetrofitInference, _ZOOM_NOT_SET
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,6 +40,32 @@ class GUIOwlRetrofitInference(RetrofitInference):
     model_type = "guiowl"
     merge_size = 2
     patch_size = 16   # Qwen3-VL
+
+    # _zoom_native_system_message is set below (after ONLY_TWO_ACTION_SYSTEM_PROMPT is defined)
+
+    def parse_backbone_coordinate(
+        self,
+        raw_text: str,
+        crop_w_resized: int = None,   # ignored: GUI-Owl uses [0,1000] format
+        crop_h_resized: int = None,
+    ):
+        """
+        Parse GUI-Owl native output: <tool_call>{"coordinate": [x, y]}</tool_call>
+
+        GUI-Owl outputs coordinates in [0,1000] scale (relative to input image),
+        regardless of the actual pixel dimensions. Divide by 1000 → [0,1].
+        crop_w/h_resized are ignored.
+        """
+        import re
+        # Primary: {"coordinate": [x, y]} (JSON tool_call format)
+        m = re.search(r'"coordinate"\s*:\s*\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]', raw_text)
+        if m:
+            return float(m.group(1)) / 1000.0, float(m.group(2)) / 1000.0
+        # Fallback: any [x, y]
+        m = re.search(r'\[(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\]', raw_text)
+        if m:
+            return float(m.group(1)) / 1000.0, float(m.group(2)) / 1000.0
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +95,11 @@ For each function call, return a json object with function name and arguments wi
 INFESIBLE_PREFIX = '''Additionally, if you think the task is infeasible (e.g., the task is not related to the image), return <tool_call>
 {"name": "computer_use", "arguments": {"action": "terminate", "status": "failure"}}
 </tool_call>'''
+
+# Set zoom system message AFTER ONLY_TWO_ACTION_SYSTEM_PROMPT is defined.
+# (Cannot set as class body attr because constant is defined after the class.)
+# GUI-Owl backbone outputs [0,1000] coords with this prompt — no <|ground|> tokens.
+GUIOwlRetrofitInference._zoom_native_system_message = ONLY_TWO_ACTION_SYSTEM_PROMPT
 
 
 @dataclass

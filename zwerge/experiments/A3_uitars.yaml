@@ -1,0 +1,31 @@
+# ZwerGe Experiment Config — A3 (Gaussian GT + cos_meta) / UI-TARS-1.5-7B
+# 参考 A3_guiowl.yaml 了解完整注释
+
+experiment_name: "uitars_A3_exp001"
+
+train:
+  hope_file: "scripts/train_zwerge_uitars.hope"
+  bash_script: "scripts/train_ablation_A3_gaussian_cos_meta.sh"
+  env:
+    MODEL_TYPE: "uitars"
+  save_steps: 400
+  num_train_epochs: 3
+  skip_submit: false
+
+eval:
+  hope_template: "scripts/eval/eval_zwerge.hope"
+  env:
+    MODEL_TYPE: "uitars"
+    SKIP_VIS: "1"
+    ZOOM_PADDING_CELLS: "3"
+  bench: "all"
+  output_base: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge_layerwise/zoom_backbone"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

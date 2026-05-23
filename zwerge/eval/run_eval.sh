@@ -9,7 +9,7 @@
 #   MODEL_TYPE=uivenus bash run_eval.sh all
 #
 # 可选环境变量：
-#   MODEL_TYPE        模型类型（默认 uitars，选项：uitars/guiowl/uivenus）
+#   MODEL_TYPE        模型类型（默认 uitars，选项：uitars/guiowl/uivenus/guiowl7b）
 #   CKPT              checkpoint 路径（有默认值，见下方）
 #   DECODE_STRATEGY   坐标提取策略（默认 peak_shift）
 #   PEAK_SHIFT_ALPHA  peak_shift 插值系数（默认 0.5）
@@ -53,7 +53,9 @@ BENCH="${1:-all}"
 # ── 模型类型 ──────────────────────────────────────────────────────────────────
 MODEL_TYPE="${MODEL_TYPE:-uitars}"
 
-# Conda environment: Qwen3-VL (guiowl/uivenus) requires qwen3-verl env
+# Conda environment:
+#   Qwen3-VL (guiowl/uivenus) requires qwen3-verl (transformers>=4.57.1)
+#   Qwen2.5-VL (uitars/guiowl7b) uses gui_actor / qwen25 (transformers>=4.51.3)
 if [[ "${MODEL_TYPE}" == "guiowl" || "${MODEL_TYPE}" == "uivenus" ]]; then
     CONDA_ENV="${CONDA_ENV:-qwen3-verl}"
 else
@@ -70,6 +72,10 @@ if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     # 最新 uivenus checkpoint
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_grounding50k_A3-gaussian_cos_meta_20260522_031059/checkpoint-1600}"
+elif [[ "${MODEL_TYPE}" == "guiowl7b" ]]; then
+    # GUI-Owl-7B 控制变量 checkpoint（Qwen2.5-VL + GUI-Owl-1.5 prompt）
+    # 首次训练完成后更新此路径
+    CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl7b_grounding50k_A3-gaussian_cos_meta}"
 else
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_20260519_015331/checkpoint-2193}"
 fi
@@ -79,6 +85,10 @@ DECODE_STRATEGY="${DECODE_STRATEGY:-peak_shift}"
 PEAK_SHIFT_ALPHA="${PEAK_SHIFT_ALPHA:-0.5}"
 TEMPERATURE="${TEMPERATURE:-0.5}"
 
+# zoom_backbone 专属参数（非 zoom 策略时忽略）
+ZOOM_PADDING_CELLS="${ZOOM_PADDING_CELLS:-3}"    # 感兴趣区域外扩 patch 数
+ZOOM_MAX_NEW_TOKENS="${ZOOM_MAX_NEW_TOKENS:-256}" # backbone generate 最大 token 数
+
 # ── MAX_PIXELS（与训练时一致）─────────────────────────────────────────────────
 # uitars (Qwen2.5-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
 # guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
@@ -86,8 +96,10 @@ TEMPERATURE="${TEMPERATURE:-0.5}"
 # 造成坐标精度下降。必须与训练脚本中的 MAX_PIXELS 保持一致。
 if [[ -z "${MAX_PIXELS:-}" ]]; then
     if [[ "${MODEL_TYPE}" == "guiowl" || "${MODEL_TYPE}" == "uivenus" ]]; then
+        # Qwen3-VL: patch_size=16 → 16384 × 16² × 4 = 16,777,216
         MAX_PIXELS=16777216
     else
+        # Qwen2.5-VL (uitars / guiowl7b): patch_size=14 → 16384 × 14² × 4 = 12,845,056
         MAX_PIXELS=12845056
     fi
 fi
@@ -110,7 +122,9 @@ python eval_retrofit.py \
     --eval_dir   "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation" \
     --output_dir "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge_layerwise/${DECODE_STRATEGY}" \
     --max_pixels "${MAX_PIXELS}" \
-    --decode_strategy  "${DECODE_STRATEGY}" \
-    --peak_shift_alpha "${PEAK_SHIFT_ALPHA}" \
-    --temperature      "${TEMPERATURE}" \
+    --decode_strategy     "${DECODE_STRATEGY}" \
+    --peak_shift_alpha    "${PEAK_SHIFT_ALPHA}" \
+    --temperature         "${TEMPERATURE}" \
+    --zoom_padding_cells  "${ZOOM_PADDING_CELLS}" \
+    --zoom_max_new_tokens "${ZOOM_MAX_NEW_TOKENS}" \
     ${EXTRA_FLAGS}

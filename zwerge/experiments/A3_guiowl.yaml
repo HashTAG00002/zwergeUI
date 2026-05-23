@@ -1,0 +1,86 @@
+# ============================================================
+# ZwerGe Experiment Config — A3 (Gaussian GT + cos_meta) / GUI-Owl-1.5-8B
+# ============================================================
+# 用法：
+#   # 新 tmux session 后在 CodeLab 运行：
+#   tmux new -s A3_guiowl
+#   python eval_daemon.py --config experiments/A3_guiowl.yaml
+#   Ctrl+b d   # detach
+#
+#   # 只 watch（训练已提交）：
+#   python eval_daemon.py --config experiments/A3_guiowl.yaml --skip_train
+#
+#   # 验证生成的 hope 文件（不实际提交）：
+#   python eval_daemon.py --config experiments/A3_guiowl.yaml --dry_run
+# ============================================================
+
+# ── 实验标识（会成为 ZWERGE_JOB_NAME 和 OUTPUT_DIR 末尾部分）──────────────
+# 同一实验的所有 hope run 重启都绑定到同一个目录，实现透明 resume。
+# 每次新实验手动改这个名字（加版本号或日期后缀）。
+experiment_name: "guiowl_A3_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  # hope 模板：复用其中的资源/队列/docker/conda 配置；worker.script 由 daemon 动态替换
+  # guiowl 使用 qwen3-verl conda 环境的训练模板
+  hope_file: "scripts/train_qwen3.hope"
+
+  # 明确指定训练 bash 脚本（eval_daemon 会用它替换 hope 模板里的脚本路径）
+  bash_script: "scripts/train_ablation_A3_gaussian_cos_meta.sh"
+
+  # 注入到 worker.script 前缀的环境变量（除 ZWERGE_JOB_NAME 外）
+  env:
+    MODEL_TYPE: "guiowl"
+
+  # 以下两项仅用于训练完成检测（daemon 据此判断何时退出）
+  # 与 bash 脚本里 JOB MODE 的值保持一致
+  save_steps: 400
+  num_train_epochs: 3
+
+  # true = 跳过训练提交（训练已在运行时使用）
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  # 评估 hope 模板（复用资源配置；worker.script 由 daemon 动态注入 CKPT 和 OUTPUT_DIR_FINAL）
+  # guiowl/uivenus 使用 qwen3-verl conda 环境的模板
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+
+  # 注入到 worker.script 前缀的环境变量
+  env:
+    MODEL_TYPE: "guiowl"
+    SKIP_VIS: "1"           # 异步评估时先不生成可视化 PNG，节省时间
+    ZOOM_PADDING_CELLS: "3"
+
+  # 作为 eval_zoom_backbone.sh 的 $1 参数（bench 名称）
+  # 可选值：all / ss_pro / ss_v2 / osworld_g / mmbench / ui_vision
+  bench: "all"
+
+  # 评估结果根目录。每个 ckpt 的结果会写到：
+  #   {output_base}/{experiment_name}/{ckpt_name}/
+  # 例：.../zoom_backbone/guiowl_A3_exp001/checkpoint-400/
+  output_base: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge_layerwise/zoom_backbone"
+
+  # 最多同时提交几个评估 job（避免抢占训练资源）
+  max_concurrent_jobs: 2
+
+  # WandB project（与训练脚本里 WANDB_PROJECT 一致）
+  # eval_daemon 会将评估结果上报到同一个 wandb run（通过 .wandb_run_id 文件自动识别）
+  wandb_project: "zwerge"
+
+# ── 监控配置 ──────────────────────────────────────────────────────────────────
+watch:
+  # 监控的 checkpoint 目录（默认为 BASE_CKPT_DIR/{experiment_name}）
+  # 如需自定义可取消注释：
+  # output_dir: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl_A3_exp001"
+
+  # 每多少秒扫一次目录
+  poll_interval_sec: 60
+
+# ── 守护进程配置 ──────────────────────────────────────────────────────────────
+daemon:
+  # 临时 hope 文件存放目录（None = 自动使用 OUTPUT_DIR/.eval_daemon_tmp/）
+  tmp_dir: null
+
+  # 日志文件（null = 自动写到 OUTPUT_DIR/eval_daemon.log）
+  log_file: null

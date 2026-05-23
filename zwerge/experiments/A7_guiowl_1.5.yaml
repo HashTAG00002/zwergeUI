@@ -1,0 +1,57 @@
+# ============================================================
+# ZwerGe Experiment Config — A7 (CrossAttn Probe) / GUI-Owl-1.5-8B (Qwen3-VL)
+# ============================================================
+# GUI-Owl-1.5-8B：Qwen3-VL 架构，36层，hidden=4096
+#   Probe 层：layers 21-35（最后 15 层 / 共 36 层）
+#   CrossAttn d_attn = 8 heads × 64 = 512（< hidden=4096，保持轻量）
+#   参数量：~42M（≈ 0.52% of 8B）
+#
+# A7 实验说明见 A7_uitars_1.5.yaml
+# ============================================================
+#
+# 用法：
+#   tmux new -s A7_guiowl
+#   python eval_daemon.py --config experiments/A7_guiowl_1.5.yaml
+#   Ctrl+b d
+
+experiment_name: "guiowl_A7_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  # GUI-Owl-1.5-8B (Qwen3-VL) → qwen3-verl conda 环境
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "guiowl"
+    ATTN_HEADS: "8"        # d_attn = 8×64 = 512（hidden=4096 的 ~12.5%）
+    ATTN_HEAD_DIM: "64"
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  # Qwen3-VL → qwen3-verl conda 环境
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "guiowl"
+    SKIP_VIS: "1"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

@@ -1,0 +1,100 @@
+# ============================================================
+# ZwerGe Experiment Config — A7 (CrossAttn Probe) / UI-TARS-1.5-7B
+# ============================================================
+# A7 实验说明（与 A3/A6 的关键区别）：
+#
+#   Probe 架构：CrossAttnGroundingProbe（全秩 W_q/W_k + 多头注意力打分）
+#     adapter_type  = attn            ← A3 用 lora（LoRA rank-16）
+#     attn_heads    = 8               ← n_heads
+#     attn_head_dim = 64              ← d_head → d_attn = 512
+#
+#   监督模式：每层独立监督（independent_layers = true）
+#     loss = mean_l KL(y || p_l)      ← A3 有 fusion scorer（cos_meta）
+#     无共享 MLP，无 fusion 分数       ← A3 有 MLP + cos(q_meta, q_l)
+#     推理时：p_final = 各层 uniform 均值
+#
+#   GT 标签：各向异性 Gaussian（σ = bbox_size × 0.35）
+#     bbox 内质量 ≈ 72%（σ=0.5 时仅 47%，适当集中使峰值更明确）
+#
+#   Probe 层：layers 18-27（UI-TARS-1.5-7B 最后 10 层 / 共 28 层）
+#
+#   参数量：~36M（≈ 0.52% of 7B），backbone 完全冻结
+#
+#   训练数据：grounding_200k.jsonl（200k 样本）
+#
+# 输出文件位置（所有评估产物写在 checkpoint 目录下）：
+#   训练 ckpt：  BASE_CKPT_DIR/{experiment_name}/checkpoint-{N}/
+#   训练日志：   BASE_CKPT_DIR/{experiment_name}/train.log
+#   WandB run：  experiment_name 同名 run
+#   eval 结果：  BASE_CKPT_DIR/{experiment_name}/checkpoint-{N}/results/
+#     ├── layerwise_all_summary.json   ← 各 bench 融合指标汇总
+#     └── details/{bench}/
+#         ├── results.json             ← per-sample 结果
+#         ├── success/*.png            ← 可视化（SKIP_VIS=0 时）
+#         └── failure/*.png
+#   eval daemon 日志：BASE_CKPT_DIR/{experiment_name}/eval_daemon.log
+#   eval 提交记录：  BASE_CKPT_DIR/{experiment_name}/.eval_submitted.json
+# ============================================================
+#
+# 用法：
+#   tmux new -s A7_uitars
+#   python eval_daemon.py --config experiments/A7_uitars_1.5.yaml
+#   Ctrl+b d
+#
+#   # watch only（训练已提交）：
+#   python eval_daemon.py --config experiments/A7_uitars_1.5.yaml --skip_train
+#
+#   # 验证 hope 文件（不实际提交）：
+#   python eval_daemon.py --config experiments/A7_uitars_1.5.yaml --dry_run
+# ============================================================
+
+experiment_name: "uitars_A7_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  # UI-TARS-1.5-7B (Qwen2.5-VL) → gui_actor conda 环境
+  hope_file: "scripts/train_zwerge_uitars.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "uitars"
+    ATTN_HEADS: "8"        # CrossAttn head 数（d_attn = 8×64 = 512）
+    ATTN_HEAD_DIM: "64"    # 每个 head 的维度
+
+  # 以下两项仅用于 daemon 训练完成检测，与 bash 脚本 JOB MODE 保持一致
+  save_steps: 400
+  num_train_epochs: 1
+
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  # UI-TARS-1.5-7B (Qwen2.5-VL) → qwen25 conda 环境
+  hope_template: "scripts/eval/eval_zwerge.hope"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "uitars"
+    SKIP_VIS: "1"
+    DECODE_STRATEGY: "centroid"   # centroid=快速质心解码；zoom_backbone=精化但慢
+
+  bench: "all"
+
+  # 评估结果自动写入 checkpoint 目录下：
+  #   BASE_CKPT_DIR/{experiment_name}/checkpoint-{N}/results/
+  # output_base 字段已废弃，无需配置
+
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控配置 ──────────────────────────────────────────────────────────────────
+watch:
+  # 监控目录（默认 BASE_CKPT_DIR/{experiment_name}）
+  # output_dir: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars_A7_exp001"
+  poll_interval_sec: 60
+
+# ── 守护进程配置 ──────────────────────────────────────────────────────────────
+daemon:
+  tmp_dir: null    # null → 自动使用 OUTPUT_DIR/.eval_daemon_tmp/
+  log_file: null   # null → 自动写到 OUTPUT_DIR/eval_daemon.log

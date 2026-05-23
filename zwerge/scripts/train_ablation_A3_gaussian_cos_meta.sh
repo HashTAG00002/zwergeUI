@@ -23,6 +23,7 @@ if [[ -z "${AFO_ENV_CLUSTER_SPEC:-}" ]]; then
     NUM_EPOCHS=1
     MAX_STEPS=30
     SAVE_STEPS=30
+    SAVE_STEPS_ONLY_FOR_RESUME=-1
     # MAX_PIXELS 将在 MODEL_TYPE 分支中设置（与 JOB MODE 保持一致）
     FLASH_ATTN=False
     conda config --add envs_dirs /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/conda/envs 2>/dev/null || true
@@ -60,6 +61,7 @@ else
     NUM_EPOCHS=3
     MAX_STEPS=-1
     SAVE_STEPS=400
+    SAVE_STEPS_ONLY_FOR_RESUME=100
     # MAX_PIXELS 将在 MODEL_TYPE 分支中设置（与 JOB MODE 保持一致）
     FLASH_ATTN=True
 fi
@@ -73,12 +75,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ── 模型类型（决定使用哪个 backbone 和 prompt 格式）──────────────
-# 可选值：uitars | guiowl | uivenus
-# 用法：MODEL_TYPE=guiowl bash scripts/train_ablation_A3_gaussian_cos_meta.sh
+# 可选值：uitars | guiowl7b | guiowl | uivenus
+# 用法：MODEL_TYPE=guiowl7b bash scripts/train_ablation_A3_gaussian_cos_meta.sh
 MODEL_TYPE="${MODEL_TYPE:-uitars}"
 
 # ── 根据 MODEL_TYPE 设置 backbone 路径、输出目录、probe 层 ────────
-if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
+if [[ "${MODEL_TYPE}" == "guiowl7b" ]]; then
+    # GUI-Owl-7B: Qwen2.5-VL, 28层, hidden=3584（与 uitars 完全相同架构）
+    # prompt 格式使用 GUI-Owl-1.5 的 tool_call 格式（控制变量）
+    # patch_size=14, merge_size=2 → token_cell=28px
+    # MAX_PIXELS: 16384 tokens × 14² × 2² = 12,845,056（与 uitars 完全相同）
+    MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/GUI-Owl-7B"
+    PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27"   # last 10 of 28（与 uitars 相同）
+    VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-guiowl7b"
+    # Qwen2.5-VL 使用 gui_actor 环境（transformers 4.51.3）
+    CONDA_ENV="gui_actor"
+    MAX_PIXELS="${MAX_PIXELS:-12845056}"   # 16384 × 14² × 4 = 12,845,056
+elif [[ "${MODEL_TYPE}" == "guiowl" ]]; then
     # GUI-Owl-1.5-8B: Qwen3-VL, 36层, hidden=4096, deepstack=[8,16,24]
     # patch_size=16, merge_size=2 → token_cell=32px
     # MAX_PIXELS: 16384 tokens × 16² × 2² = 16384 × 1024 = 16,777,216
@@ -114,11 +127,15 @@ fi
 
 DATA_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/grounding_50k.json"
 
-RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/${MODEL_TYPE}_grounding50k_A3-gaussian_cos_meta_${RUN_TIMESTAMP}"
+BASE_CKPT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge"
+if [ -n "${ZWERGE_JOB_NAME}" ]; then
+    OUTPUT_DIR="${BASE_CKPT_DIR}/${ZWERGE_JOB_NAME}"
+else
+    RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    OUTPUT_DIR="${BASE_CKPT_DIR}/${MODEL_TYPE}_grounding50k_A3-gaussian_cos_meta_${RUN_TIMESTAMP}"
+fi
 mkdir -p "${OUTPUT_DIR}"
-
-export WANDB_RUN_NAME="zwerge-${MODEL_TYPE}-A3-gaussian_cos_meta-$(date +%Y%m%d-%H%M%S)"
+export WANDB_RUN_NAME="$(basename "${OUTPUT_DIR}")"
 
 echo "MODEL_TYPE     = ${MODEL_TYPE}"
 echo "MODEL_PATH     = ${MODEL_PATH}"
@@ -229,6 +246,7 @@ ${TORCHRUN} \
     \
     --save_strategy "steps" \
     --save_steps ${SAVE_STEPS} \
+    --save_steps_only_for_resume ${SAVE_STEPS_ONLY_FOR_RESUME} \
     --logging_steps 10 \
     --dataloader_num_workers 4 \
     \

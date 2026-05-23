@@ -19,7 +19,7 @@ workers = 1
 worker.memory = 524288
 worker.vcore = 64
 worker.gcores80g = 8
-worker.script = MODEL_TYPE=guiowl bash /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/scripts/train_ablation_A3_gaussian_cos_meta.sh
+worker.script = ZWERGE_JOB_NAME=uitars_A3_exp001 MODEL_TYPE=uitars bash /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/scripts/train_ablation_A3_gaussian_cos_meta.sh
 
 [user_args]
 

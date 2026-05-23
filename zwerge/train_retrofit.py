@@ -60,6 +60,26 @@ from typing import Dict, List, Optional
 import torch
 import transformers
 from PIL import ImageFile
+
+# PyTorch >= 2.4 enforces weights_only=True in torch.load, but HF Trainer's
+# _load_rng_state() loads rng_state_*.pth files that contain numpy arrays.
+# These files are produced by our own training code, so they are trusted.
+# Patch the method to load with weights_only=False.
+def _patched_load_rng_state(self, checkpoint):
+    import os
+    rng_file = os.path.join(checkpoint, f"rng_state_{self.args.local_rank}.pth")
+    if not os.path.isfile(rng_file):
+        return
+    checkpoint_rng_state = torch.load(rng_file, weights_only=False)  # trusted file
+    import random
+    random.setstate(checkpoint_rng_state["python"])
+    import numpy as _np
+    _np.random.set_state(checkpoint_rng_state["numpy"])
+    torch.random.set_rng_state(checkpoint_rng_state["cpu"])
+    if "cuda" in checkpoint_rng_state and torch.cuda.is_available():
+        torch.cuda.random.set_rng_state_all(checkpoint_rng_state["cuda"])
+
+transformers.Trainer._load_rng_state = _patched_load_rng_state
 from transformers import AutoProcessor
 
 from zwerge_retrofit.constants import (
@@ -78,6 +98,8 @@ from zwerge_retrofit import get_model_class
 from zwerge_retrofit.trainer import (
     RetrofitTrainer,
     EmptyCacheCallback,
+    ResumeCheckpointManagerCallback,
+    SaveWandbRunIdCallback,
     SyncNewTokenEmbCallback,
     WandbRetrofitCallback,
     ValEvalCallback,
@@ -107,6 +129,7 @@ class ModelArguments:
         metadata={
             "help": (
                 "Model type: 'uitars' (Qwen2.5-VL, default), "
+                "'guiowl7b' (GUI-Owl-7B, Qwen2.5-VL, control variable), "
                 "'guiowl' (GUI-Owl-1.5, Qwen3-VL), "
                 "'uivenus' (UI-Venus-1.5, Qwen3-VL)"
             )
@@ -311,6 +334,19 @@ class TrainingArguments(transformers.TrainingArguments):
     val_cell_w: int = field(default=300, metadata={"help": "Vis PNG cell width"})
     val_cell_h: int = field(default=220, metadata={"help": "Vis PNG cell height"})
     val_alpha:  float = field(default=0.55, metadata={"help": "Vis heatmap alpha"})
+
+    # ── Elastic-queue resume ──
+    save_steps_only_for_resume: int = field(
+        default=-1,
+        metadata={"help": (
+            "Save checkpoints every N steps for elastic-queue (hope) resume, "
+            "keeping only the latest 2. Must be <= save_steps. "
+            "Checkpoints at multiples of save_steps are permanent (never deleted). "
+            "Set to -1 to disable (only save_steps checkpoints are created). "
+            "Example: save_steps=400, save_steps_only_for_resume=100 → "
+            "permanent at 400,800,...; resume-only at 100,200,300,500,...; keep latest 2 resume-only."
+        )},
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -591,10 +627,10 @@ def train():
         max_pixels=data_args.max_pixels,
     )
     processor.tokenizer = tokenizer
-    # 对 Qwen2.5-VL (uitars)，强制使用项目内定义的 CHAT_TEMPLATE，
+    # 对 Qwen2.5-VL (uitars / guiowl7b)，强制使用项目内定义的 CHAT_TEMPLATE，
     # 确保 <|ground|> 等新 token 在 apply_chat_template 时被正确处理。
     # 对 Qwen3-VL (guiowl/uivenus)，保留模型自带的 chat_template（更完整，含 Qwen3 特殊标签）。
-    if model_args.model_type == "uitars":
+    if model_args.model_type in ("uitars", "guiowl7b"):
         processor.tokenizer.chat_template = CHAT_TEMPLATE
     data_args.processor = processor
 
@@ -652,6 +688,19 @@ def train():
     if training_args.local_rank in (0, -1):
         dump_args_to_json(model.config, processor, model_args, data_args, training_args, training_args.output_dir)
 
+    # ── WandB resume: same run across elastic-queue restarts ─────────────────
+    # If a previous run wrote .wandb_run_id (by SaveWandbRunIdCallback),
+    # set WANDB_RUN_ID + WANDB_RESUME so HF Trainer resumes the same run.
+    # This keeps the loss/lr curves continuous across kills and restarts.
+    if "wandb" in training_args.report_to:
+        _wandb_id_file = pathlib.Path(training_args.output_dir) / ".wandb_run_id"
+        if _wandb_id_file.exists():
+            _prev_run_id = _wandb_id_file.read_text().strip()
+            if _prev_run_id:
+                os.environ["WANDB_RUN_ID"] = _prev_run_id
+                os.environ["WANDB_RESUME"] = "must"
+                rank0_print(f"[WandB] Resuming existing run: {_prev_run_id}")
+
     # ── Dataset & collator ───────────────────────────────────────────────────
     rank0_print(f"Loading dataset from {data_args.data_path}...")
     train_dataset = RetrofitDataset(
@@ -662,14 +711,30 @@ def train():
     )
     data_collator = RetrofitDataCollator(tokenizer=tokenizer)
 
+    # ── Elastic-queue resume: override save frequency and disable HF's rotation ──
+    _permanent_save_steps = training_args.save_steps
+    _resume_save_steps = training_args.save_steps_only_for_resume
+    if _resume_save_steps > 0:
+        if _resume_save_steps > _permanent_save_steps:
+            raise ValueError(
+                f"save_steps_only_for_resume ({_resume_save_steps}) must be <= save_steps ({_permanent_save_steps})"
+            )
+        training_args.save_steps = _resume_save_steps
+        training_args.save_total_limit = None  # let ResumeCheckpointManagerCallback manage deletion
+
     # ── Callbacks ────────────────────────────────────────────────────────────
     callbacks = [
         EmptyCacheCallback(every_n_steps=training_args.empty_cache_every_n_steps),
         SyncNewTokenEmbCallback(),  # write _new_token_emb back to embed_tokens before each save
+        ResumeCheckpointManagerCallback(
+            permanent_save_steps=_permanent_save_steps,
+            resume_save_steps=_resume_save_steps,
+        ),
     ]
     # WandB callback (log retrofit-specific metrics)
     if "wandb" in training_args.report_to:
         callbacks.append(WandbRetrofitCallback(probe_layers=probe_layers_list))
+        callbacks.append(SaveWandbRunIdCallback())
     # In-training eval callback
     if training_args.val_steps > 0:
         callbacks.append(ValEvalCallback(
@@ -695,9 +760,28 @@ def train():
     )
 
     # ── Train ─────────────────────────────────────────────────────────────────
-    if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-        rank0_print("Resuming from checkpoint...")
-        trainer.train(resume_from_checkpoint=True)
+    # Find the latest COMPLETE checkpoint: trainer_state.json is written last
+    # by HF Trainer, so its presence guarantees a fully written checkpoint.
+    # A partial checkpoint (kill during write) lacks trainer_state.json and
+    # would crash on resume — skip it and fall back to the previous valid one.
+    _all_ckpts = sorted(
+        [p for p in pathlib.Path(training_args.output_dir).glob("checkpoint-*") if p.is_dir()],
+        key=lambda p: int(p.name.split("-")[1]),
+        reverse=True,
+    )
+    _valid_ckpt = next(
+        (str(p) for p in _all_ckpts if (p / "trainer_state.json").exists()), None
+    )
+    if _valid_ckpt:
+        rank0_print(f"Resuming from valid checkpoint: {_valid_ckpt}")
+        # Clean up any incomplete checkpoints newer than the valid one
+        for p in _all_ckpts:
+            if int(p.name.split("-")[1]) > int(pathlib.Path(_valid_ckpt).name.split("-")[1]):
+                if not (p / "trainer_state.json").exists():
+                    rank0_print(f"Removing incomplete checkpoint: {p.name}")
+                    import shutil as _shutil
+                    _shutil.rmtree(p, ignore_errors=True)
+        trainer.train(resume_from_checkpoint=_valid_ckpt)
     else:
         trainer.train()
 

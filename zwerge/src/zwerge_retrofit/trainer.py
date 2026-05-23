@@ -10,6 +10,8 @@ ZwerGe-UI Retrofit Trainer
 import json
 import math
 import os
+import pathlib
+import shutil
 import sys
 from datetime import timedelta
 from functools import wraps
@@ -131,6 +133,69 @@ class EmptyCacheCallback(TrainerCallback):
             torch.cuda.empty_cache()
 
 
+class ResumeCheckpointManagerCallback(TrainerCallback):
+    """
+    Manages checkpoint retention for elastic-queue (hope) training.
+
+    Classifies saved checkpoints into two tiers:
+      - Permanent: step divisible by permanent_save_steps → kept forever
+      - Resume-only: all other steps → keep only the latest max_resume_ckpts
+
+    Must be used together with save_steps_only_for_resume > 0 in TrainingArguments.
+    Set save_total_limit=None before creating Trainer so HF's own rotation is disabled.
+
+    Runs on_save (rank-0 only) after each checkpoint is written.
+    """
+    def __init__(self, permanent_save_steps: int, resume_save_steps: int, max_resume_ckpts: int = 2):
+        self.permanent_save_steps = permanent_save_steps
+        self.resume_save_steps = resume_save_steps
+        self.max_resume_ckpts = max_resume_ckpts
+
+    def on_save(self, args, state, control, **kwargs):
+        if self.resume_save_steps <= 0:
+            return
+        if args.local_rank not in (0, -1):
+            return
+
+        output_dir = pathlib.Path(args.output_dir)
+        ckpts = sorted(
+            [p for p in output_dir.glob("checkpoint-*") if p.is_dir()],
+            key=lambda p: int(p.name.split("-")[1]),
+        )
+
+        resume_only = [
+            ckpt for ckpt in ckpts
+            if int(ckpt.name.split("-")[1]) % self.permanent_save_steps != 0
+        ]
+
+        # Write marker so eval_daemon can distinguish permanent from resume-only ckpts
+        for ckpt in ckpts:
+            if ckpt not in resume_only:
+                (ckpt / "is_permanent_ckpt").touch(exist_ok=True)
+
+        if len(resume_only) > self.max_resume_ckpts:
+            for ckpt in resume_only[: -self.max_resume_ckpts]:
+                rank0_print(f"[ResumeManager] Deleting old resume-only ckpt: {ckpt.name}")
+                shutil.rmtree(ckpt, ignore_errors=True)
+
+
+class SaveWandbRunIdCallback(TrainerCallback):
+    """
+    At the start of training, persist the wandb run ID to OUTPUT_DIR/.wandb_run_id
+    so eval_daemon.py can later resume logging eval metrics to the same run.
+    """
+    def on_train_begin(self, args, state, control, **kwargs):
+        if args.local_rank not in (0, -1):
+            return
+        try:
+            import wandb
+            if wandb.run is not None:
+                run_id_file = pathlib.Path(args.output_dir) / ".wandb_run_id"
+                run_id_file.write_text(wandb.run.id)
+        except Exception:
+            pass
+
+
 class WandbRetrofitCallback(TrainerCallback):
     """
     Custom wandb callback that logs retrofit-specific metrics:
@@ -205,14 +270,16 @@ class ValEvalCallback(TrainerCallback):
       val_n_samples = -1  → 全量数据（默认）
       val_n_samples =  N  → 前 N 条
 
-    输出结构（与 run_vis.sh 完全一致）：
-      {val_output_dir}/{decode_strategy}/{run_name}/checkpoint-{step}/
+    输出结构（与 eval_daemon 异步评估保持一致）：
+      {val_output_dir}/checkpoint-{step}/results/
         ├── {bench}_layerwise_summary.json
         ├── layerwise_all_summary.json   (bench=all 时)
         └── details/{bench}/
             ├── success/*.png
             ├── failure/*.png
             └── results.json
+    val_output_dir 建议直接传入训练的 OUTPUT_DIR，使所有评估产物
+    集中在对应 checkpoint 目录下。
     """
 
     def __init__(
@@ -277,9 +344,8 @@ class ValEvalCallback(TrainerCallback):
             rank      = args.local_rank if args.local_rank >= 0 else 0
             n_ranks   = dist.get_world_size() if dist.is_initialized() else 1
             step      = state.global_step
-            run_name  = (getattr(args, "run_name", None) or os.path.basename(args.output_dir))
             step_dir  = os.path.join(
-                self.output_dir_root, self.decode_strategy, run_name, f"checkpoint-{step}"
+                self.output_dir_root, f"checkpoint-{step}", "results"
             ) if self.output_dir_root else ""
 
             raw_model = getattr(model, "module", model)

@@ -314,6 +314,48 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     verbose=False,
                     **extra_kwargs,
                 ):
+                    # ── Autoregressive decode step: pass through to native Qwen3-VL ──
+                    # During model.generate(), after the prefill step, the decoder is
+                    # called step-by-step with:
+                    #   input_ids  = [B, 1]          (current token only)
+                    #   attention_mask = [B, full_len] (grows each step)
+                    #   past_key_values ≠ None        (KV cache from previous steps)
+                    #
+                    # Our _run_language_model() calls get_rope_index(input_ids, ...,
+                    # attention_mask) which inside does:
+                    #   input_ids = input_ids[attention_mask[i] == 1]
+                    # → IndexError: mask shape [full_len] vs input_ids shape [1]
+                    #
+                    # Fix: detect decode step and delegate entirely to super().forward()
+                    # (native Qwen3VLForConditionalGeneration handles KV cache correctly).
+                    # We do NOT need grounding head output during decode steps.
+                    _is_decode_step = (
+                        past_key_values is not None
+                        or (
+                            input_ids is not None
+                            and input_ids.shape[1] == 1
+                            and pixel_values is None
+                        )
+                    )
+                    if _is_decode_step:
+                        return super().forward(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            position_ids=position_ids,
+                            past_key_values=past_key_values,
+                            inputs_embeds=inputs_embeds,
+                            labels=labels,
+                            use_cache=use_cache,
+                            output_attentions=output_attentions,
+                            output_hidden_states=output_hidden_states,
+                            return_dict=return_dict,
+                            pixel_values=pixel_values,
+                            image_grid_thw=image_grid_thw,
+                            rope_deltas=rope_deltas,
+                            cache_position=cache_position,
+                            **extra_kwargs,
+                        )
+
                     return_dict = (
                         return_dict if return_dict is not None
                         else self.config.use_return_dict

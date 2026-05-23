@@ -26,6 +26,7 @@ if [[ -z "${AFO_ENV_CLUSTER_SPEC:-}" ]]; then
     NUM_EPOCHS=1
     MAX_STEPS=30
     SAVE_STEPS=30
+    SAVE_STEPS_ONLY_FOR_RESUME=-1
     MAX_PIXELS=2494464      # A100-40G 显存较小，限制分辨率
 
     # codelab 的 gcc 版本太老（缺 stdatomic.h），triton kernel 无法编译
@@ -97,6 +98,7 @@ else
     NUM_EPOCHS=3
     MAX_STEPS=-1            # -1 = 跑完所有 epoch
     SAVE_STEPS=400
+    SAVE_STEPS_ONLY_FOR_RESUME=100
     MAX_PIXELS=12845056    # A100-80G 全分辨率
 
     # job 环境 gcc 新，可用 flash_attention_2
@@ -108,8 +110,6 @@ export http_proxy=http://10.70.11.143:8412
 export https_proxy=http://10.70.11.143:8412
 export WANDB_API_KEY=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
 export WANDB_PROJECT=zwerge
-export WANDB_RUN_NAME="zwerge-uitars7b-grounding50k-$(date +%Y%m%d-%H%M%S)"
-
 # ── 3. 打印环境信息 ────────────────────────────────────────────
 echo "NPROC_PER_NODE = ${NPROC_PER_NODE}"
 echo "NODE_RANK      = ${NODE_RANK}"
@@ -117,7 +117,6 @@ echo "NNODES         = ${NNODES}"
 echo "MASTER_ADDR    = ${MASTER_ADDR}"
 echo "MASTER_PORT    = ${MASTER_PORT}"
 echo "FLASH_ATTN     = ${FLASH_ATTN}"
-echo "WANDB_RUN_NAME = ${WANDB_RUN_NAME}"
 
 # ── 4. 路径配置 ────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -126,14 +125,21 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"    # .../zwerge/code/zwerge/
 MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/UI-TARS-1.5-7B"
 DATA_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/grounding_50k.json"
 
-RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_${RUN_TIMESTAMP}"
+BASE_CKPT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge"
+if [ -n "${ZWERGE_JOB_NAME}" ]; then
+    OUTPUT_DIR="${BASE_CKPT_DIR}/${ZWERGE_JOB_NAME}"
+else
+    RUN_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    OUTPUT_DIR="${BASE_CKPT_DIR}/uitars7b_grounding50k_${RUN_TIMESTAMP}"
+fi
 mkdir -p "${OUTPUT_DIR}"
+export WANDB_RUN_NAME="$(basename "${OUTPUT_DIR}")"
 
-echo "PROJECT_ROOT = ${PROJECT_ROOT}"
-echo "MODEL_PATH   = ${MODEL_PATH}"
-echo "DATA_PATH    = ${DATA_PATH}"
-echo "OUTPUT_DIR   = ${OUTPUT_DIR}"
+echo "PROJECT_ROOT   = ${PROJECT_ROOT}"
+echo "MODEL_PATH     = ${MODEL_PATH}"
+echo "DATA_PATH      = ${DATA_PATH}"
+echo "OUTPUT_DIR     = ${OUTPUT_DIR}"
+echo "WANDB_RUN_NAME = ${WANDB_RUN_NAME}"
 
 # ── 5. Head 超参 ───────────────────────────────────────────────
 # UI-TARS-1.5-7B 共 28 层（0-indexed），选取中后层 probe
@@ -264,6 +270,7 @@ ${TORCHRUN} \
     \
     --save_strategy "steps" \
     --save_steps ${SAVE_STEPS} \
+    --save_steps_only_for_resume ${SAVE_STEPS_ONLY_FOR_RESUME} \
     --logging_steps 10 \
     --dataloader_num_workers 4 \
     \

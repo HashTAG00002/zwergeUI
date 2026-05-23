@@ -80,6 +80,8 @@ def get_prediction_region_point(
             cy, cx, c_idx, c_val = queue.pop(0)
             for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 ny, nx = cy + dy, cx + dx
+                if ny < 0 or ny >= n_height or nx < 0 or nx >= n_width:
+                    continue
                 n_idx = ny * n_width + nx
                 for j, (ty, tx, t_idx) in enumerate(topk_coords):
                     if ty == ny and tx == nx and t_idx not in visited:
@@ -169,6 +171,90 @@ def scores_to_point_and_topk(
     return best, centers[:topk]
 
 
+def get_zoom_crop_box(
+    p_final: torch.Tensor,
+    n_width: int,
+    n_height: int,
+    image_w: int,
+    image_h: int,
+    token_cell_px: int,
+    activation_threshold: float = 0.3,
+    padding_cells: int = 3,
+) -> Tuple[int, int, int, int]:
+    """
+    Compute pixel-space crop box for zoom-in from patch posteriors.
+
+    Uses the same threshold+BFS logic as get_prediction_region_point to find
+    the best region, then returns its pixel bounding box with padding.
+
+    Returns (x_min, y_min, x_max, y_max) clipped to image boundaries.
+    padding_cells: number of extra patch cells added on each side.
+    """
+    scores_1d = p_final.float().cpu()
+    max_score  = scores_1d.max().item()
+
+    if max_score <= 0:
+        # Fallback: center quarter
+        qw, qh = max(1, image_w // 4), max(1, image_h // 4)
+        cx, cy = image_w // 2, image_h // 2
+        return max(0, cx - qw), max(0, cy - qh), min(image_w, cx + qw), min(image_h, cy + qh)
+
+    threshold   = max_score * activation_threshold
+    valid_mask  = scores_1d > threshold
+    valid_idxs  = valid_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+    valid_scores = scores_1d[valid_mask].tolist()
+
+    if not valid_idxs:
+        # Argmax fallback
+        best_idx = int(scores_1d.argmax().item())
+        col, row = best_idx % n_width, best_idx // n_width
+        return (
+            max(0, (col - padding_cells) * token_cell_px),
+            max(0, (row - padding_cells) * token_cell_px),
+            min(image_w, (col + 1 + padding_cells) * token_cell_px),
+            min(image_h, (row + 1 + padding_cells) * token_cell_px),
+        )
+
+    # BFS to collect connected regions (mirrors get_prediction_region_point)
+    topk_coords = [(idx // n_width, idx % n_width, idx) for idx in valid_idxs]
+    patch_score = {idx: s for idx, s in zip(valid_idxs, valid_scores)}
+
+    regions: List[List[int]] = []   # each element = list of flat patch indices
+    visited: set = set()
+    for row, col, idx in topk_coords:
+        if idx in visited:
+            continue
+        region = [idx]
+        visited.add(idx)
+        queue = [(row, col)]
+        while queue:
+            r, c = queue.pop(0)
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if nr < 0 or nr >= n_height or nc < 0 or nc >= n_width:
+                    continue
+                nidx = nr * n_width + nc
+                if nidx in patch_score and nidx not in visited:
+                    visited.add(nidx)
+                    region.append(nidx)
+                    queue.append((nr, nc))
+        regions.append(region)
+
+    # Select best region by peak score
+    best_region = max(regions, key=lambda r: max(patch_score[i] for i in r))
+
+    rows = [i // n_width for i in best_region]
+    cols = [i %  n_width for i in best_region]
+    min_col, max_col = min(cols), max(cols)
+    min_row, max_row = min(rows), max(rows)
+
+    x_min = max(0,        (min_col - padding_cells) * token_cell_px)
+    y_min = max(0,        (min_row - padding_cells) * token_cell_px)
+    x_max = min(image_w,  (max_col + 1 + padding_cells) * token_cell_px)
+    y_max = min(image_h,  (max_row + 1 + padding_cells) * token_cell_px)
+    return x_min, y_min, x_max, y_max
+
+
 def grid_thw_to_nwh(image_grid_thw: torch.Tensor, merge_size: int = 2) -> Tuple[int, int]:
     """image_grid_thw [T,H,W] → (n_width, n_height)。"""
     if image_grid_thw.dim() == 2:
@@ -185,10 +271,18 @@ def build_zwerge_inputs(
     processor,
     system_message: Optional[str],
     ground_response: str,
-    max_pixels: int = 5_760_000,
+    max_pixels: Optional[int] = None,
     user_prompt_template: Optional[str] = None,
 ) -> dict:
-    """构造 prefill-only 推理的 model inputs（batch_size=1）。"""
+    """
+    构造 prefill-only 推理的 model inputs（batch_size=1）。
+
+    max_pixels: if provided, temporarily overrides processor.image_processor.max_pixels
+                for this call only.  If None, uses the processor's current global setting
+                (set during from_checkpoint()).  Both Stage-1 (grounding prefill) and
+                Stage-2 (zoom backbone generate) should use the same value so that
+                image_grid_thw reflects the actual resized dimensions.
+    """
     user_text = user_prompt_template.format(instruction) if user_prompt_template else instruction
 
     conversation = []
@@ -213,13 +307,24 @@ def build_zwerge_inputs(
         conversation, tokenize=False, add_generation_prompt=False,
     )
     image_inputs, video_inputs = process_vision_info(conversation)
-    inputs = processor(
-        text=[text],
-        images=image_inputs if image_inputs else None,
-        videos=video_inputs if video_inputs else None,
-        return_tensors="pt",
-        padding=True,
-    )
+
+    # Override max_pixels for this call if explicitly provided
+    _img_proc = getattr(processor, "image_processor", None)
+    _old_max  = getattr(_img_proc, "max_pixels", None) if _img_proc else None
+    if max_pixels is not None and _img_proc is not None:
+        _img_proc.max_pixels = max_pixels
+    try:
+        inputs = processor(
+            text=[text],
+            images=image_inputs if image_inputs else None,
+            videos=video_inputs if video_inputs else None,
+            return_tensors="pt",
+            padding=True,
+        )
+    finally:
+        # Always restore the original max_pixels to avoid side-effects
+        if max_pixels is not None and _img_proc is not None and _old_max is not None:
+            _img_proc.max_pixels = _old_max
     return inputs
 
 
@@ -291,7 +396,7 @@ BENCH_CONFIGS = {
     },
 }
 
-MAIN_BENCH_KEYS = ["ss_pro", "ss_v2", "osworld_g", "mmbench", "ui_vision"]
+MAIN_BENCH_KEYS = ["ss_pro", "ss_v2", "osworld_g", "osworld_g_orig", "mmbench", "ui_vision"]
 
 
 def _get_group_key(example: dict, group_field: Optional[str]) -> str:
@@ -416,6 +521,9 @@ class BaseZwergeInference(ABC):
 # Retrofit inference base (shared by uitars / guiowl / uivenus)
 # ─────────────────────────────────────────────────────────────────────────────
 
+_ZOOM_NOT_SET = object()   # sentinel: "use the retrofit training value"
+
+
 class RetrofitInference(BaseZwergeInference):
     """
     Implements predict_layerwise() for all retrofit models.
@@ -423,7 +531,16 @@ class RetrofitInference(BaseZwergeInference):
     Subclasses override:
       model_type  — "uitars" / "guiowl" / "uivenus"
       patch_size  — 14 for Qwen2.5-VL, 16 for Qwen3-VL
+
+    Zoom-backbone system message overrides (subclass sets these):
+      _zoom_native_system_message — system message for backbone generate (NATIVE coord format).
+          Use _ZOOM_NOT_SET (default) to fall back to self.system_message (retrofit training msg).
+          Set to None explicitly for "no system message" (e.g., UI-Venus).
+      _zoom_native_user_template  — user prompt template for backbone generate.
+          Use _ZOOM_NOT_SET (default) to fall back to self.user_prompt_template.
     """
+    _zoom_native_system_message = _ZOOM_NOT_SET
+    _zoom_native_user_template  = _ZOOM_NOT_SET
 
     @classmethod
     def from_checkpoint(
@@ -645,4 +762,231 @@ class RetrofitInference(BaseZwergeInference):
             "n_width":          n_width,
             "n_height":         n_height,
             "anchor_strategy":  anchor_strategy.value,
+        }
+
+    # ── Zoom-backbone decode strategy ────────────────────────────────────────
+
+    def parse_backbone_coordinate(
+        self,
+        raw_text: str,
+        crop_w_resized: Optional[int] = None,
+        crop_h_resized: Optional[int] = None,
+    ) -> Optional[Tuple[float, float]]:
+        """
+        Parse the backbone's generated text to extract a normalized (x,y) point.
+
+        Returns (x_norm, y_norm) in [0,1] (fraction of crop), or None on failure.
+        Subclasses MUST override for their model's output format.
+
+        Args:
+          raw_text:        backbone-generated text
+          crop_w_resized:  actual pixel width of the crop after processor smart_resize.
+                           Needed by Qwen2.5-VL (UI-TARS) which outputs absolute pixel coords.
+                           Qwen3-VL models use [0,1000] format and ignore this.
+          crop_h_resized:  actual pixel height after smart_resize (same note as above).
+
+        Coordinate conventions by model:
+          Qwen3-VL (GUI-Owl, UI-Venus): [0,1000] relative → divide by 1000 → [0,1]
+          Qwen2.5-VL (UI-TARS):        absolute pixels in smart-resized space
+                                         → divide by (crop_w_resized, crop_h_resized) → [0,1]
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement parse_backbone_coordinate()."
+        )
+
+    def _build_generation_inputs(
+        self,
+        image: Image.Image,
+        instruction: str,
+        max_pixels: Optional[int] = None,
+    ) -> dict:
+        """
+        Build inputs for backbone generate (Stage 2 of zoom_backbone).
+
+        Uses _zoom_native_system_message / _zoom_native_user_template (class attrs)
+        so the model outputs NATIVE coordinates (not <|ground|> special tokens).
+          - If _zoom_native_system_message is _ZOOM_NOT_SET → fall back to self.system_message
+          - If _zoom_native_system_message is None          → no system turn (e.g. UI-Venus)
+
+        max_pixels: if provided, temporarily overrides processor.image_processor.max_pixels
+                    for this call.  The same value should be used in Stage 1 so that
+                    image_grid_thw faithfully reflects the actual smart_resize output and
+                    crop_w_resized = W_patches * patch_size is consistent with what the
+                    backbone actually sees.  Defaults to None (use processor global setting).
+        """
+        from qwen_vl_utils import process_vision_info
+
+        # Use native coordinate-format prompts, not the retrofit training prompts
+        # (retrofit prompts contain <|ground|> tokens; backbone outputs special tokens)
+        sys_msg = (
+            self.system_message
+            if self._zoom_native_system_message is _ZOOM_NOT_SET
+            else self._zoom_native_system_message
+        )
+        usr_tmpl = (
+            self.user_prompt_template
+            if self._zoom_native_user_template is _ZOOM_NOT_SET
+            else self._zoom_native_user_template
+        )
+
+        user_text = usr_tmpl.format(instruction) if usr_tmpl else instruction
+        conversation = []
+        if sys_msg:
+            conversation.append({
+                "role": "system",
+                "content": [{"type": "text", "text": sys_msg}],
+            })
+        conversation.append({
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image},
+                {"type": "text",  "text":  user_text},
+            ],
+        })
+        text = self.processor.apply_chat_template(
+            conversation, tokenize=False, add_generation_prompt=True,
+        )
+        image_inputs, video_inputs = process_vision_info(conversation)
+
+        # Override max_pixels for this call if explicitly provided
+        _img_proc = getattr(self.processor, "image_processor", None)
+        _old_max  = getattr(_img_proc, "max_pixels", None) if _img_proc else None
+        if max_pixels is not None and _img_proc is not None:
+            _img_proc.max_pixels = max_pixels
+        try:
+            result = self.processor(
+                text=[text],
+                images=image_inputs if image_inputs else None,
+                videos=video_inputs if video_inputs else None,
+                return_tensors="pt",
+                padding=True,
+            )
+        finally:
+            if max_pixels is not None and _img_proc is not None and _old_max is not None:
+                _img_proc.max_pixels = _old_max
+        return result
+
+    @torch.no_grad()
+    def predict_zoom_backbone(
+        self,
+        image: Image.Image,
+        instruction: str,
+        device: torch.device,
+        activation_threshold: float = 0.3,
+        padding_cells: int = 3,
+        max_new_tokens: int = 256,
+        topk: int = 3,
+        decode_strategy: str = "centroid",
+        peak_shift_alpha: float = 0.5,
+        temperature: float = 0.5,
+        full_image: bool = False,
+    ) -> dict:
+        """
+        Two-stage decode strategy:
+          Stage 1 — ZwerGe prefill → patch posteriors → select best region
+          Stage 2 — Crop around best region → backbone generate → parse coordinate
+                    → remap to original image
+
+        Returns the same schema as predict_layerwise(), plus:
+          'zoom_point':    (x_norm, y_norm) refined by backbone (falls back to ZwerGe centroid)
+          'zoom_crop_box': (x_min, y_min, x_max, y_max) in pixels
+          'backbone_raw':  raw generated text from backbone (for debugging)
+
+        The eval code should use pred['zoom_point'] as the final prediction instead
+        of running scores_to_point_and_topk on pred['p_final'].
+        """
+        # ── Stage 1: ZwerGe ───────────────────────────────────────────────────
+        pred = self.predict_layerwise(
+            image=image, instruction=instruction, device=device,
+            activation_threshold=activation_threshold, topk=topk,
+            decode_strategy=decode_strategy,
+            peak_shift_alpha=peak_shift_alpha, temperature=temperature,
+        )
+        n_w, n_h = pred["n_width"], pred["n_height"]
+        W, H     = image.size
+        token_cell_px = self.patch_size * self.merge_size   # 28 for uitars, 32 for guiowl
+
+        # ── Compute crop box ─────────────────────────────────────────────────
+        if full_image:
+            # native_backbone mode: no crop, pass original image to backbone.
+            # Coordinate mapping degenerates to identity: (0 + bx*W)/W = bx
+            crop_box = (0, 0, W, H)
+            crop_img = image
+        else:
+            crop_box = get_zoom_crop_box(
+                p_final=pred["p_final"],
+                n_width=n_w, n_height=n_h,
+                image_w=W, image_h=H,
+                token_cell_px=token_cell_px,
+                activation_threshold=activation_threshold,
+                padding_cells=padding_cells,
+            )
+            crop_img = image.crop(crop_box)
+        x_min, y_min, x_max, y_max = crop_box
+        crop_w = max(1, x_max - x_min)
+        crop_h = max(1, y_max - y_min)
+
+        # ── Stage 2: backbone generate ────────────────────────────────────────
+        gen_inputs = self._build_generation_inputs(crop_img, instruction)
+        gen_inputs = {
+            k: v.to(device) if isinstance(v, torch.Tensor) else v
+            for k, v in gen_inputs.items()
+        }
+        # Some inputs may need dtype cast for pixel_values
+        if "pixel_values" in gen_inputs and gen_inputs["pixel_values"] is not None:
+            gen_inputs["pixel_values"] = gen_inputs["pixel_values"].to(
+                dtype=self.model.dtype
+            )
+
+        generated_ids = self.model.generate(
+            **gen_inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            temperature=None,
+            top_p=None,
+        )
+        prompt_len = gen_inputs["input_ids"].shape[1]
+        trimmed    = generated_ids[:, prompt_len:]
+        raw_text   = self.processor.batch_decode(
+            trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )[0]
+
+        # ── Get crop's smart-resized dimensions ──────────────────────────────
+        # image_grid_thw = [T, H_raw_patches, W_raw_patches] (raw patch units)
+        # smart_resize → W_resized = W_raw_patches * patch_size (e.g. 14 for uitars)
+        # Needed by UI-TARS (absolute pixel coords); ignored by Qwen3-VL ([0,1000] format)
+        crop_thw = gen_inputs.get("image_grid_thw")
+        if crop_thw is not None:
+            thw = crop_thw[0] if crop_thw.dim() == 2 else crop_thw.squeeze()
+            _, H_ptch, W_ptch = int(thw[0].item()), int(thw[1].item()), int(thw[2].item())
+            crop_w_resized: Optional[int] = W_ptch * self.patch_size
+            crop_h_resized: Optional[int] = H_ptch * self.patch_size
+        else:
+            crop_w_resized = crop_w
+            crop_h_resized = crop_h
+
+        # ── Parse and remap ───────────────────────────────────────────────────
+        backbone_coord = self.parse_backbone_coordinate(
+            raw_text, crop_w_resized=crop_w_resized, crop_h_resized=crop_h_resized,
+        )
+        if backbone_coord is not None:
+            bx_crop, by_crop = backbone_coord           # [0,1] in crop space
+            # remap to original image [0,1]
+            ox = max(0.0, min(1.0, (x_min + bx_crop * crop_w) / W))
+            oy = max(0.0, min(1.0, (y_min + by_crop * crop_h) / H))
+            zoom_point = (ox, oy)
+        else:
+            # Fallback: ZwerGe centroid from p_final
+            fb, _ = scores_to_point_and_topk(
+                p=pred["p_final"], n_width=n_w, n_height=n_h,
+                activation_threshold=activation_threshold, topk=1,
+                decode_strategy="centroid",
+            )
+            zoom_point = (float(fb[0]), float(fb[1]))
+
+        return {
+            **pred,
+            "zoom_point":    zoom_point,
+            "zoom_crop_box": crop_box,
+            "backbone_raw":  raw_text,
         }

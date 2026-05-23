@@ -57,14 +57,16 @@ def get_inference_class(model_type: str, inference_type: str = "retrofit"):
     Returns the inference class for the given model_type + inference_type.
     inference_type: "retrofit" (default) or "native"
     """
-    from inference_uitars  import UITARSRetrofitInference
-    from inference_guiowl  import GUIOwlRetrofitInference
-    from inference_uivenus import UIVenusRetrofitInference
+    from inference_uitars   import UITARSRetrofitInference
+    from inference_guiowl   import GUIOwlRetrofitInference
+    from inference_uivenus  import UIVenusRetrofitInference
+    from inference_guiowl7b import GUIOwl7BRetrofitInference
 
     CLASSES = {
-        ("uitars",  "retrofit"): UITARSRetrofitInference,
-        ("guiowl",  "retrofit"): GUIOwlRetrofitInference,
-        ("uivenus", "retrofit"): UIVenusRetrofitInference,
+        ("uitars",    "retrofit"): UITARSRetrofitInference,
+        ("guiowl",    "retrofit"): GUIOwlRetrofitInference,
+        ("uivenus",   "retrofit"): UIVenusRetrofitInference,
+        ("guiowl7b",  "retrofit"): GUIOwl7BRetrofitInference,
     }
     key = (model_type, inference_type)
     if key not in CLASSES:
@@ -98,6 +100,8 @@ def _worker(
     alpha: float,
     group_stats: bool,
     model_type: str = "uitars",
+    zoom_padding_cells: int = 3,
+    zoom_max_new_tokens: int = 256,
 ):
     import torch as _torch
     _device = _torch.device(f"cuda:{gpu_id}")
@@ -156,15 +160,39 @@ def _worker(
             continue
 
         try:
-            pred = grounder.predict_layerwise(
-                image=orig_img, instruction=example["instruction"],
-                device=_device,
-                activation_threshold=activation_threshold,
-                topk=topk,
-                decode_strategy=decode_strategy,
-                peak_shift_alpha=peak_shift_alpha,
-                temperature=temperature,
-            )
+            if decode_strategy == "zoom_backbone":
+                pred = grounder.predict_zoom_backbone(
+                    image=orig_img, instruction=example["instruction"],
+                    device=_device,
+                    activation_threshold=activation_threshold,
+                    topk=topk,
+                    padding_cells=zoom_padding_cells,
+                    max_new_tokens=zoom_max_new_tokens,
+                    peak_shift_alpha=peak_shift_alpha,
+                    temperature=temperature,
+                    full_image=False,
+                )
+            elif decode_strategy == "native_backbone":
+                # Full image → backbone generate (no ZwerGe-guided crop).
+                # Stage 1 ZwerGe metrics still computed; only fusion/final from backbone.
+                pred = grounder.predict_zoom_backbone(
+                    image=orig_img, instruction=example["instruction"],
+                    device=_device,
+                    activation_threshold=activation_threshold,
+                    topk=topk,
+                    max_new_tokens=zoom_max_new_tokens,
+                    full_image=True,   # ← KEY: no crop, use original image
+                )
+            else:
+                pred = grounder.predict_layerwise(
+                    image=orig_img, instruction=example["instruction"],
+                    device=_device,
+                    activation_threshold=activation_threshold,
+                    topk=topk,
+                    decode_strategy=decode_strategy,
+                    peak_shift_alpha=peak_shift_alpha,
+                    temperature=temperature,
+                )
         except Exception as e:
             import traceback
             warnings.warn(f"Inference failed for #{global_idx}: {e}")
@@ -204,14 +232,20 @@ def _worker(
                 "pred_point": list(pred["per_layer_points"][li]),
             })
 
-        # Fusion metrics
-        f_best, f_centers = scores_to_point_and_topk(
-            p=pred["p_final"], n_width=n_w, n_height=n_h,
-            activation_threshold=activation_threshold, topk=topk,
-            decode_strategy=decode_strategy,
-            peak_shift_alpha=peak_shift_alpha, temperature=temperature,
-        )
-        fpx, fpy  = float(f_best[0]), float(f_best[1])
+        # Fusion / final metrics
+        # zoom_backbone: use backbone-refined point directly (no scores_to_point_and_topk)
+        # other strategies: derive final point from p_final distribution
+        if decode_strategy in ("zoom_backbone", "native_backbone") and "zoom_point" in pred:
+            fpx, fpy  = float(pred["zoom_point"][0]), float(pred["zoom_point"][1])
+            f_centers = [(fpx, fpy)]   # single refined point
+        else:
+            f_best, f_centers = scores_to_point_and_topk(
+                p=pred["p_final"], n_width=n_w, n_height=n_h,
+                activation_threshold=activation_threshold, topk=topk,
+                decode_strategy=decode_strategy,
+                peak_shift_alpha=peak_shift_alpha, temperature=temperature,
+            )
+            fpx, fpy = float(f_best[0]), float(f_best[1])
         fhit1     = int(point_in_bbox(fpx, fpy, gt_bbox_norm))
         fpred_box = (fpx - phx, fpy - phy, fpx + phx, fpy + phy)
         fov1      = int(do_boxes_overlap(fpred_box, gt_bbox_norm))
@@ -480,6 +514,8 @@ def run_bench_parallel(
     alpha: float,
     group_stats: bool = True,
     model_type: str = "uitars",
+    zoom_padding_cells: int = 3,
+    zoom_max_new_tokens: int = 256,
 ) -> Dict:
     import multiprocessing as mp
 
@@ -499,6 +535,8 @@ def run_bench_parallel(
         temperature=temperature, activation_threshold=activation_threshold,
         topk=topk, skip_vis=skip_vis, cell_w=cell_w, cell_h=cell_h,
         alpha=alpha, group_stats=group_stats, model_type=model_type,
+        zoom_padding_cells=zoom_padding_cells,
+        zoom_max_new_tokens=zoom_max_new_tokens,
     )
 
     chunk  = (N + n_gpu - 1) // n_gpu
@@ -537,8 +575,9 @@ def parse_args():
     parser.add_argument("--ckpt",        required=True, help="Checkpoint directory")
     parser.add_argument(
         "--model_type", default="uitars",
-        choices=["uitars", "guiowl", "uivenus"],
-        help="Model type — affects prompt format and model loading class",
+        choices=["uitars", "guiowl", "uivenus", "guiowl7b"],
+        help="Model type — affects prompt format and model loading class. "
+             "guiowl7b: Qwen2.5-VL backbone + GUI-Owl-1.5 prompt (control variable)",
     )
     parser.add_argument(
         "--bench", default="ss_pro",
@@ -568,10 +607,22 @@ def parse_args():
     parser.add_argument("--topk",                 type=int,   default=3)
     parser.add_argument(
         "--decode_strategy", default="centroid",
-        choices=["centroid", "argmax", "peak_shift", "temperature"],
+        choices=["centroid", "argmax", "peak_shift", "temperature",
+                 "zoom_backbone", "native_backbone"],
+        help=(
+            "centroid/argmax/peak_shift/temperature: extract coordinate from p_final distribution. "
+            "zoom_backbone: Stage1=ZwerGe ROI selection, Stage2=backbone generate on zoomed crop. "
+            "native_backbone: Stage1=ZwerGe (for per-layer metrics), Stage2=backbone on FULL image "
+            "(reproduces vanilla model accuracy; use to verify eval code and establish baseline)."
+        ),
     )
     parser.add_argument("--peak_shift_alpha", type=float, default=0.5)
     parser.add_argument("--temperature",      type=float, default=0.5)
+    # zoom_backbone strategy options
+    parser.add_argument("--zoom_padding_cells",   type=int, default=3,
+                        help="Extra patch cells of context around the selected region (zoom_backbone only)")
+    parser.add_argument("--zoom_max_new_tokens",  type=int, default=256,
+                        help="Max tokens for backbone generate in zoom_backbone strategy")
     # Visualization options
     parser.add_argument(
         "--skip_vis", action="store_true",
@@ -594,8 +645,10 @@ def main():
     # Using uitars' max_pixels for Qwen3-VL would give only ~12544 tokens instead of 16384.
     if args.max_pixels is None:
         if args.model_type in ("guiowl", "uivenus"):
+            # Qwen3-VL: patch_size=16, max 16384 tokens → 16384 × 16² × 4 = 16,777,216
             args.max_pixels = 16_777_216
         else:
+            # Qwen2.5-VL (uitars / guiowl7b): patch_size=14 → 16384 × 14² × 4 = 12,845,056
             args.max_pixels = 12_845_056
     print(f"[ZwerGe] max_pixels={args.max_pixels} (model_type={args.model_type})")
 
@@ -625,6 +678,8 @@ def main():
             topk=args.topk, skip_vis=args.skip_vis,
             cell_w=args.cell_w, cell_h=args.cell_h, alpha=args.alpha,
             group_stats=not args.no_group_stats, model_type=args.model_type,
+            zoom_padding_cells=args.zoom_padding_cells,
+            zoom_max_new_tokens=args.zoom_max_new_tokens,
         )
         elapsed = time.time() - t0
         summary["elapsed_s"] = round(elapsed, 1)

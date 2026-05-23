@@ -23,7 +23,7 @@ from PIL import Image
 from tqdm import tqdm
 from qwen_vl_utils import process_vision_info
 
-from inference_base import RetrofitInference
+from inference_base import RetrofitInference, _ZOOM_NOT_SET
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,6 +39,28 @@ class UIVenusRetrofitInference(RetrofitInference):
     model_type = "uivenus"
     merge_size = 2
     patch_size = 16   # Qwen3-VL
+
+    # _zoom_native_system_message and _zoom_native_user_template are set after
+    # UI_VENUS_USER_PROMPT_TEMPLATE_NO_REFUSAL is defined (later in this file)
+    _zoom_native_system_message = None   # explicit None: no system turn for UI-Venus
+
+    def parse_backbone_coordinate(
+        self,
+        raw_text: str,
+        crop_w_resized: int = None,   # ignored: UI-Venus uses [0,1000] format
+        crop_h_resized: int = None,
+    ):
+        """
+        Parse UI-Venus native output: [x, y] (or [-1,-1] for infeasible)
+
+        UI-Venus outputs [0,1000] relative coordinates.
+        parse_venus_point() already divides by 1000 → returns [0,1].
+        crop_w/h_resized are ignored.
+        """
+        coord = parse_venus_point(raw_text)
+        if coord is None or coord == [-1, -1]:
+            return None
+        return float(coord[0]), float(coord[1])   # already [0,1]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,6 +79,9 @@ PROMPT_NO_REFUSAL = (
     "Output the center point of the position corresponding to the following instruction: \n{}. "
     "\n\nThe output should just be the coordinates of a point, in the format [x,y]."
 )
+
+# Set zoom user template after PROMPT_NO_REFUSAL is defined
+UIVenusRetrofitInference._zoom_native_user_template = PROMPT_NO_REFUSAL
 
 
 @dataclass

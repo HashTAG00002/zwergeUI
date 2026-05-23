@@ -1,0 +1,57 @@
+# ============================================================
+# ZwerGe Experiment Config — A7 (CrossAttn Probe) / GUI-Owl-7B (Qwen2.5-VL)
+# ============================================================
+# GUI-Owl-7B：Qwen2.5-VL 架构，28层，hidden=3584
+#   与 UI-TARS-1.5-7B 完全相同的 backbone 结构，但使用 GUI-Owl 的 prompt 格式
+#   Probe 层：layers 18-27（最后 10 层 / 共 28 层）
+#   参数量：~36M（≈ 0.52% of 7B）
+#
+# A7 实验说明见 A7_uitars_1.5.yaml
+# ============================================================
+#
+# 用法：
+#   tmux new -s A7_guiowl7b
+#   python eval_daemon.py --config experiments/A7_guiowl_7b.yaml
+#   Ctrl+b d
+
+experiment_name: "guiowl7b_A7_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  # GUI-Owl-7B (Qwen2.5-VL) → 与 uitars 相同架构 → gui_actor conda 环境
+  hope_file: "scripts/train_zwerge_uitars.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+  
+  env:
+    MODEL_TYPE: "guiowl7b"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  # Qwen2.5-VL → qwen25 conda 环境（与 uitars 相同）
+  hope_template: "scripts/eval/eval_zwerge.hope"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "guiowl7b"
+    SKIP_VIS: "1"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

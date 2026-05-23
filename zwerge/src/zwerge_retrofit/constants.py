@@ -306,6 +306,26 @@ UI_VENUS_15_DEFAULT_PROBE_LAYERS = [26, 27, 28, 29, 30, 31, 32, 33, 34, 35]  # l
 
 
 # =============================================================================
+# GUI-Owl-7B constants (Qwen2.5-VL based — 控制变量)
+# =============================================================================
+# GUI-Owl-7B 是 GUI-Owl 系列的 Qwen2.5-VL 版本：
+#   - architecture: Qwen2_5_VLForConditionalGeneration（与 UI-TARS-1.5-7B 完全相同）
+#   - num_hidden_layers: 28，hidden_size: 3584，patch_size: 14（与 UI-TARS 相同）
+#   - 无 deepstack（与 UI-TARS 相同）
+#   - conda 环境：gui_actor（transformers 4.51.3）
+#
+# 与 uitars 的唯一区别：
+#   - prompt 格式使用 GUI-Owl-1.5 的 tool_call 格式（GUI_OWL_GROUND_RESPONSE）
+#   - 坐标系：Qwen2.5-VL 绝对像素坐标（与 uitars 相同，与 guiowl1.5 的 [0,1000] 不同）
+#
+# 实验目的：通过与 guiowl(Qwen3-VL) 对比，分离"模型本身能力"与"Retrofit框架正确性"的影响
+# ─────────────────────────────────────────────────────────────────────────────
+GUI_OWL_7B_NUM_LAYERS  = 28
+GUI_OWL_7B_HIDDEN_SIZE = 3584
+GUI_OWL_7B_DEFAULT_PROBE_LAYERS = [18, 19, 20, 21, 22, 23, 24, 25, 26, 27]  # last 10 of 28
+
+
+# =============================================================================
 # Model type → constants 映射（供 train/eval 脚本使用）
 # =============================================================================
 MODEL_TYPE_CONSTANTS = {
@@ -332,5 +352,13 @@ MODEL_TYPE_CONSTANTS = {
         # user turn = image + UI_VENUS_USER_PROMPT_TEMPLATE.format(instruction)
         # grounding-only: no refusal branch, format example uses pointer tokens
         "user_prompt_template": UI_VENUS_USER_PROMPT_TEMPLATE,
+    },
+    # ── GUI-Owl-7B: Qwen2.5-VL + GUI-Owl prompt（控制变量）────────────────────
+    "guiowl7b": {
+        "system_message": GUI_OWL_SYSTEM_PROMPT,    # 与 guiowl1.5 相同的 prompt 格式
+        "ground_response": GUI_OWL_GROUND_RESPONSE, # 与 guiowl1.5 相同的 response 格式
+        "default_probe_layers": GUI_OWL_7B_DEFAULT_PROBE_LAYERS,  # last 10 of 28
+        "merge_size": 2,
+        "user_prompt_template": None,               # user turn = image + instruction
     },
 }

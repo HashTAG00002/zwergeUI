@@ -4,8 +4,8 @@ type = ml-easy-job
 [resource]
 usergroup = hadoop-mt-ocr
 #queue = root.zw05_training_cluster.hadoop-vision.basevacv
-#queue = root.zw05_training_cluster.hadoop-aipnlp.elastic
-queue = root.zw05_training_cluster.hadoop-vision.elastic_job
+queue = root.zw05_training_cluster.hadoop-aipnlp.elastic
+#queue = root.zw05_training_cluster.hadoop-vision.elastic_job
 
 [dataset]
 dataset_path =
@@ -16,10 +16,10 @@ train_dir =
 
 [roles]
 workers = 1
-worker.memory = 102400
+worker.memory = 524288
 worker.vcore = 64
 worker.gcores80g = 8
-worker.script = MODEL_TYPE=uitars bash /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/scripts/eval/eval_zoom_backbone.sh
+worker.script = ZWERGE_JOB_NAME=uitars_A7_test MODEL_TYPE=uitars ATTN_HEADS=8 ATTN_HEAD_DIM=64 SAVE_STEPS=10 SAVE_STEPS_ONLY_FOR_RESUME=10 MAX_STEPS=500 bash /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/scripts/train_ablation_A7_crossattn_probe.sh
 
 [user_args]
 
