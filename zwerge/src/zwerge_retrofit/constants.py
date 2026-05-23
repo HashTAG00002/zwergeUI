@@ -232,9 +232,12 @@ GUI_OWL_SYSTEM_PROMPT = _GUI_OWL_SYSTEM_PREFIX + GUI_OWL_GROUND_RESPONSE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GUI-Owl-1.5 Layer 配置（实测自 GUI-Owl-1.5-8B-Instruct/config.json）
-#   text_config.num_hidden_layers = 36
+#   text_config.num_hidden_layers = 36    <- LLM decoder 层数
 #   text_config.hidden_size       = 4096
+#   vision_config.depth           = 27    <- ViT 层数
 #   vision_config.deepstack_visual_indexes = [8, 16, 24]
+#       ⚠️  8/16/24 是 ViT 层号，不是 LLM 层号！
+#       ViT block 8/16/24 的中间输出分别注入到 LLM decoder 第 0/1/2 层之后
 #   vision_config.patch_size      = 16  (vs Qwen2.5-VL 的 14)
 #   vision_config.spatial_merge_size = 2
 # ─────────────────────────────────────────────────────────────────────────────
@@ -296,9 +299,12 @@ UI_VENUS_USER_PROMPT_TEMPLATE = (
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI-Venus-1.5 Layer 配置（实测自 UI-Venus-1.5-8B/config.json，架构与 GUI-Owl 完全相同）
-#   text_config.num_hidden_layers = 36
+#   text_config.num_hidden_layers = 36    <- LLM decoder 层数
 #   text_config.hidden_size       = 4096
+#   vision_config.depth           = 27    <- ViT 层数
 #   vision_config.deepstack_visual_indexes = [8, 16, 24]
+#       ⚠️  8/16/24 是 ViT 层号，不是 LLM 层号！
+#       ViT block 8/16/24 的中间输出分别注入到 LLM decoder 第 0/1/2 层之后
 # ─────────────────────────────────────────────────────────────────────────────
 UI_VENUS_15_NUM_LAYERS  = 36
 UI_VENUS_15_HIDDEN_SIZE = 4096

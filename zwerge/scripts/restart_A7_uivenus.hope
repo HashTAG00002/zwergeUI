@@ -1,0 +1,49 @@
+[base]
+type = ml-easy-job
+
+[resource]
+usergroup = hadoop-mt-ocr
+#queue = root.zw05_training_cluster.hadoop-vision.basevacv
+queue = root.zw05_training_cluster.hadoop-aipnlp.elastic
+#queue = root.zw05_training_cluster.hadoop-vision.elastic_job
+
+[dataset]
+dataset_path =
+
+[job_track]
+demand_id = 90791545
+train_dir =
+
+[roles]
+workers = 1
+worker.memory = 524288
+worker.vcore = 64
+worker.gcores80g = 8
+worker.script = ZWERGE_JOB_NAME=uivenus_A7_exp001 MODEL_TYPE=uivenus ATTN_HEADS=8 ATTN_HEAD_DIM=64 bash /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/scripts/train_ablation_A7_crossattn_probe.sh
+
+[user_args]
+
+[am]
+afo.app.am.resource.mb = 4096
+
+[tensorboard]
+with.tensor.board = false
+
+[docker]
+afo.docker.image.name = registry-offlinebiz.sankuai.com/custom_prod/com.sankuai.phxmlp.mtjupyter.singleuser/hdp-mlp_training_codelab_cuda12.2_python3.8_glibc2.28_v3_1.0.1_4a59d3d6
+
+[data]
+afo.data.prefetch = false
+
+[failover]
+afo.app.support.engine.failover = true
+
+[conda]
+afo.conda.env.name = qwen2
+afo.conda.env.path = viewfs://hadoop-meituan/zw03mlnn01/user/conda/yangwenkui03/default/qwen2.tar.gz
+afo.conda.store.type = hdfs
+
+[others]
+afo.app.env.YARN_CONTAINER_RUNTIME_DOCKER_SHM_SIZE_BYTES = 32768000000
+afo.xm.notice.receivers.account = yangwenkui03
+afo.app.yarn.allocate.timeout.seconds = 14400

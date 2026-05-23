@@ -5,10 +5,16 @@ GUI-Owl-1.5（Qwen3-VL 系列）retrofit 版本。
 继承 RetrofitModelMixin + Qwen3VLForConditionalGeneration。
 
 架构参数（GUI-Owl-1.5-8B-Instruct / UI-Venus-1.5-8B 实测）：
-  - num_hidden_layers: 36
+  - num_hidden_layers: 36        （LLM decoder 层数，text_config）
   - hidden_size: 4096
   - patch_size: 16, spatial_merge_size: 2
-  - deepstack_visual_indexes: [8, 16, 24]  ← 视觉特征在中间层重注入
+  - vision_config.depth: 27      （ViT 视觉编码器层数）
+  - vision_config.deepstack_visual_indexes: [8, 16, 24]
+      ⚠️  这里的 8/16/24 是 ViT（27层）的层号，不是 LLM 层号！
+      ViT block 8  → deepstack_visual_embeds[0]  → 注入 LLM decoder 第 0 层之后
+      ViT block 16 → deepstack_visual_embeds[1]  → 注入 LLM decoder 第 1 层之后
+      ViT block 24 → deepstack_visual_embeds[2]  → 注入 LLM decoder 第 2 层之后
+      LLM 第 3~35 层：正常处理，无 deepstack 注入
   - image_token_id: 151655
   - vision_end_token_id: 151653
 
@@ -19,11 +25,21 @@ Qwen3-VL 兼容性要求：
   确保在 gui_actor 中仍可 import zwerge_retrofit 而不报错。
 
 deepstack 处理（关键设计）：
-  Qwen3-VL 的 deepstack 在 transformer 层 8/16/24 重注入视觉特征。
-  如果直接调用 model.model(inputs_embeds=...) 绕过 Qwen3VLForConditionalGeneration.forward()，
-  deepstack 注入不会发生，导致 hidden states 不正确。
-  因此 _forward_hidden_states_for_grounding() 必须通过 Qwen3VLForConditionalGeneration.forward()
-  来正确触发 deepstack。
+  Qwen3-VL 的 deepstack 机制：ViT（27层）在第 8/16/24 层分别输出中间特征
+  （vision_config.deepstack_visual_indexes=[8,16,24]），这些特征作为
+  deepstack_visual_embeds[0/1/2] 依次注入到 LLM decoder 第 0/1/2 层之后。
+
+  代码层面（Qwen3VLTextModel.forward）：
+    for layer_idx, decoder_layer in enumerate(self.layers):
+        hidden_states = decoder_layer(...)
+        if deepstack_visual_embeds is not None and layer_idx in range(len(deepstack_visual_embeds)):
+            hidden_states = _deepstack_process(hidden_states, ..., deepstack_visual_embeds[layer_idx])
+  → layer_idx in range(3)，即仅 LLM 第 0、1、2 层受影响。
+
+  如果直接调用 language_model(inputs_embeds=...) 但不传 deepstack_visual_embeds，
+  deepstack 注入不会发生，LLM 前 3 层缺失来自 ViT 深层的语义增强信号。
+  因此 _run_language_model() 必须将 deepstack_image_embeds 显式传入
+  language_model.forward()，以保证 LLM 第 0/1/2 层正确收到 deepstack 特征。
 
 Action format (GUI-Owl-1.5 retrofit prefill):
   <tool_call>
@@ -66,7 +82,8 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
     确保在旧 transformers 环境中 import 本文件不会报错。
 
     关键特性：
-      - _forward_hidden_states_for_grounding() 通过 Qwen3VL.forward() 正确触发 deepstack
+      - _run_language_model() 显式传入 deepstack_visual_embeds（ViT 第8/16/24层中间特征）
+        给 language_model.forward()，确保 LLM decoder 第 0/1/2 层收到 deepstack 注入
       - forward() 调用 super().forward() 由 Qwen3VL 处理所有 backbone 逻辑
 
     Usage:
@@ -194,7 +211,12 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     # 1. Embed input tokens
                     inputs_embeds = self.model.language_model.embed_tokens(input_ids)
 
-                    # 2. Process visual features (deepstack-aware)
+                    # 2. Process visual features + collect deepstack embeds
+                    # deepstack_image_embeds: list[3] of [N_vis_tokens, 4096]
+                    #   [0] = ViT block 8  output  → will be injected after LLM decoder layer 0
+                    #   [1] = ViT block 16 output  → will be injected after LLM decoder layer 1
+                    #   [2] = ViT block 24 output  → will be injected after LLM decoder layer 2
+                    # (8/16/24 are ViT layer indices, NOT LLM layer indices)
                     visual_pos_masks = None
                     deepstack_visual_embeds = None
                     if pixel_values is not None:
@@ -286,7 +308,9 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     image_grid_thw,
                     device,
                 ) -> Tuple[torch.Tensor, ...]:
-                    """Qwen3-VL deepstack: 直接调 language_model，hook 抓 probe 层 hidden states。"""
+                    """Qwen3-VL: 调用 _run_language_model()（含 deepstack_visual_embeds 注入），
+                    hook 抓 probe 层 hidden states。
+                    deepstack: ViT block 8/16/24 的中间特征注入 LLM decoder 第 0/1/2 层后。"""
                     _, all_hidden_states = self._run_language_model(
                         input_ids, attention_mask, pixel_values, image_grid_thw,
                     )
