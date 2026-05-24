@@ -19,27 +19,17 @@ GUI-Owl-1.5（Qwen3-VL 系列）retrofit 版本。
   - vision_end_token_id: 151653
 
 Qwen3-VL 兼容性要求：
-  transformers >= 4.57.1  （qwen3 / qwen3-verl conda 环境）
+  transformers >= 4.57.1  （qwen3 conda 环境）
   gui_actor 环境（transformers 4.51.3）**不**支持 Qwen3VL，
   本文件使用懒加载（在 class body 以外不 import Qwen3VLForConditionalGeneration），
   确保在 gui_actor 中仍可 import zwerge_retrofit 而不报错。
 
-deepstack 处理（关键设计）：
+DeepStack 处理（关键设计）：
   Qwen3-VL 的 deepstack 机制：ViT（27层）在第 8/16/24 层分别输出中间特征
   （vision_config.deepstack_visual_indexes=[8,16,24]），这些特征作为
   deepstack_visual_embeds[0/1/2] 依次注入到 LLM decoder 第 0/1/2 层之后。
-
-  代码层面（Qwen3VLTextModel.forward）：
-    for layer_idx, decoder_layer in enumerate(self.layers):
-        hidden_states = decoder_layer(...)
-        if deepstack_visual_embeds is not None and layer_idx in range(len(deepstack_visual_embeds)):
-            hidden_states = _deepstack_process(hidden_states, ..., deepstack_visual_embeds[layer_idx])
-  → layer_idx in range(3)，即仅 LLM 第 0、1、2 层受影响。
-
-  如果直接调用 language_model(inputs_embeds=...) 但不传 deepstack_visual_embeds，
-  deepstack 注入不会发生，LLM 前 3 层缺失来自 ViT 深层的语义增强信号。
-  因此 _run_language_model() 必须将 deepstack_image_embeds 显式传入
-  language_model.forward()，以保证 LLM 第 0/1/2 层正确收到 deepstack 特征。
+  transformers 官方 Qwen3VLForConditionalGeneration.forward() 自动处理 deepstack，
+  无需在 retrofit 代码中手动传递 deepstack_visual_embeds。
 
 Action format (GUI-Owl-1.5 retrofit prefill):
   <tool_call>
@@ -51,7 +41,6 @@ Action format (GUI-Owl-1.5 retrofit prefill):
 from typing import List, Optional, Tuple, Union
 
 import torch
-import torch.nn as nn
 
 from .modeling_base import (
     RetrofitModelMixin,
@@ -81,10 +70,8 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
     使用懒加载动态继承 Qwen3VLForConditionalGeneration，
     确保在旧 transformers 环境中 import 本文件不会报错。
 
-    关键特性：
-      - _run_language_model() 显式传入 deepstack_visual_embeds（ViT 第8/16/24层中间特征）
-        给 language_model.forward()，确保 LLM decoder 第 0/1/2 层收到 deepstack 注入
-      - forward() 调用 super().forward() 由 Qwen3VL 处理所有 backbone 逻辑
+    forward() 直接调用 super().forward(output_hidden_states=True)，
+    官方实现处理 DeepStack、visual embedding、RoPE 等所有细节。
 
     Usage:
       from zwerge_retrofit import get_model_class
@@ -113,64 +100,6 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     super().__init__(config, *args, **kwargs)
                     self._init_retrofit_from_config(config)
                     self.post_init()
-                    # ── Patch Conv3d → Linear in VisionPatchEmbed ─────────────────────
-                    # Called AFTER post_init / weight loading.
-                    # Qwen3VLVisionPatchEmbed uses Conv3d(in_ch, out_ch, kernel=tps×ps×ps,
-                    # stride=tps×ps×ps) which is mathematically equivalent to
-                    # Linear(in_ch*tps*ps*ps, out_ch) when applied to flat [N, flat_dim] inputs
-                    # from the image processor.
-                    #
-                    # BUT Conv3d with batch_size=N_patches (11360) and spatial=1×1×1 is
-                    # >100 000× SLOWER than the equivalent Linear on GPU:
-                    #   Conv3d:  ~93 000 ms   (not optimized by cuDNN for this degenerate case)
-                    #   Linear:  <1 ms        (GEMM on [N, in_flat] × [in_flat, out_ch])
-                    #
-                    # Fix: monkey-patch PatchEmbed.forward to use F.linear instead of Conv3d.
-                    # The Conv3d weights are kept in place (shape unchanged) so checkpoint
-                    # loading / saving is unaffected; we only change how forward() uses them.
-                    self._patch_embed_conv3d_to_linear_forward()
-
-                def _patch_embed_conv3d_to_linear_forward(self) -> None:
-                    """
-                    Monkey-patch Qwen3VLVisionPatchEmbed.forward to use F.linear (gemm)
-                    instead of Conv3d.  The Conv3d weight tensor is KEPT (shape unchanged)
-                    so checkpoint loading/saving continues to work normally.
-
-                    Mathematical equivalence:
-                      Conv3d(weight=[O, C, T, H, W], bias=[O])(input=[N, C, T, H, W])
-                        == F.linear(input.view(N, C*T*H*W), weight.view(O, C*T*H*W), bias)
-                    when stride == kernel_size (i.e., each kernel fires exactly once per patch).
-                    """
-                    import types, torch.nn.functional as F_nn
-                    try:
-                        patch_embed = self.model.visual.patch_embed
-                        proj = patch_embed.proj
-                        if not isinstance(proj, nn.Conv3d):
-                            return  # already patched or unexpected type – skip silently
-
-                        def _fast_patch_embed_forward(
-                            self_pe,
-                            hidden_states: torch.Tensor,
-                        ) -> torch.Tensor:
-                            # hidden_states: [N_patches, C*T*H*W]  (flat, from processor)
-                            # proj.weight:   [out_ch, C, T, H, W]
-                            # proj.bias:     [out_ch] or None
-                            target_dtype = self_pe.proj.weight.dtype
-                            x = hidden_states.to(dtype=target_dtype)   # [N, flat]
-                            w = self_pe.proj.weight.view(self_pe.proj.weight.shape[0], -1)  # [out_ch, flat]
-                            b = self_pe.proj.bias  # [out_ch] or None
-                            return F_nn.linear(x, w, b)                # [N, out_ch]
-
-                        patch_embed.forward = types.MethodType(
-                            _fast_patch_embed_forward, patch_embed
-                        )
-                    except Exception as exc:
-                        import warnings
-                        warnings.warn(
-                            f"[GUIOwl] _patch_embed_conv3d_to_linear_forward failed: {exc}. "
-                            "Vision encoding will still work but will be ~90 000× slower. "
-                            "Check that model.visual.patch_embed.proj is nn.Conv3d."
-                        )
 
                 def _init_retrofit_from_config(self, config) -> None:
                     """覆盖以读取 Qwen3-VL text_config 中的 hidden_size / num_layers。"""
@@ -185,120 +114,7 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     if self._vision_end_token_id is None:
                         self._vision_end_token_id = getattr(config, "vision_end_token_id", None)
 
-                def _run_language_model(self, input_ids, attention_mask, pixel_values, image_grid_thw):
-                    """
-                    直接调用 Qwen3-VL 内层 language_model，使用 forward hook 抓取 probe 层
-                    的 hidden state，完全避免 output_hidden_states=True。
-
-                    为什么不用 output_hidden_states=True：
-                      - output_hidden_states=True 触发 @check_model_inputs 的 37 层额外处理
-                      - 与 gradient_checkpointing + FA2 叠加时，每 step 需存/重算全部 37 个
-                        hidden state tensor（O(37) 额外内存 + backward recompute 开销）
-                      - backbone 完全冻结，根本不需要这些 hidden state 上的梯度流
-
-                    hook 方案：
-                      - 只在 probe 层注册 forward hook（通常 15 层）
-                      - hook 捕获 hidden state 后立即 .detach()（backbone 冻结，无需反传）
-                      - language model 以 output_hidden_states=False 运行，无任何额外开销
-                      - backward 只经过 grounding head（hook 的 detach 已切断 backbone 梯度链路）
-
-                    Returns: (lm_out, all_hidden_states)
-                      lm_out:            language_model 的 ModelOutput（last_hidden_state 等）
-                      all_hidden_states: 稀疏 tuple，only probe 层位置非 None，
-                                         供 LayerWiseGroundingHead 直接使用
-                                         （all_hidden_states[layer_idx+1] = hs for each probe layer）
-                    """
-                    # 1. Embed input tokens
-                    inputs_embeds = self.model.language_model.embed_tokens(input_ids)
-
-                    # 2. Process visual features + collect deepstack embeds
-                    # deepstack_image_embeds: list[3] of [N_vis_tokens, 4096]
-                    #   [0] = ViT block 8  output  → will be injected after LLM decoder layer 0
-                    #   [1] = ViT block 16 output  → will be injected after LLM decoder layer 1
-                    #   [2] = ViT block 24 output  → will be injected after LLM decoder layer 2
-                    # (8/16/24 are ViT layer indices, NOT LLM layer indices)
-                    visual_pos_masks = None
-                    deepstack_visual_embeds = None
-                    if pixel_values is not None:
-                        image_embeds, deepstack_image_embeds = self.model.get_image_features(
-                            pixel_values, image_grid_thw
-                        )
-                        image_embeds_cat = torch.cat(image_embeds, dim=0).to(
-                            inputs_embeds.device, inputs_embeds.dtype
-                        )
-                        image_mask, _ = self.model.get_placeholder_mask(
-                            input_ids,
-                            inputs_embeds=inputs_embeds,
-                            image_features=image_embeds_cat,
-                        )
-                        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds_cat)
-                        visual_pos_masks = image_mask[..., 0].bool()
-                        deepstack_visual_embeds = deepstack_image_embeds
-
-                    # 3. Compute RoPE position ids
-                    position_ids, _ = self.model.get_rope_index(
-                        input_ids, image_grid_thw, None, attention_mask
-                    )
-
-                    # 4. Register hooks on probe layers; run LM with output_hidden_states=False
-                    probe_layers = list(self.layerwise_grounding_head.probe_layers)
-                    hidden_states_cache = {}
-                    hooks = []
-                    for layer_idx in probe_layers:
-                        def _make_hook(idx):
-                            def _hook(module, inputs, output):
-                                hs = output[0] if isinstance(output, tuple) else output
-                                if not torch.is_tensor(hs) or hs.ndim != 3:
-                                    raise RuntimeError(
-                                        f"Probe layer {idx} hook: expected 3-D tensor "
-                                        f"[B, T, D], got {type(hs).__name__} "
-                                        f"shape={getattr(hs, 'shape', 'N/A')}. "
-                                        "Check that probe_layers indices are decoder layers."
-                                    )
-                                # .detach(): backbone frozen; no grads through backbone.
-                                # Grounding head parameters get gradients from their own
-                                # forward computation starting from these detached inputs.
-                                hidden_states_cache[idx] = hs.detach()
-                            return _hook
-                        hooks.append(
-                            self.model.language_model.layers[layer_idx].register_forward_hook(
-                                _make_hook(layer_idx)
-                            )
-                        )
-
-                    try:
-                        lm_out = self.model.language_model(
-                            input_ids=None,
-                            inputs_embeds=inputs_embeds,
-                            position_ids=position_ids,
-                            attention_mask=attention_mask,
-                            past_key_values=None,
-                            use_cache=False,
-                            output_attentions=False,
-                            output_hidden_states=False,   # no 37-tensor overhead
-                            return_dict=True,
-                            visual_pos_masks=visual_pos_masks,
-                            deepstack_visual_embeds=deepstack_visual_embeds,
-                        )
-                    finally:
-                        for h in hooks:
-                            h.remove()
-
-                    # 5. Build sparse all_hidden_states tuple for LayerWiseGroundingHead.
-                    # LayerWiseGroundingHead.forward uses: hs = all_hidden_states[layer_idx + 1]
-                    assert len(hidden_states_cache) == len(probe_layers), (
-                        f"Expected {len(probe_layers)} hook captures, got {len(hidden_states_cache)}. "
-                        "Check that probe_layers indices are valid for this model."
-                    )
-                    max_idx = max(probe_layers) + 2   # +1 for layer→hs offset, +1 for length
-                    hs_list = [None] * max_idx
-                    for layer_idx, hs in hidden_states_cache.items():
-                        hs_list[layer_idx + 1] = hs
-                    all_hidden_states = tuple(hs_list)
-
-                    return lm_out, all_hidden_states
-
-                # ── grounding inference path (eval/vis) ───────────────────────────────
+                # ── Grounding inference path (eval/vis) ──────────────────────────────
                 @torch.no_grad()
                 def _forward_hidden_states_for_grounding(
                     self,
@@ -308,13 +124,19 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     image_grid_thw,
                     device,
                 ) -> Tuple[torch.Tensor, ...]:
-                    """Qwen3-VL: 调用 _run_language_model()（含 deepstack_visual_embeds 注入），
-                    hook 抓 probe 层 hidden states。
-                    deepstack: ViT block 8/16/24 的中间特征注入 LLM decoder 第 0/1/2 层后。"""
-                    _, all_hidden_states = self._run_language_model(
-                        input_ids, attention_mask, pixel_values, image_grid_thw,
+                    """Qwen3-VL: 调用官方 super().forward(output_hidden_states=True)。
+                    官方实现自动处理 DeepStack、visual embedding、RoPE 等。"""
+                    outputs = super().forward(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        pixel_values=pixel_values,
+                        image_grid_thw=image_grid_thw,
+                        output_hidden_states=True,
+                        output_attentions=False,
+                        return_dict=True,
+                        use_cache=False,
                     )
-                    return all_hidden_states
+                    return outputs.hidden_states
 
                 # ── Training forward ──────────────────────────────────────────────────
                 def forward(
@@ -338,58 +160,33 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     verbose=False,
                     **extra_kwargs,
                 ):
-                    # ── Autoregressive decode step: pass through to native Qwen3-VL ──
-                    # During model.generate(), after the prefill step, the decoder is
-                    # called step-by-step with:
-                    #   input_ids  = [B, 1]          (current token only)
-                    #   attention_mask = [B, full_len] (grows each step)
-                    #   past_key_values ≠ None        (KV cache from previous steps)
-                    #
-                    # Our _run_language_model() calls get_rope_index(input_ids, ...,
-                    # attention_mask) which inside does:
-                    #   input_ids = input_ids[attention_mask[i] == 1]
-                    # → IndexError: mask shape [full_len] vs input_ids shape [1]
-                    #
-                    # Fix: detect decode step and delegate entirely to super().forward()
-                    # (native Qwen3VLForConditionalGeneration handles KV cache correctly).
-                    # We do NOT need grounding head output during decode steps.
-                    _is_decode_step = (
-                        past_key_values is not None
-                        or (
-                            input_ids is not None
-                            and input_ids.shape[1] == 1
-                            and pixel_values is None
-                        )
-                    )
-                    if _is_decode_step:
-                        return super().forward(
-                            input_ids=input_ids,
-                            attention_mask=attention_mask,
-                            position_ids=position_ids,
-                            past_key_values=past_key_values,
-                            inputs_embeds=inputs_embeds,
-                            labels=labels,
-                            use_cache=use_cache,
-                            output_attentions=output_attentions,
-                            output_hidden_states=output_hidden_states,
-                            return_dict=return_dict,
-                            pixel_values=pixel_values,
-                            image_grid_thw=image_grid_thw,
-                            rope_deltas=rope_deltas,
-                            cache_position=cache_position,
-                            **extra_kwargs,
-                        )
-
                     return_dict = (
                         return_dict if return_dict is not None
                         else self.config.use_return_dict
                     )
 
-                    # hook 方案：避免 output_hidden_states=True 的存储/recompute 开销
-                    lm_out, all_hidden_states = self._run_language_model(
-                        input_ids, attention_mask, pixel_values, image_grid_thw,
+                    # Official Qwen3-VL forward handles DeepStack, visual embedding,
+                    # RoPE, etc. output_hidden_states=True gives us all layer hidden states.
+                    outputs = super().forward(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        position_ids=position_ids,
+                        past_key_values=past_key_values,
+                        inputs_embeds=inputs_embeds,
+                        labels=None,
+                        use_cache=use_cache,
+                        output_attentions=False,
+                        output_hidden_states=True,
+                        return_dict=True,
+                        pixel_values=pixel_values,
+                        image_grid_thw=image_grid_thw,
+                        rope_deltas=rope_deltas,
+                        cache_position=cache_position,
+                        **extra_kwargs,
                     )
-                    logits = self.lm_head(lm_out.last_hidden_state)
+
+                    all_hidden_states = outputs.hidden_states
+                    logits = outputs.logits
 
                     lm_loss = None
                     if labels is not None and self.lm_loss_weight > 0:
@@ -434,10 +231,13 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                             ),
                             loss=total_loss,
                             logits=logits,
-                            past_key_values=None,
+                            past_key_values=outputs.past_key_values,
                             hidden_states=None,
                             attentions=None,
-                            rope_deltas=None,
+                            rope_deltas=(
+                                outputs.rope_deltas
+                                if hasattr(outputs, "rope_deltas") else None
+                            ),
                         )
                     else:
                         return (total_loss, logits) if total_loss is not None else (logits,)

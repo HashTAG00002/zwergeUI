@@ -2003,9 +2003,7 @@
     内存占用         全部 37 层 ≈ 3.7 GB（额外）         probe 15 层 ≈ 1.5 GB（额外）
                     → 每层 [B=1,T=13000,d=4096]×37      → 仅 probe 层，.detach() 分离
     GC recompute     ❌ 每次 recompute 重生成 37 层       ✅ recompute 不经过 detach 节点
-    开销             → ~774s/step（qwen3-verl 实测）      → ~20-30s/step（实测）
-    加速比           基准（1×）                           ~26× 更快
-    probe 层选择性   ❌ 强制保存全部层                     ✅ 只保存指定 probe 层
+  probe 层选择性   ❌ 强制保存全部层                     ✅ 只保存指定 probe 层
     梯度链路         ❌ 全层 HS 接入计算图（即使冻结）    ✅ .detach() 彻底切断 backbone
 
     形象比喻：
@@ -2060,4 +2058,59 @@
        - 经 ViT self-attention 级联放大后 LM 层 visual HS 偏差仍可能达到 1e2 量级
        - 因此不论在哪个环境，训练和推断都必须使用**相同的 forward 路径**
          （都 patch 或都不 patch），_GUIOwlImpl.__init__() 的自动 patch 已保证这一点
+
+  - [2026-05-24] 【Qwen3-VL 路径拨乱反正：彻底移除 Conv3d→Linear patch + 重构 forward 对称性】
+
+    ─── 决策背景 ─────────────────────────────────────────────────────────────────────
+
+    经 [2026-05-24] 数值验证后综合结论：
+      (1) qwen3（torch 2.8.0）下 Conv3d 本身已足够快（~1-8ms），无需 patch。
+      (2) Conv3d→Linear patch 在 bf16 下造成系统性 visual HS drift（LM 层最大差异 7e3 量级），
+          是 guiowl/uivenus 模型灾难性掉点的根本原因。
+      (3) output_hidden_states=True 在 qwen3 环境已验证正常返回非 None hidden_states，
+          hook 方案的引入前提不再成立。
+      (4) _run_language_model() + hook 是历史调试路径，非必要架构复杂度。
+
+    ─── 代码变更（src/ 侧）────────────────────────────────────────────────────────────
+
+    modeling_guiowl.py（465行 → 264行，缩减 201行）：
+      删除：_patch_embed_conv3d_to_linear_forward() 方法 + 调用
+      删除：_run_language_model()（手写的 get_image_features / get_placeholder_mask /
+             embed_tokens / hooks / deepstack_visual_embeds 全套路径）
+      删除：_forward_hidden_states_for_grounding() 旧 override（委托给 _run_language_model）
+      删除：forward() 中的 _is_decode_step 守卫逻辑
+      新增：_forward_hidden_states_for_grounding() 新 override（5行，直接 super().forward）
+      改写：forward() → super().forward(output_hidden_states=True)，与 UITARSRetrofitModel 对称
+      保留：懒加载工厂模式 / _init_retrofit_from_config() override（读 text_config 子字段）
+
+    modeling_base.py：更新注释（GUIOwl 已不再用 _run_language_model）
+
+    ─── 代码变更（eval/ 侧）────────────────────────────────────────────────────────────
+
+    inference_guiowl.py：删除 _patch_native_conv3d() + GUIOwlNativeInference 调用
+    inference_uivenus.py：删除 _patch_native_conv3d() + UIVenusNativeInference 调用
+
+    ─── 脚本 & 配置变更────────────────────────────────────────────────────────────────
+
+    所有 guiowl/uivenus 路径的 conda 环境：qwen3-verl → qwen3
+
+      训练：scripts/train_ablation_A3_gaussian_cos_meta.sh
+            scripts/train_ablation_A6_independent_layers.sh
+            scripts/train_ablation_A7_crossattn_probe.sh
+      评测：scripts/eval/eval_native_backbone.sh
+            scripts/eval/eval_zoom_backbone.sh
+      YAML：experiments/A7_guiowl_1.5.yaml / A7_uivenus_1.5.yaml / A3_guiowl.yaml（注释更新）
+
+    ─── 最终对称结构 ──────────────────────────────────────────────────────────────────
+
+    | 特性                | Qwen2.5-VL (uitars/guiowl7b)    | Qwen3-VL (guiowl/uivenus)    |
+    | 训练 conda 环境      | gui_actor                        | qwen3                        |
+    | forward 路径         | super().forward(output_hs=True)  | 同左（已对称）                |
+    | Conv3d patch         | 无                               | 无（已删除）                  |
+    | _run_language_model  | 无                               | 无（已删除）                  |
+    | DeepStack 处理        | N/A                              | 官方 forward 内部处理         |
+
+    注：train_retrofit.py 中 guiowl/uivenus 的 ddp_find_unused_parameters=True 继续保留。
+    注：output_hidden_states=True 比旧 hook 方案多占 ~2.2GB 显存（37 层 vs 15 层），
+        80GB A100 batch_size=2 仍绰绰有余；若 OOM 请降低 batch_size/max_pixels，勿重引 hook。
 

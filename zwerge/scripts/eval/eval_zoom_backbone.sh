@@ -61,11 +61,11 @@ MODEL_TYPE="${MODEL_TYPE:-uitars}"
 
 if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl_grounding50k_A3-gaussian_cos_meta_20260522_034634/checkpoint-1600}"
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS=16777216
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_grounding50k_A3-gaussian_cos_meta_20260522_031059/checkpoint-2193}"
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS=16777216
 else
     MODEL_TYPE="uitars"

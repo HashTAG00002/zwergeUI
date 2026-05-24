@@ -98,13 +98,13 @@ if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
     MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/GUI-Owl-1.5-8B-Instruct"
     PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"
     VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-guiowl"
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS="${MAX_PIXELS:-16777216}"
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/UI-Venus-1.5-8B"
     PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"
     VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-uivenus"
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS="${MAX_PIXELS:-16777216}"
 else
     MODEL_TYPE="uitars"

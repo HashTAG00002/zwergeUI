@@ -40,7 +40,6 @@ eval:
 
   env:
     MODEL_TYPE: "guiowl7b"
-    SKIP_VIS: "1"
     DECODE_STRATEGY: "centroid"
     ZOOM_PADDING_CELLS: "3"
 

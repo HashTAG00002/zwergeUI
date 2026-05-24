@@ -22,7 +22,7 @@ experiment_name: "guiowl_A3_exp001"
 # ── 训练配置 ──────────────────────────────────────────────────────────────────
 train:
   # hope 模板：复用其中的资源/队列/docker/conda 配置；worker.script 由 daemon 动态替换
-  # guiowl 使用 qwen3-verl conda 环境的训练模板
+  # guiowl 使用 qwen3 conda 环境的训练模板
   hope_file: "scripts/train_qwen3.hope"
 
   # 明确指定训练 bash 脚本（eval_daemon 会用它替换 hope 模板里的脚本路径）
@@ -43,7 +43,7 @@ train:
 # ── 评估配置 ──────────────────────────────────────────────────────────────────
 eval:
   # 评估 hope 模板（复用资源配置；worker.script 由 daemon 动态注入 CKPT 和 OUTPUT_DIR_FINAL）
-  # guiowl/uivenus 使用 qwen3-verl conda 环境的模板
+  # guiowl/uivenus 使用 qwen3 conda 环境的模板
   hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
 
   # 注入到 worker.script 前缀的环境变量

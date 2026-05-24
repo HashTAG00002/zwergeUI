@@ -154,25 +154,6 @@ def _normalize_row(row: Dict[str, Any], images_dir: Optional[str]) -> Tuple[Opti
     return None if sample_id is None else str(sample_id), str(image_path), str(instruction)
 
 
-def _patch_native_conv3d(model) -> None:
-    """Apply Conv3d→Linear patch to a native Qwen3-VL model (same speedup as retrofit path)."""
-    import types
-    import torch.nn.functional as F_nn
-    try:
-        patch_embed = model.model.visual.patch_embed
-        import torch.nn as _nn
-        if not isinstance(patch_embed.proj, _nn.Conv3d):
-            return
-        def _fast_forward(self_pe, hidden_states):
-            x = hidden_states.to(dtype=self_pe.proj.weight.dtype)
-            w = self_pe.proj.weight.view(self_pe.proj.weight.shape[0], -1)
-            return F_nn.linear(x, w, self_pe.proj.bias)
-        patch_embed.forward = types.MethodType(_fast_forward, patch_embed)
-    except Exception as exc:
-        import warnings
-        warnings.warn(f"[UIVenusNative] Conv3d patch failed: {exc}. Vision will be ~90000× slower.")
-
-
 class UIVenusNativeInference:
     """
     Original UI-Venus-1.5 inference (AutoModelForImageTextToText, no retrofit head).
@@ -201,7 +182,6 @@ class UIVenusNativeInference:
         self.model     = (AutoModelForImageTextToText
                           .from_pretrained(model_name_or_path, **kwargs)
                           .to(self.device).eval())
-        _patch_native_conv3d(self.model)   # Conv3d→Linear speedup (same as retrofit path)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=True)
         self.processor = AutoProcessor.from_pretrained(model_name_or_path)
 

@@ -108,13 +108,13 @@ elif [[ "${MODEL_TYPE}" == "guiowl" ]]; then
     # GUI-Owl-1.5-8B: Qwen3-VL, 36层
     MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/GUI-Owl-1.5-8B-Instruct"
     PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35"   # last 18 of 36 (last 1/2)
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS="${MAX_PIXELS:-16777216}"
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     # UI-Venus-1.5-8B: Qwen3-VL, 36层
     MODEL_PATH="/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/GUI_Agents/UI-Venus-1.5-8B"
     PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35"   # last 18 of 36 (last 1/2)
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS="${MAX_PIXELS:-16777216}"
 else
     # UI-TARS-1.5-7B: Qwen2.5-VL, 28层（默认）

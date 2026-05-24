@@ -790,10 +790,9 @@ class RetrofitModelMixin:
         Default implementation for Qwen2.5-VL: manually embeds tokens and visual,
         then runs the transformer with output_hidden_states=True.
 
-        GUIOwlRetrofitModel / UIVenusRetrofitModel override this via _run_language_model(),
-        which explicitly passes deepstack_visual_embeds (ViT block 8/16/24 intermediate
-        features) to language_model.forward(), ensuring deepstack injection into
-        LLM decoder layers 0/1/2.
+        GUIOwlRetrofitModel / UIVenusRetrofitModel override this to call
+        super().forward(output_hidden_states=True) directly (official Qwen3-VL handles
+        DeepStack injection automatically).
         Note: deepstack_visual_indexes=[8, 16, 24] are ViT layer indices, NOT LLM layer
         indices. The actual LLM injection points are decoder layers 0, 1, 2.
 

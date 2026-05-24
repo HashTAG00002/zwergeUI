@@ -241,25 +241,6 @@ def _normalize_row(row: Dict[str, Any], images_dir: Optional[str]) -> Tuple[Opti
     return None if sample_id is None else str(sample_id), str(image_path), str(instruction)
 
 
-def _patch_native_conv3d(model) -> None:
-    """Apply the same Conv3d→Linear patch to a native Qwen3VL model."""
-    import types
-    import torch.nn.functional as F_nn
-    try:
-        patch_embed = model.model.visual.patch_embed
-        import torch.nn as _nn
-        if not isinstance(patch_embed.proj, _nn.Conv3d):
-            return
-        def _fast_forward(self_pe, hidden_states):
-            x = hidden_states.to(dtype=self_pe.proj.weight.dtype)
-            w = self_pe.proj.weight.view(self_pe.proj.weight.shape[0], -1)
-            return F_nn.linear(x, w, self_pe.proj.bias)
-        patch_embed.forward = types.MethodType(_fast_forward, patch_embed)
-    except Exception as exc:
-        import warnings
-        warnings.warn(f"[GUIOwlNative] Conv3d patch failed: {exc}. Vision will be ~90000× slower.")
-
-
 class GUIOwlNativeInference:
     """
     Original GUI-Owl-1.5 inference (Qwen3VLForConditionalGeneration, no retrofit head).
@@ -284,7 +265,6 @@ class GUIOwlNativeInference:
         self.model = (Qwen3VLForConditionalGeneration
                       .from_pretrained(model_path, **kwargs)
                       .to(self.device).eval())
-        _patch_native_conv3d(self.model)   # same Conv3d→Linear speedup as retrofit path
         self.processor = AutoProcessor.from_pretrained(
             model_path, min_pixels=MIN_PIXELS, max_pixels=MAX_PIXELS
         )

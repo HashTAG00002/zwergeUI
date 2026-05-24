@@ -100,7 +100,7 @@ elif [[ "${MODEL_TYPE}" == "guiowl" ]]; then
     PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"   # last 10 of 36
     VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-guiowl"
     # Qwen3-VL 需要 transformers>=4.57.1，使用 qwen3 环境
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS="${MAX_PIXELS:-16777216}"   # 16384 × 16² × 4 = 16,777,216
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     # UI-Venus-1.5-8B: Qwen3-VL, 36层, hidden=4096, deepstack=[8,16,24]
@@ -110,7 +110,7 @@ elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     PROBE_LAYERS="21,22,23,24,25,26,27,28,29,30"   # last 10 of 36
     VAL_OUTPUT_DIR="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/data/results/zwerge-uivenus"
     # Qwen3-VL 需要 transformers>=4.57.1，使用 qwen3 环境
-    CONDA_ENV="qwen3-verl"
+    CONDA_ENV="qwen3"
     MAX_PIXELS="${MAX_PIXELS:-16777216}"   # 16384 × 16² × 4 = 16,777,216
 else
     # uitars（默认）: Qwen2.5-VL-7B, 28层, hidden=3584

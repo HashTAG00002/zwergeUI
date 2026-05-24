@@ -76,7 +76,6 @@ eval:
 
   env:
     MODEL_TYPE: "uitars"
-    SKIP_VIS: "1"
     DECODE_STRATEGY: "centroid"   # centroid=快速质心解码；zoom_backbone=精化但慢
 
   bench: "all"

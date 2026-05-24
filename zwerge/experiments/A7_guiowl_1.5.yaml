@@ -14,11 +14,11 @@
 #   python eval_daemon.py --config experiments/A7_guiowl_1.5.yaml
 #   Ctrl+b d
 
-experiment_name: "guiowl_A7_exp001"
+experiment_name: "guiowl_A7_exp002"
 
 # ── 训练配置 ──────────────────────────────────────────────────────────────────
 train:
-  # GUI-Owl-1.5-8B (Qwen3-VL) → qwen3-verl conda 环境
+  # GUI-Owl-1.5-8B (Qwen3-VL) → qwen3 conda 环境
   hope_file: "scripts/train_qwen3.hope"
   bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
   queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
@@ -34,13 +34,12 @@ train:
 
 # ── 评估配置 ──────────────────────────────────────────────────────────────────
 eval:
-  # Qwen3-VL → qwen3-verl conda 环境
+  # Qwen3-VL → qwen3 conda 环境
   hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
   queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
 
   env:
     MODEL_TYPE: "guiowl"
-    SKIP_VIS: "1"
     DECODE_STRATEGY: "centroid"
     ZOOM_PADDING_CELLS: "3"
 
