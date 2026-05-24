@@ -1,0 +1,68 @@
+# ============================================================
+# ZwerGe Experiment Config — A7 (CrossAttn Probe) / Qwen3.5-9B
+# ============================================================
+# Qwen3.5-9B：32 层，conda env = qwen35
+#   坐标系：relative 1000（与 guiowl/uivenus 相同）
+#   prompt：XML-style tool-call（区别于 guiowl 的 JSON tool-call）
+#   Probe 层：layers 16-31（last 16 of 32，last 1/2）
+#   CrossAttn d_attn = 8 heads × 64 = 512
+#
+# 模型路径（已在训练脚本中默认设置）：
+#   .hdd/models/huggingface.co/Qwen/Qwen3.5-9B
+#     如路径不同，在 train.env 中覆盖：
+#       MODEL_PATH: "/path/to/Qwen3.5-9B"
+#
+# A7 实验说明：
+#   A6  独立层监督，LoRA adapter，无 fusion scorer
+#   A7  独立层监督，CrossAttn probe（全秩 W_q/W_k），无 fusion scorer  ← 当前
+#
+# 用法：
+#   tmux new -s A7_qwen35
+#   cd /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge
+#   python eval_daemon.py --config experiments/A7_qwen35.yaml
+#   Ctrl+b d
+# ============================================================
+
+experiment_name: "qwen35_A7_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  # Qwen3.5 → qwen35 conda 环境
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "qwen35"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    # MODEL_PATH 默认由训练脚本根据 MODEL_TYPE=qwen35 自动设置
+    # 如需覆盖（例如模型路径不同），取消注释并修改：
+    # MODEL_PATH: "/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/models/huggingface.co/Qwen/Qwen3.5-VL-7B-Instruct"
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  # Qwen3.5 → qwen35 conda 环境
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "qwen35"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

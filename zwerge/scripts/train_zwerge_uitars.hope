@@ -39,8 +39,8 @@ afo.data.prefetch = false
 afo.app.support.engine.failover = true
 
 [conda]
-afo.conda.env.name = qwen2
-afo.conda.env.path = viewfs://hadoop-meituan/zw03mlnn01/user/conda/yangwenkui03/default/qwen2.tar.gz
+afo.conda.env.name = service
+afo.conda.env.path = viewfs://hadoop-meituan/zw03mlnn01/user/conda/yangwenkui03/default/service.tar.gz
 afo.conda.store.type = hdfs
 
 [others]

@@ -785,6 +785,7 @@ class RetrofitModelMixin:
         pixel_values: Optional[torch.Tensor],
         image_grid_thw: Optional[torch.Tensor],
         device: torch.device,
+        mm_token_type_ids: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, ...]:
         """
         Default implementation for Qwen2.5-VL: manually embeds tokens and visual,

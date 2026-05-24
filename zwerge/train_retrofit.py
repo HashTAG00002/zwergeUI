@@ -131,7 +131,9 @@ class ModelArguments:
                 "Model type: 'uitars' (Qwen2.5-VL, default), "
                 "'guiowl7b' (GUI-Owl-7B, Qwen2.5-VL, control variable), "
                 "'guiowl' (GUI-Owl-1.5, Qwen3-VL), "
-                "'uivenus' (UI-Venus-1.5, Qwen3-VL)"
+                "'uivenus' (UI-Venus-1.5, Qwen3-VL), "
+                "'qwen35' (Qwen3.5-VL, XML-style tool-call, relative 1000), "
+                "'uitars1' (UI-TARS-7B-SFT, Qwen2-VL, UI-TARS prompt, relative 1000)"
             )
         },
     )
@@ -509,7 +511,7 @@ def train():
     #   - _new_token_emb stays in graph (consistent with UI-TARS: it CAN be trained
     #     if probe detach is ever removed; currently has no gradient path anyway)
     # Correct fix: keep gc=True + use_reentrant=True (default) + find_unused=True.
-    if model_args.model_type in ("guiowl", "uivenus"):
+    if model_args.model_type in ("guiowl", "uivenus", "qwen35"):
         # Keep gradient_checkpointing=True — needed for memory with 8B model.
         # Do NOT set use_reentrant=False (that caused 600s/step overhead).
         # use_reentrant=True (default) is free when backward doesn't run through backbone.
@@ -627,10 +629,10 @@ def train():
         max_pixels=data_args.max_pixels,
     )
     processor.tokenizer = tokenizer
-    # 对 Qwen2.5-VL (uitars / guiowl7b)，强制使用项目内定义的 CHAT_TEMPLATE，
+    # 对 Qwen2-VL (uitars1) / Qwen2.5-VL (uitars / guiowl7b)，强制使用项目内定义的 CHAT_TEMPLATE，
     # 确保 <|ground|> 等新 token 在 apply_chat_template 时被正确处理。
-    # 对 Qwen3-VL (guiowl/uivenus)，保留模型自带的 chat_template（更完整，含 Qwen3 特殊标签）。
-    if model_args.model_type in ("uitars", "guiowl7b"):
+    # 对 Qwen3-VL (guiowl/uivenus/qwen35)，保留模型自带的 chat_template（更完整，含 Qwen3 特殊标签）。
+    if model_args.model_type in ("uitars", "guiowl7b", "uitars1"):
         processor.tokenizer.chat_template = CHAT_TEMPLATE
     data_args.processor = processor
 

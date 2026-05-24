@@ -1,100 +1,91 @@
 """
-ZwerGe-UI Retrofit: GUIOwlRetrofitModel
-=========================================
-GUI-Owl-1.5（Qwen3-VL 系列）retrofit 版本。
-继承 RetrofitModelMixin + Qwen3VLForConditionalGeneration。
+ZwerGe-UI Retrofit: Qwen35RetrofitModel
+==========================================
+Qwen3.5-VL (Qwen3_5ForConditionalGeneration) retrofit 版本。
 
-架构参数（GUI-Owl-1.5-8B-Instruct / UI-Venus-1.5-8B 实测）：
-  - num_hidden_layers: 36        （LLM decoder 层数，text_config）
+架构参数（Qwen3.5-9B 实测）：
+  - model_type: qwen3_5
+  - num_hidden_layers: 32        （LLM decoder 层数，text_config）
   - hidden_size: 4096
-  - patch_size: 16, spatial_merge_size: 2
+  - patch_size: 16, spatial_merge_size: 2  (暂定，与 Qwen3-VL 相同)
   - vision_config.depth: 27      （ViT 视觉编码器层数）
-  - vision_config.deepstack_visual_indexes: [8, 16, 24]
-      ⚠️  这里的 8/16/24 是 ViT（27层）的层号，不是 LLM 层号！
-      ViT block 8  → deepstack_visual_embeds[0]  → 注入 LLM decoder 第 0 层之后
-      ViT block 16 → deepstack_visual_embeds[1]  → 注入 LLM decoder 第 1 层之后
-      ViT block 24 → deepstack_visual_embeds[2]  → 注入 LLM decoder 第 2 层之后
-      LLM 第 3~35 层：正常处理，无 deepstack 注入
-  - image_token_id: 151655
-  - vision_end_token_id: 151653
+  - image_token_id: 248056
+  - Probe 层：layers 16-31（last 16 of 32，last 1/2）
 
-Qwen3-VL 兼容性要求：
-  transformers >= 4.57.1  （qwen3 conda 环境）
-  gui_actor 环境（transformers 4.51.3）**不**支持 Qwen3VL，
-  本文件使用懒加载（在 class body 以外不 import Qwen3VLForConditionalGeneration），
-  确保在 gui_actor 中仍可 import zwerge_retrofit 而不报错。
+与 GUIOwlRetrofitModel（Qwen3VLForConditionalGeneration）的关系：
+  Qwen3_5ForConditionalGeneration 与 Qwen3VLForConditionalGeneration **不**存在继承关系，
+  是完全独立的两个类（transformers 5.9.0）。
+  API 接口完全兼容（forward 参数、output 字段相同），但必须使用各自的类。
+  因此 Qwen35RetrofitModel 有独立的 lazy-loader（_get_qwen35_class），
+  不复用 GUIOwlRetrofitModel 的 _get_concrete_class()。
 
-DeepStack 处理（关键设计）：
-  Qwen3-VL 的 deepstack 机制：ViT（27层）在第 8/16/24 层分别输出中间特征
-  （vision_config.deepstack_visual_indexes=[8,16,24]），这些特征作为
-  deepstack_visual_embeds[0/1/2] 依次注入到 LLM decoder 第 0/1/2 层之后。
-  transformers 官方 Qwen3VLForConditionalGeneration.forward() 自动处理 deepstack，
-  无需在 retrofit 代码中手动传递 deepstack_visual_embeds。
+Prompt 格式：XML-style tool-call（区别于 GUI-Owl-1.5 的 JSON tool-call）。
+  prompt 差异完全由 constants.py 中的 MODEL_TYPE_CONSTANTS["qwen35"] 控制，model 类无需感知。
 
-Action format (GUI-Owl-1.5 retrofit prefill):
-  <tool_call>
-  {"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [
-  <|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>]}}
-  </tool_call>
+坐标系：relative 1000（与 guiowl/uivenus 相同，与 uitars/guiowl7b 的 absolute pixel 不同）。
+
+兼容性要求：
+  transformers >= 5.9.0  （qwen35 conda 环境）
+  其他 env（gui_actor / qwen3 / qwen25 等）**不**支持 Qwen3_5，
+  本文件使用懒加载（在 class body 以外不 import Qwen3_5ForConditionalGeneration），
+  确保在其他环境中 import zwerge_retrofit 不报错。
+
+Usage:
+  from zwerge_retrofit import get_model_class
+  ModelClass = get_model_class("qwen35")   # 触发懒加载
+  model = ModelClass.from_pretrained(model_path, config=config)
 """
 
-from typing import List, Optional, Tuple, Union
+from typing import Tuple
 
 import torch
 
-from .modeling_base import (
-    RetrofitModelMixin,
-    BaseRetrofitOutput,
-)
+from .modeling_base import RetrofitModelMixin, BaseRetrofitOutput
 
 
-def _get_qwen3vl_class():
-    """懒加载 Qwen3VLForConditionalGeneration（仅在需要时 import，避免旧 env 报错）。"""
+def _get_qwen35_class():
+    """懒加载 Qwen3_5ForConditionalGeneration（仅在需要时 import，避免旧 env 报错）。"""
     try:
-        from transformers import Qwen3VLForConditionalGeneration
-        return Qwen3VLForConditionalGeneration
+        from transformers import Qwen3_5ForConditionalGeneration
+        return Qwen3_5ForConditionalGeneration
     except ImportError:
         raise ImportError(
-            "Qwen3VLForConditionalGeneration not found in current transformers version. "
-            "GUI-Owl-1.5 / UI-Venus-1.5 require transformers>=4.57.1. "
-            "Please use the 'qwen3' conda environment: "
-            "conda activate qwen3"
+            "Qwen3_5ForConditionalGeneration not found in current transformers version. "
+            "Qwen3.5 requires transformers>=5.9.0. "
+            "Please use the 'qwen35' conda environment: "
+            "conda activate qwen35"
         )
 
 
-class GUIOwlRetrofitModel(RetrofitModelMixin):
+class Qwen35RetrofitModel(RetrofitModelMixin):
     """
-    GUI-Owl-1.5（Qwen3-VL, 36层, hidden=4096）retrofitted with
-    layer-wise coordinate-free grounding head.
+    Qwen3.5-VL retrofitted with layer-wise coordinate-free grounding head.
 
-    使用懒加载动态继承 Qwen3VLForConditionalGeneration，
+    使用懒加载动态继承 Qwen3_5ForConditionalGeneration，
     确保在旧 transformers 环境中 import 本文件不会报错。
 
     forward() 直接调用 super().forward(output_hidden_states=True)，
-    官方实现处理 DeepStack、visual embedding、RoPE 等所有细节。
+    官方实现处理 visual embedding、RoPE 等所有细节。
 
     Usage:
       from zwerge_retrofit import get_model_class
-      ModelClass = get_model_class("guiowl")  # 触发懒加载
+      ModelClass = get_model_class("qwen35")  # 触发懒加载
       model = ModelClass.from_pretrained(model_path, config=config)
     """
 
-    # __init_subclass__ / metaclass 要求 Qwen3VL 在类定义时就存在，
-    # 所以我们用工厂函数在第一次实例化时动态创建真正的类。
-    # GUIOwlRetrofitModel 本身是一个"壳"，真正的实例化通过 __new__ 返回。
-    _concrete_class = None   # cache
+    _concrete_class = None
 
     def __class_getitem__(cls, item):
         return cls
 
     @classmethod
     def _get_concrete_class(cls):
-        """返回（或创建）真正继承 Qwen3VL 的具体类。"""
+        """返回（或创建）真正继承 Qwen3_5ForConditionalGeneration 的具体类。"""
         if cls._concrete_class is None:
-            Qwen3VL = _get_qwen3vl_class()
+            Qwen35 = _get_qwen35_class()
 
-            class _GUIOwlImpl(RetrofitModelMixin, Qwen3VL):
-                """真正的运行时类：RetrofitModelMixin + Qwen3VLForConditionalGeneration。"""
+            class _Qwen35Impl(RetrofitModelMixin, Qwen35):
+                """真正的运行时类：RetrofitModelMixin + Qwen3_5ForConditionalGeneration。"""
 
                 def __init__(self, config, *args, **kwargs):
                     super().__init__(config, *args, **kwargs)
@@ -102,15 +93,15 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     self.post_init()
 
                 def _init_retrofit_from_config(self, config) -> None:
-                    """覆盖以读取 Qwen3-VL text_config 中的 hidden_size / num_layers。"""
-                    # Qwen3-VL 将 hidden_size / num_hidden_layers 等字段放在 text_config 子配置里
+                    """覆盖以读取 Qwen3.5 text_config 中的 hidden_size / num_layers。"""
+                    # Qwen3.5 将 hidden_size / num_hidden_layers 等字段放在 text_config 子配置里
                     text_cfg = getattr(config, "text_config", config)
                     if not hasattr(config, "hidden_size"):
                         config.hidden_size = getattr(text_cfg, "hidden_size", 4096)
                     if not hasattr(config, "num_hidden_layers"):
-                        config.num_hidden_layers = getattr(text_cfg, "num_hidden_layers", 36)
+                        config.num_hidden_layers = getattr(text_cfg, "num_hidden_layers", 32)
                     super()._init_retrofit_from_config(config)
-                    # vision_end_token_id 在 Qwen3-VL 是顶层字段
+                    # vision_end_token_id 在 Qwen3.5 是顶层字段
                     if self._vision_end_token_id is None:
                         self._vision_end_token_id = getattr(config, "vision_end_token_id", None)
 
@@ -125,11 +116,10 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     device,
                     mm_token_type_ids=None,
                 ) -> Tuple[torch.Tensor, ...]:
-                    """Qwen3-VL: 调用官方 super().forward(output_hidden_states=True)。
-                    官方实现自动处理 DeepStack、visual embedding、RoPE 等。
-                    mm_token_type_ids: Qwen3.5 专属字段，Qwen3-VL 不需要，忽略即可。
+                    """Qwen3.5: 调用官方 super().forward(output_hidden_states=True)。
+                    mm_token_type_ids 是 Qwen3.5 M-RoPE 必须字段，其他模型传 None。
                     """
-                    outputs = super().forward(
+                    kwargs = dict(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         pixel_values=pixel_values,
@@ -139,6 +129,9 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                         return_dict=True,
                         use_cache=False,
                     )
+                    if mm_token_type_ids is not None:
+                        kwargs["mm_token_type_ids"] = mm_token_type_ids
+                    outputs = super().forward(**kwargs)
                     return outputs.hidden_states
 
                 # ── Training forward ──────────────────────────────────────────────────
@@ -156,6 +149,7 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     return_dict=None,
                     pixel_values=None,
                     image_grid_thw=None,
+                    mm_token_type_ids=None,
                     rope_deltas=None,
                     cache_position=None,
                     ground_token_indices=None,
@@ -168,8 +162,6 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                         else self.config.use_return_dict
                     )
 
-                    # Official Qwen3-VL forward handles DeepStack, visual embedding,
-                    # RoPE, etc. output_hidden_states=True gives us all layer hidden states.
                     outputs = super().forward(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -183,6 +175,7 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                         return_dict=True,
                         pixel_values=pixel_values,
                         image_grid_thw=image_grid_thw,
+                        mm_token_type_ids=mm_token_type_ids,
                         rope_deltas=rope_deltas,
                         cache_position=cache_position,
                         **extra_kwargs,
@@ -245,18 +238,14 @@ class GUIOwlRetrofitModel(RetrofitModelMixin):
                     else:
                         return (total_loss, logits) if total_loss is not None else (logits,)
 
-            # 复制类名使 HuggingFace 保存逻辑正常工作
-            _GUIOwlImpl.__name__ = "GUIOwlRetrofitModel"
-            _GUIOwlImpl.__qualname__ = "GUIOwlRetrofitModel"
-            cls._concrete_class = _GUIOwlImpl
+            _Qwen35Impl.__name__ = "Qwen35RetrofitModel"
+            _Qwen35Impl.__qualname__ = "Qwen35RetrofitModel"
+            cls._concrete_class = _Qwen35Impl
 
         return cls._concrete_class
 
     def __new__(cls, *args, **kwargs):
-        """
-        拦截实例化，返回真正继承 Qwen3VL 的类的实例。
-        这样 from_pretrained() 也能正常工作。
-        """
+        """拦截实例化，返回真正继承 Qwen3_5ForConditionalGeneration 的类的实例。"""
         concrete = cls._get_concrete_class()
         instance = object.__new__(concrete)
         return instance

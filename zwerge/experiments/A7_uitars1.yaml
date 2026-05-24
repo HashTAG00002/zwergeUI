@@ -1,0 +1,72 @@
+# ============================================================
+# ZwerGe Experiment Config — A7 (CrossAttn Probe) / UI-TARS-7B-SFT (Qwen2-VL)
+# ============================================================
+# UI-TARS-7B-SFT：Qwen2-VL 架构，28 层，conda env = qwen2
+#   坐标系：relative 1000（与 guiowl/uivenus/qwen35 相同）
+#   prompt：UI-TARS-1.5 格式（与 uitars 完全相同）
+#   Probe 层：layers 14-27（last 14 of 28，last 1/2）
+#
+# 模型路径（已在训练脚本中默认设置）：
+#   .hdd/models/huggingface.co/GUI_Agents/UI-TARS-7B-SFT
+#     如路径不同，在 train.env 中覆盖：
+#       MODEL_PATH: "/path/to/UI-TARS-7B-SFT"
+#
+# 与 uitars（Qwen2.5-VL）的关键区别：
+#   - 模型架构：Qwen2VLForConditionalGeneration（非 Qwen2_5_VLForConditionalGeneration）
+#   - 坐标系：relative 1000（uitars 用绝对像素坐标）
+#   - conda 环境：qwen2（uitars 用 gui_actor/qwen25）
+#
+# A7 实验说明：
+#   A6  独立层监督，LoRA adapter，无 fusion scorer
+#   A7  独立层监督，CrossAttn probe（全秩 W_q/W_k），无 fusion scorer  ← 当前
+#
+# 用法：
+#   tmux new -s A7_uitars1
+#   cd /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge
+#   python eval_daemon.py --config experiments/A7_uitars1.yaml
+#   Ctrl+b d
+# ============================================================
+
+experiment_name: "uitars1_A7_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  # UI-TARS-7B-SFT → qwen2 conda 环境
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "uitars1"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    # MODEL_PATH 默认由训练脚本根据 MODEL_TYPE=uitars1 自动设置
+    # 如需覆盖（例如模型路径不同），取消注释并修改：
+    # MODEL_PATH: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/UI-TARS-7B-SFT"
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  # UI-TARS-7B-SFT → qwen2 conda 环境
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "uitars1"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

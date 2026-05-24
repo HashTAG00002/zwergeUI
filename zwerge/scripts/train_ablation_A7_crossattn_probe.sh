@@ -25,6 +25,8 @@
 #   MODEL_TYPE=guiowl7b bash scripts/train_ablation_A7_crossattn_probe.sh
 #   MODEL_TYPE=guiowl   bash scripts/train_ablation_A7_crossattn_probe.sh
 #   MODEL_TYPE=uivenus  bash scripts/train_ablation_A7_crossattn_probe.sh
+#   MODEL_TYPE=qwen35   bash scripts/train_ablation_A7_crossattn_probe.sh
+#   MODEL_TYPE=uitars1  bash scripts/train_ablation_A7_crossattn_probe.sh
 #
 #   # 自定义 head 数（减小参数量）：
 #   ATTN_HEADS=4 ATTN_HEAD_DIM=64 bash scripts/train_ablation_A7_crossattn_probe.sh
@@ -116,6 +118,18 @@ elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     PROBE_LAYERS="18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35"   # last 18 of 36 (last 1/2)
     CONDA_ENV="qwen3"
     MAX_PIXELS="${MAX_PIXELS:-16777216}"
+elif [[ "${MODEL_TYPE}" == "qwen35" ]]; then
+    # Qwen3.5-VL: Qwen3.5 架构，坐标系 relative 1000，XML-style tool-call
+    MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/Qwen/Qwen3.5-9B"
+    PROBE_LAYERS="16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31"   # last 16 of 32 (last 1/2)
+    CONDA_ENV="qwen35"
+    MAX_PIXELS="${MAX_PIXELS:-16777216}"
+elif [[ "${MODEL_TYPE}" == "uitars1" ]]; then
+    # UI-TARS-7B-SFT: Qwen2-VL 架构，坐标系 relative 1000，UI-TARS-1.5 prompt
+    MODEL_PATH="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/UI-TARS-7B-SFT"
+    PROBE_LAYERS="14,15,16,17,18,19,20,21,22,23,24,25,26,27"   # last 14 of 28 (last 1/2)
+    CONDA_ENV="qwen2"
+    MAX_PIXELS="${MAX_PIXELS:-12845056}"
 else
     # UI-TARS-1.5-7B: Qwen2.5-VL, 28层（默认）
     MODEL_TYPE="uitars"

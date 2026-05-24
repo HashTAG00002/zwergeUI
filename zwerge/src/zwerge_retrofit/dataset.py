@@ -771,7 +771,7 @@ class RetrofitDataset(Dataset):
         if len(input_ids) > self.tokenizer.model_max_length:
             return None
 
-        return {
+        result = {
             "input_ids": data_dict["input_ids"],
             "labels": data_dict["labels"],
             "pixel_values": data_dict["pixel_values"],
@@ -779,6 +779,10 @@ class RetrofitDataset(Dataset):
             "ground_token_indices": ground_token_idx,
             "multi_patch_labels": patch_label,
         }
+        # mm_token_type_ids: Qwen3.5 M-RoPE 必须字段；其他模型为 None，不加入 dict
+        if data_dict.get("mm_token_type_ids") is not None:
+            result["mm_token_type_ids"] = data_dict["mm_token_type_ids"]
+        return result
 
     def _preprocess(
         self,
@@ -885,6 +889,9 @@ class RetrofitDataset(Dataset):
 
         pixel_values = model_inputs.get("pixel_values", None)
         image_grid_thw = model_inputs.get("image_grid_thw", None)
+        # mm_token_type_ids: required by Qwen3.5 for multimodal M-RoPE computation.
+        # Other models (Qwen2.5-VL, Qwen3-VL) do not return this field → None.
+        mm_token_type_ids = model_inputs.get("mm_token_type_ids", None)
 
         if pixel_values is not None:
             pixel_values = pixel_values  # [n_patches, 3*merge^2*patch^2]
@@ -917,6 +924,7 @@ class RetrofitDataset(Dataset):
             "labels": labels,
             "pixel_values": pixel_values,
             "image_grid_thw": image_grid_thw,
+            "mm_token_type_ids": mm_token_type_ids,
             "image_width": processed_w,
             "image_height": processed_h,
         }
@@ -986,6 +994,24 @@ class RetrofitDataCollator:
                 [inst["image_grid_thw"] for inst in instances if inst.get("image_grid_thw") is not None],
                 dim=0,
             )
+            # mm_token_type_ids: Qwen3.5 requires this for M-RoPE.
+            # Shape: [1, seq_len] per sample — must be padded just like input_ids.
+            # Padding value = 0 (text type).
+            _mttids = [inst.get("mm_token_type_ids") for inst in instances]
+            if any(t is not None for t in _mttids):
+                # Squeeze the leading dim [1, seq_len] → [seq_len]
+                mttid_list = [
+                    t[0][:max_len] if t is not None else torch.zeros(
+                        len(input_ids[i]), dtype=torch.int32
+                    )
+                    for i, t in enumerate(_mttids)
+                ]
+                padded_mttids = torch.zeros(
+                    len(mttid_list), max_seq_len, dtype=torch.int32
+                )
+                for j, m in enumerate(mttid_list):
+                    padded_mttids[j, :len(m)] = m
+                batch["mm_token_type_ids"] = padded_mttids
 
         # Grounding supervision (use ground_indices_raw which was already validated
         # against post-truncation sequence lengths above)

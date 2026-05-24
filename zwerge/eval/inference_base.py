@@ -491,8 +491,8 @@ class BaseZwergeInference(ABC):
         return an initialized inference instance.
 
         max_pixels: if None, resolved per model_type:
-          uitars (Qwen2.5-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
-          guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
+          uitars/guiowl7b/uitars1 (Qwen2.x-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
+          guiowl/uivenus/qwen35 (Qwen3.x-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
         """
         raise NotImplementedError
 
@@ -529,8 +529,8 @@ class RetrofitInference(BaseZwergeInference):
     Implements predict_layerwise() for all retrofit models.
 
     Subclasses override:
-      model_type  — "uitars" / "guiowl" / "uivenus"
-      patch_size  — 14 for Qwen2.5-VL, 16 for Qwen3-VL
+      model_type  — "uitars" / "guiowl" / "uivenus" / "guiowl7b" / "qwen35" / "uitars1"
+      patch_size  — 14 for Qwen2.x-VL, 16 for Qwen3.x-VL
 
     Zoom-backbone system message overrides (subclass sets these):
       _zoom_native_system_message — system message for backbone generate (NATIVE coord format).
@@ -552,12 +552,14 @@ class RetrofitInference(BaseZwergeInference):
         max_pixels: Optional[int] = None,
     ) -> "RetrofitInference":
         # Resolve max_pixels per model_type if not explicitly provided.
-        # uitars (Qwen2.5-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
-        # guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
+        # uitars/guiowl7b/uitars1 (Qwen2.x-VL, patch_size=14): 16384 × 14² × 4 = 12,845,056
+        # guiowl/uivenus (Qwen3-VL, patch_size=16):              16384 × 16² × 4 = 16,777,216
+        # qwen35 (Qwen3.5, patch_size=16, 暂定):                 16384 × 16² × 4 = 16,777,216
         if max_pixels is None:
-            if cls.model_type in ("guiowl", "uivenus"):
+            if cls.model_type in ("guiowl", "uivenus", "qwen35"):
                 max_pixels = 16_777_216
             else:
+                # uitars / guiowl7b / uitars1 (Qwen2.x-VL, patch_size=14)
                 max_pixels = 12_845_056
         from zwerge_retrofit import get_model_class
         from zwerge_retrofit.constants import MODEL_TYPE_CONSTANTS
@@ -680,6 +682,10 @@ class RetrofitInference(BaseZwergeInference):
         image_grid_thw = inputs.get("image_grid_thw")
         if image_grid_thw is not None:
             image_grid_thw = image_grid_thw.to(device)
+        # mm_token_type_ids: Qwen3.5 M-RoPE 必需字段；其他模型为 None
+        mm_token_type_ids = inputs.get("mm_token_type_ids")
+        if mm_token_type_ids is not None:
+            mm_token_type_ids = mm_token_type_ids.to(device)
 
         # Grid size — reads patch_size from processor to support both Qwen2.5 (14) and Qwen3 (16)
         if image_grid_thw is not None:
@@ -701,6 +707,7 @@ class RetrofitInference(BaseZwergeInference):
             pixel_values=pixel_values,
             image_grid_thw=image_grid_thw,
             device=device,
+            mm_token_type_ids=mm_token_type_ids,
         )
 
         anchor_idx, anchor_strategy = self.model._find_ground_anchor(

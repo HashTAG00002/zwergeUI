@@ -61,12 +61,16 @@ def get_inference_class(model_type: str, inference_type: str = "retrofit"):
     from inference_guiowl   import GUIOwlRetrofitInference
     from inference_uivenus  import UIVenusRetrofitInference
     from inference_guiowl7b import GUIOwl7BRetrofitInference
+    from inference_qwen35   import Qwen35RetrofitInference
+    from inference_uitars1  import UITARS1RetrofitInference
 
     CLASSES = {
         ("uitars",    "retrofit"): UITARSRetrofitInference,
         ("guiowl",    "retrofit"): GUIOwlRetrofitInference,
         ("uivenus",   "retrofit"): UIVenusRetrofitInference,
         ("guiowl7b",  "retrofit"): GUIOwl7BRetrofitInference,
+        ("qwen35",    "retrofit"): Qwen35RetrofitInference,
+        ("uitars1",   "retrofit"): UITARS1RetrofitInference,
     }
     key = (model_type, inference_type)
     if key not in CLASSES:
@@ -575,9 +579,11 @@ def parse_args():
     parser.add_argument("--ckpt",        required=True, help="Checkpoint directory")
     parser.add_argument(
         "--model_type", default="uitars",
-        choices=["uitars", "guiowl", "uivenus", "guiowl7b"],
+        choices=["uitars", "guiowl", "uivenus", "guiowl7b", "qwen35", "uitars1"],
         help="Model type — affects prompt format and model loading class. "
-             "guiowl7b: Qwen2.5-VL backbone + GUI-Owl-1.5 prompt (control variable)",
+             "guiowl7b: Qwen2.5-VL backbone + GUI-Owl-1.5 prompt (control variable). "
+             "qwen35: Qwen3.5-VL, XML-style tool-call, relative 1000. "
+             "uitars1: Qwen2-VL (UI-TARS-7B-SFT), UI-TARS prompt, relative 1000.",
     )
     parser.add_argument(
         "--bench", default="ss_pro",
@@ -644,11 +650,11 @@ def main():
     # guiowl/uivenus (Qwen3-VL, patch_size=16): 16384 × 16² × 4 = 16,777,216
     # Using uitars' max_pixels for Qwen3-VL would give only ~12544 tokens instead of 16384.
     if args.max_pixels is None:
-        if args.model_type in ("guiowl", "uivenus"):
-            # Qwen3-VL: patch_size=16, max 16384 tokens → 16384 × 16² × 4 = 16,777,216
+        if args.model_type in ("guiowl", "uivenus", "qwen35"):
+            # Qwen3-VL / Qwen3.5: patch_size=16, max 16384 tokens → 16384 × 16² × 4 = 16,777,216
             args.max_pixels = 16_777_216
         else:
-            # Qwen2.5-VL (uitars / guiowl7b): patch_size=14 → 16384 × 14² × 4 = 12,845,056
+            # Qwen2-VL (uitars1) / Qwen2.5-VL (uitars / guiowl7b): patch_size=14 → 12,845,056
             args.max_pixels = 12_845_056
     print(f"[ZwerGe] max_pixels={args.max_pixels} (model_type={args.model_type})")
 

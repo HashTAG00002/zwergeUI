@@ -332,6 +332,208 @@ GUI_OWL_7B_DEFAULT_PROBE_LAYERS = [18, 19, 20, 21, 22, 23, 24, 25, 26, 27]  # la
 
 
 # =============================================================================
+# Qwen3.5-VL constants (Qwen3.5-VL based)
+# =============================================================================
+#
+# 来源/设计：
+# - OSWorld Qwen3.5-VL agent 使用 XML-style tool-call：
+#   <tool_call><computer_use>...</computer_use></tool_call>
+# - Qwen3.5-VL 和 Qwen3VL 一样使用 relative 1000x1000 坐标系。
+# - Retrofit grounding 改造规则与 GUI_OWL_SYSTEM_PROMPT 一致：
+#   1. 只保留 left_click；
+#   2. 移除 wait / terminate / answer / scroll / type / key 等非 grounding 动作；
+#   3. coordinate 示例替换为 <|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>；
+#   4. assistant prefill 与 system prompt 示例完全一致。
+#
+# 注意：
+# - QWEN35_SYSTEM_PROMPT / QWEN35_GROUND_RESPONSE 用于 retrofit 训练和 prefill。
+# - QWEN35_NATIVE_* 用于 zoom-backbone 第二阶段，不能包含 pointer tokens。
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ground response（assistant prefill）
+#
+# Qwen3.5-VL XML-style tool-call，坐标部分 [x, y] → [<|ground|>...]
+# _find_ground_anchor() P1 始终命中 assistant prefill 里的 <|ground|>（最后出现位置）。
+# ─────────────────────────────────────────────────────────────────────────────
+QWEN35_GROUND_RESPONSE = (
+    "\n<tool_call>\n"
+    "<computer_use>\n"
+    "<action>left_click</action>\n"
+    f"<coordinate>[{DEFAULT_GROUND_TOKEN}"
+    f"{DEFAULT_POINTER_START_TOKEN}"
+    f"{DEFAULT_POINTER_PAD_TOKEN}"
+    f"{DEFAULT_POINTER_END_TOKEN}]</coordinate>\n"
+    "</computer_use>\n"
+    "</tool_call>\n"
+)
+
+_QWEN35_RETROFIT_TOOLS_DEF = {
+    "type": "function",
+    "function": {
+        "name": "computer_use",
+        "description": (
+            "Use a mouse and keyboard to interact with a computer, and take screenshots.\n"
+            "* This is an interface to a desktop GUI. You do not have access to a terminal "
+            "or applications menu. You must click on desktop icons to start applications.\n"
+            "* The screen's resolution is 1000x1000.\n"
+            "* Make sure to click buttons, links, icons, etc. with the cursor tip in the "
+            "center of the element. Don't click boxes on their edges unless asked."
+        ),
+        "parameters": {
+            "properties": {
+                "action": {
+                    "description": (
+                        "The action to perform. The only available action is:\n"
+                        "* `left_click`: Click the left mouse button at coordinate (x, y) "
+                        "on the 1000x1000 screen."
+                    ),
+                    "enum": ["left_click"],
+                    "type": "string",
+                },
+                "coordinate": {
+                    "description": (
+                        "(x, y): the x and y coordinates to click on the 1000x1000 screen. "
+                        "Required only by `action=left_click`."
+                    ),
+                    "type": "array",
+                },
+            },
+            "required": ["action", "coordinate"],
+            "type": "object",
+        },
+    },
+}
+
+QWEN35_SYSTEM_PROMPT = (
+    "You are a multi-purpose intelligent assistant. Based on my requests, "
+    "you can use tools to help me complete various tasks.\n\n"
+    "# Tools\n\n"
+    "You have access to the following functions:\n\n"
+    "<tools>\n"
+    + json.dumps(_QWEN35_RETROFIT_TOOLS_DEF)
+    + "\n</tools>\n\n"
+    "If you choose to call a function, reply in the following XML format "
+    "with no suffix:\n\n"
+    "<tool_call>\n"
+    "<computer_use>\n"
+    "<action>left_click</action>\n"
+    f"<coordinate>[{DEFAULT_GROUND_TOKEN}"
+    f"{DEFAULT_POINTER_START_TOKEN}"
+    f"{DEFAULT_POINTER_PAD_TOKEN}"
+    f"{DEFAULT_POINTER_END_TOKEN}]</coordinate>\n"
+    "</computer_use>\n"
+    "</tool_call>\n\n"
+    "Reminder:\n"
+    "- Function calls MUST follow the specified format: an inner "
+    "<computer_use>...</computer_use> block must be nested within "
+    "<tool_call>...</tool_call> XML tags.\n"
+    "- Required parameters MUST be specified.\n"
+    "- For grounding retrofit training, always use action=left_click.\n"
+    "- Do not output anything after the tool call.\n"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Native zoom-backbone prompts for Qwen3.5-VL
+#
+# 给"未改造的原生 Qwen3.5-VL"用，不包含 pointer tokens。
+# 用途：zoom-backbone 第二阶段，在 crop 图上让 backbone 重新生成真实 [x, y]。
+# ─────────────────────────────────────────────────────────────────────────────
+
+_QWEN35_NATIVE_TOOLS_DEF = {
+    "type": "function",
+    "function": {
+        "name": "computer_use",
+        "description": (
+            "Use a mouse and keyboard to interact with a computer, and take screenshots.\n"
+            "* This is an interface to a desktop GUI. You do not have access to a terminal "
+            "or applications menu. You must click on desktop icons to start applications.\n"
+            "* The screen's resolution is 1000x1000.\n"
+            "* Make sure to click buttons, links, icons, etc. with the cursor tip in the "
+            "center of the element. Don't click boxes on their edges unless asked."
+        ),
+        "parameters": {
+            "properties": {
+                "action": {
+                    "description": (
+                        "The action to perform. The only available action is:\n"
+                        "* `left_click`: Click the left mouse button at coordinate (x, y) "
+                        "on the 1000x1000 screen."
+                    ),
+                    "enum": ["left_click"],
+                    "type": "string",
+                },
+                "coordinate": {
+                    "description": "(x, y) coordinates on the 1000x1000 screen.",
+                    "type": "array",
+                },
+            },
+            "required": ["action", "coordinate"],
+            "type": "object",
+        },
+    },
+}
+
+QWEN35_NATIVE_SYSTEM_PROMPT = (
+    "You are a multi-purpose intelligent assistant. Based on my requests, "
+    "you can use tools to help me complete various tasks.\n\n"
+    "# Tools\n\n"
+    "You have access to the following functions:\n\n"
+    "<tools>\n"
+    + json.dumps(_QWEN35_NATIVE_TOOLS_DEF)
+    + "\n</tools>\n\n"
+    "If you choose to call a function, reply in the following XML format "
+    "with no suffix:\n\n"
+    "<tool_call>\n"
+    "<computer_use>\n"
+    "<action>left_click</action>\n"
+    "<coordinate>[x, y]</coordinate>\n"
+    "</computer_use>\n"
+    "</tool_call>\n\n"
+    "Reminder:\n"
+    "- Function calls MUST follow the specified format: an inner "
+    "<computer_use>...</computer_use> block must be nested within "
+    "<tool_call>...</tool_call> XML tags.\n"
+    "- Required parameters MUST be specified.\n"
+    "- Coordinates are relative to a 1000x1000 screen.\n"
+    "- Do not output anything after the tool call.\n"
+)
+
+QWEN35_NATIVE_USER_PROMPT_TEMPLATE = (
+    "Please generate the next move according to the UI screenshot and instruction.\n\n"
+    "Instruction: {}\n\n"
+    "Previous actions:\n"
+    "None"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Qwen3.5 Layer 配置（实测自 Qwen3.5-9B/config.json）
+#   num_hidden_layers = 32    <- LLM decoder 层数
+# ─────────────────────────────────────────────────────────────────────────────
+QWEN35_NUM_LAYERS = 32
+QWEN35_DEFAULT_PROBE_LAYERS = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]  # last 16 of 32 (last 1/2)
+
+
+# =============================================================================
+# UI-TARS-7B-SFT constants (Qwen2-VL based — relative 1000 坐标系)
+# =============================================================================
+# UI-TARS-7B-SFT 是原版 UI-TARS（Qwen2-VL 架构）：
+#   - architecture: Qwen2VLForConditionalGeneration（与 Qwen2_5_VLForConditionalGeneration 不同）
+#   - num_hidden_layers: 28，hidden_size: 3584，patch_size: 14（与 uitars/guiowl7b 相同）
+#   - 无 deepstack
+#   - conda 环境：qwen2
+#
+# 与 uitars 的关键区别：
+#   - 坐标系：relative 1000（与 guiowl/uivenus/qwen35 相同）
+#   - 原生输出格式仍为 click(start_box='<|box_start|>(x,y)<|box_end|>')，
+#     但 (x,y) 值处于 [0,1000] 范围（非绝对像素）
+#   - prompt 格式：与 uitars (UI-TARS-1.5) 完全相同
+# ─────────────────────────────────────────────────────────────────────────────
+UITARS1_NUM_LAYERS  = 28
+UITARS1_HIDDEN_SIZE = 3584
+UITARS1_DEFAULT_PROBE_LAYERS = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]  # last 14 of 28 (last 1/2)
+
+
+# =============================================================================
 # Model type → constants 映射（供 train/eval 脚本使用）
 # =============================================================================
 MODEL_TYPE_CONSTANTS = {
@@ -366,5 +568,21 @@ MODEL_TYPE_CONSTANTS = {
         "default_probe_layers": GUI_OWL_7B_DEFAULT_PROBE_LAYERS,  # last 10 of 28
         "merge_size": 2,
         "user_prompt_template": None,               # user turn = image + instruction
+    },
+    # ── Qwen3.5-VL: XML-style tool-call，relative 1000 坐标 ─────────────────
+    "qwen35": {
+        "system_message": QWEN35_SYSTEM_PROMPT,
+        "ground_response": QWEN35_GROUND_RESPONSE,
+        "default_probe_layers": QWEN35_DEFAULT_PROBE_LAYERS,  # last 16 of 32 (last 1/2)
+        "merge_size": 2,
+        "user_prompt_template": None,               # user turn = image + instruction
+    },
+    # ── UI-TARS-7B-SFT: Qwen2-VL，UI-TARS-1.5 prompt，relative 1000 坐标 ──
+    "uitars1": {
+        "system_message": GROUNDING_SYSTEM_MESSAGE,  # 与 uitars 完全相同的 prompt 格式
+        "ground_response": GROUND_RESPONSE_CLICK,    # 与 uitars 完全相同的 response 格式
+        "default_probe_layers": UITARS1_DEFAULT_PROBE_LAYERS,  # last 14 of 28 (last 1/2)
+        "merge_size": 2,
+        "user_prompt_template": None,                # user turn = image + instruction
     },
 }

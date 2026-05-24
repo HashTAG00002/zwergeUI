@@ -742,7 +742,8 @@ class RetrofitTrainer(Trainer):
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.train_dataset is None or not has_length(self.train_dataset):
             return None
-        if self.args.group_by_length:
+        # group_by_length was removed in transformers>=5.x; guard with getattr for compat
+        if getattr(self.args, "group_by_length", False):
             lengths = getattr(self.train_dataset, "lengths", None)
             if lengths is not None:
                 return HFLengthGroupedSampler(
