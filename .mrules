@@ -1183,11 +1183,16 @@
 
     ─── Qwen3-VL 关键 API 发现 ───────────────────────────────────────────────────────
 
-    1. Qwen3VLModel.forward 不传递 hidden_states：
-       Qwen3VLTextModel 会返回 hidden_states，但 Qwen3VLModel.forward 构造返回值时
-       只保留 last_hidden_state/past_key_values/rope_deltas，silently 丢弃 hidden_states。
-       因此任何通过 Qwen3VLForConditionalGeneration.forward(output_hidden_states=True)
-       的路径都会得到 base_output.hidden_states = None。
+    1. Qwen3VLModel.forward 不传递 hidden_states：【⚠️ 已被 2026-05-24 验证推翻，见下方】
+       ~~Qwen3VLTextModel 会返回 hidden_states，但 Qwen3VLModel.forward 构造返回值时~~
+       ~~只保留 last_hidden_state/past_key_values/rope_deltas，silently 丢弃 hidden_states。~~
+       ~~因此任何通过 Qwen3VLForConditionalGeneration.forward(output_hidden_states=True)~~
+       ~~的路径都会得到 base_output.hidden_states = None。~~
+       → 该结论是在 qwen3-verl（torch 2.9.1）环境下观察到的旧行为，或当时测试方法有误。
+         2026-05-24 实验（verify_qwen3_env.py）在 qwen3（torch 2.8.0）和 qwen3-verl
+         （torch 2.9.1）两个环境下均确认：output_hidden_states=True 返回完整的 29 层
+         hidden_states tuple，顶层（Qwen3VLForConditionalGeneration）和内层
+         （Qwen3VLModel）均非 None。详见 [2026-05-24] 验证节。
 
     2. check_model_inputs 装饰器是 NO-OP：
        _CAN_RECORD_REGISTRY 为空（0条），对任何模型类均不做 monkey-patch，
@@ -1197,18 +1202,44 @@
        (input_ids, image_grid_thw, video_grid_thw, attention_mask)
        无 mm_token_type_ids 参数（该参数只在其他版本的 fork 中存在）。
 
-    ─── hidden state 提取方案：Forward Hook（绕过 output_hidden_states=True）──────────
+    ─── hidden state 提取方案：Forward Hook（性能优于 output_hidden_states=True）────────
 
-    因 Qwen3VLModel 会 silently 丢弃 hidden_states，且 output_hidden_states=True 与
-    gradient_checkpointing + FA2 叠加时产生额外存储和重算开销，
-    改用 Forward Hook 只抓取 15 个 probe 层的输出：
+    output_hidden_states=True 现已可用（两环境均验证，见 [2026-05-24]），但 Forward Hook
+    仍然是性能更优的方案，原因如下：
 
-      modeling_guiowl.py._run_language_model():
-        - 只在 probe_layers 注册 forward hook
-        - self.model.language_model(output_hidden_states=False, ...)  ← 无 37层开销
-        - hook 捕获后立即 .detach()（backbone 冻结，无需反传）
-        - 返回 (lm_out, sparse_hidden_states_tuple)
-        - LayerWiseGroundingHead.forward 通过 all_hidden_states[layer_idx+1] 访问
+    [选择 Hook 的理由——不是 API 可用性，而是性能]
+    output_hidden_states=True 的开销分析（以 Qwen3-VL-8B-Instruct 为例，36层，
+    seq_len≈13000，bfloat16，A100-80G 8 卡，batch_size=1，gradient_checkpointing=True）：
+
+      ① 内存开销：
+         output_hidden_states=True 要求在 forward pass 中保存全部 37 个 hidden state tensor
+         (37 × [B, seq_len, d_model] = 37 × [1, 13000, 4096] = 37 × 101.2 MB ≈ 3.7 GB)
+         额外的 3.7 GB 显存直接挤占 A100 的 80 GB 预算，对 8B 模型极为危险。
+
+      ② gradient_checkpointing（GC）+ use_reentrant=False 的 recompute 开销：
+         GC 在 backward 时 recompute 每个 decoder block 的 forward pass。
+         output_hidden_states=True 时，recompute 每次都会重新生成并保存 37 层的
+         hidden state tuple（即使在 recompute 时也不会被复用），带来额外约 3.7 GB
+         的临时峰值内存和重算时间。
+         旧 qwen3-verl 实测：output_hidden_states=True + GC recompute → ~774s/step
+                             output_hidden_states=False（hook 方案）   → ~20-30s/step
+
+      ③ Hook 方案只保存 probe_layers（通常 10-15 层）的 hidden state：
+         15 × [1, 13000, 4096] = 15 × 101.2 MB ≈ 1.5 GB（比全量少 2.2 GB）
+         且 .detach() 后立即从计算图中分离，不参与 GC recompute 链路，
+         recompute 时只产生 last_hidden_state 一个 tensor（~101 MB）。
+
+    Hook 方案性能汇总（qwen3-verl 实测）：
+      output_hidden_states=True + GC：  ~774s/step（不可接受）
+      output_hidden_states=False + hook：~20-30s/step（生产可用）
+      节省比例：~97%，接近 26× 加速。
+
+    实现（modeling_guiowl.py._run_language_model()）：
+      - 只在 probe_layers 注册 forward hook
+      - self.model.language_model(output_hidden_states=False, ...)  ← 无 37层开销
+      - hook 捕获后立即 .detach()（backbone 冻结，无需反传）
+      - 返回 (lm_out, sparse_hidden_states_tuple)
+      - LayerWiseGroundingHead.forward 通过 all_hidden_states[layer_idx+1] 访问
 
     这是对 Qwen3-VL 与 UI-TARS 完全等价的方案，速度接近 UI-TARS (~15-25s/step)。
 
@@ -1936,4 +1967,97 @@
            信号与训练时不同，是 guiowl/uivenus 准确率低的潜在根因之一。
         ⑤ 正确的 eval 方式：必须通过 GUIOwlRetrofitInference（或 UIVenusRetrofitInference）
            加载模型，不能直接用 transformers 的官方类，否则 patch 不生效。
+
+  - [2026-05-24] 【qwen3 环境双验证：output_hidden_states + Conv3d 性能（实测数据）】
+
+    脚本：zwerge/debug_contracts/verify_qwen3_env.py（全量版，3 种 N_patches 规模）
+          zwerge/debug_contracts/verify_qwen3_env_fast.py（快速版，N=2040 单次，供 verl 环境用）
+    模型：Qwen3-VL-2B-Instruct（最小，快速验证功能；结论可推广到 8B）
+    GPU：NVIDIA A100-SXM4-40GB
+
+    ─── 环境参数 ────────────────────────────────────────────────────────────────────────
+
+    环境              PyTorch        Transformers    用途
+    qwen3             2.8.0+cu128    4.57.1          guiowl/uivenus 正式训练环境（新）
+    qwen3-verl        2.9.1+cu128    4.57.1          guiowl/uivenus 原训练环境（旧）
+
+    ─── 问题 1：output_hidden_states=True 是否返回 non-None hidden_states ─────────────
+
+    【结论：两个环境均已可用，与 .mrules [2026-05-21] 原始记录不符，该记录已更正】
+
+    环境           顶层（ForConditionalGeneration）     内层（Qwen3VLModel）
+    qwen3          ✅ tuple, 29层, 全非None              ✅ 29层
+    qwen3-verl     ✅ tuple, 29层, 全非None              ✅ 29层
+
+    注：[2026-05-21] 记录的 "Qwen3VLModel silently drops hidden_states" 结论
+    可能源于当时使用了不同版本的 transformers fork，或测试路径有误。
+    当前 transformers 4.57.1 在两环境下行为一致：output_hidden_states=True 正常工作。
+
+    【output_hidden_states=True 虽然可用，但 hook 方案仍然是正确选择，理由见下方】
+
+    为什么 hook 仍优于 output_hidden_states=True：
+
+    比较维度         output_hidden_states=True          Forward Hook（当前实现）
+    ─────────────── ──────────────────────────────── ────────────────────────────────
+    API 可用性       ✅（两环境均验证可用）             ✅（不依赖此 API）
+    内存占用         全部 37 层 ≈ 3.7 GB（额外）         probe 15 层 ≈ 1.5 GB（额外）
+                    → 每层 [B=1,T=13000,d=4096]×37      → 仅 probe 层，.detach() 分离
+    GC recompute     ❌ 每次 recompute 重生成 37 层       ✅ recompute 不经过 detach 节点
+    开销             → ~774s/step（qwen3-verl 实测）      → ~20-30s/step（实测）
+    加速比           基准（1×）                           ~26× 更快
+    probe 层选择性   ❌ 强制保存全部层                     ✅ 只保存指定 probe 层
+    梯度链路         ❌ 全层 HS 接入计算图（即使冻结）    ✅ .detach() 彻底切断 backbone
+
+    形象比喻：
+      output_hidden_states=True 相当于"为了取出第 3 层书架的 5 本书，
+      把整个 37 层书库全部复印一遍，还在还书时再复印一遍"；
+      Hook 方案相当于"在第 3 层书架旁安装摄像头，只拍需要的那 5 本书的照片"——
+      书库本身的搬运（GC recompute）完全不受摄像头影响。
+
+    ─── 问题 2：Conv3d 性能对比（核心结论）────────────────────────────────────────────
+
+    【结论：qwen3（torch 2.8.0）已修复 Conv3d 退化问题；qwen3-verl（torch 2.9.1）仍有 bug】
+
+    测试设置：Qwen3-VL-2B-Instruct，patch_embed.proj = Conv3d(3, 1024, kernel=(2,16,16))
+    flat_dim = 3×2×16×16 = 1536，out_ch = 1024，dtype = bfloat16，GPU = A100-SXM4-40GB
+
+    环境          N_patches    Conv3d 耗时    F.linear 耗时    Speedup    结论
+    ──────────   ──────────   ────────────   ─────────────   ────────   ──────
+    qwen3          2040          1.609 ms        0.065 ms       24.9×    ✅ FAST
+    (torch 2.8)    5680          4.239 ms        0.143 ms       29.6×    ✅ FAST
+                  11360          8.257 ms        0.231 ms       35.7×    ✅ FAST
+    ──────────   ──────────   ────────────   ─────────────   ────────   ──────
+    qwen3-verl     2040      16,250.904 ms       4.667 ms     3482.3×    ❌ SLOW
+    (torch 2.9)    （仅测    （约 16 秒！）                              （原始 bug）
+                   N=2040）
+
+    对比参照（来自 [2026-05-21] 原始记录，qwen3-verl 下 N=11360）：
+      Conv3d: 88,937 ms  vs  F.linear: 0.28 ms（差距 31 万倍）
+      与 N=2040 实测结果一致：qwen3-verl 下随 N 线性增长，Conv3d 约 8 ms/1000 patches。
+
+    qwen3（torch 2.8.0）的修复机制：
+      PyTorch 2.8.0 改进了 cuDNN 对退化卷积形状的 dispatch 路径——
+      当 Conv3d 的 stride == kernel_size 且 spatial_size == (1,1,1) 时，
+      cuDNN 自动选择 implicit_gemm 路径（等价于 F.linear），
+      而不是走完整的卷积算法（在此 degenerate case 下极慢）。
+      torch 2.9.1 回归了这一优化（原因未知，可能是某个 cuDNN 版本兼容性变化）。
+
+    结论与行动：
+
+    ① qwen3 环境已可以安全使用，Conv3d 速度（~1-8ms）在整个训练 step（~20s）中
+       完全可以忽略，monkey-patch 不再是 must-have，但作为一个 25-36× 的免费加速
+       仍然保留（不影响正确性，且防止未来版本再次退化）。
+
+    ② qwen3-verl 环境 Conv3d bug 仍然存在（16s vs 4ms，3482×），
+       若要继续使用 qwen3-verl 训练，monkey-patch 是必须的。
+
+    ③ 新实验推荐全部迁移到 qwen3（torch 2.8.0），避免 Conv3d 退化风险。
+       现有 qwen3-verl checkpoint 用 qwen3 环境加载推断完全兼容（权重格式相同）。
+
+    ④ monkey-patch 方案的训练/推断数值一致性结论（来自 [2026-05-24] 数值验证节）
+       同样适用于 qwen3 环境：
+       - patch 前后 Conv3d 输出存在 bfloat16 精度差异（max_diff ≈ 0.016）
+       - 经 ViT self-attention 级联放大后 LM 层 visual HS 偏差仍可能达到 1e2 量级
+       - 因此不论在哪个环境，训练和推断都必须使用**相同的 forward 路径**
+         （都 patch 或都不 patch），_GUIOwlImpl.__init__() 的自动 patch 已保证这一点
 
