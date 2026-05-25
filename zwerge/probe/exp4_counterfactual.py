@@ -1,19 +1,30 @@
 """
-exp4_counterfactual.py — Experiment 4: Same-App Counterfactual Target Switch
+exp4_counterfactual.py — Experiment 4: Instruction-Conditioned Posterior Shift
 
-For each (img_A, instruction_A) / (img_B, instruction_B) pair from the same
-application (exact image_size match, non-overlapping GT bboxes):
+For each pair (rec_A, rec_B) from the same application (exact image_size match,
+non-overlapping GT bboxes), we run both instructions on image_A:
 
-  Run img_A with instruction_A  →  mass_A_given_IA  (control)
-  Run img_A with instruction_B  →  mass_A_given_IB, mass_B_given_IB  (counterfactual)
+  Run img_A + instruction_A  →  posterior P_AA  (control)
+  Run img_A + instruction_B  →  posterior P_AB  (counterfactual)
 
-Key metrics per probe layer:
-  switch_score             = mass_B_given_IB - mass_A_given_IB
-  old_target_suppression   = mass_A_given_IA - mass_A_given_IB
+Pair types
+----------
+  exact_image          : rec_A and rec_B share the exact same image_path.
+                         switch_score = mass_B_given_IB - mass_A_given_IB
+                         is interpretable because bbox_B physically exists in img_A.
+  same_app_hard_negative: different images, same (app, image_size).
+                         bbox_B may not exist in img_A → switch_score is a proxy.
+                         Main-text metrics: old_target_suppression + posterior_js only.
 
-A positive switch_score means the posterior shifted toward instruction_B's target.
-A positive old_target_suppression means instruction_B suppressed instruction_A's region.
-Both peaking at mid-layers confirms instruction-conditioned (not generic saliency) grounding.
+Primary metrics per probe layer (both pair types):
+  old_target_suppression = mass_A_given_IA − mass_A_given_IB
+      "does the posterior de-emphasise target_A when given instruction_B?"
+  posterior_js           = JS(P_AA ∥ P_AB)
+      "how much does the spatial distribution change across instructions?"
+
+Secondary (exact_image pairs or appendix only):
+  switch_score           = mass_B_given_IB − mass_A_given_IB
+  mass_B_given_IB        = posterior mass at bbox_B under instruction_B
 """
 
 import argparse
@@ -34,6 +45,10 @@ _SRC_DIR    = os.path.join(_REPO_ROOT, "zwerge", "src")
 for _d in [_PROBE_DIR, _EVAL_DIR, _SRC_DIR]:
     if _d not in sys.path:
         sys.path.insert(0, _d)
+
+import math
+
+import torch.nn.functional as F
 
 from probe_utils import (
     append_jsonl,
@@ -72,8 +87,32 @@ def _get_image_path(rec: dict, image_root: str):
     return None
 
 
+def _get_image_relpath(rec: dict):
+    """Return the relative image path string from the record, or None."""
+    for key in ("image_path", "img_path", "image_filename", "image"):
+        v = rec.get(key)
+        if v:
+            return v
+    return None
+
+
 def _pair_id(idx_A: int, idx_B: int) -> str:
     return f"{idx_A}_{idx_B}"
+
+
+def _js_divergence(p: torch.Tensor, q: torch.Tensor) -> float:
+    """
+    Jensen-Shannon divergence between two probability vectors p and q.
+    Both must already be normalised (sum to 1).  Returns a value in [0, log2].
+    Uses natural log → result in [0, ln2].
+    """
+    eps = 1e-10
+    p = p.float().clamp(min=eps)
+    q = q.float().clamp(min=eps)
+    m = 0.5 * (p + q)
+    kl_pm = (p * (p / m).log()).sum()
+    kl_qm = (q * (q / m).log()).sum()
+    return float((0.5 * kl_pm + 0.5 * kl_qm).item())
 
 
 # ── Main experiment loop ──────────────────────────────────────────────────────
@@ -123,6 +162,14 @@ def run_exp4(
         rec_A = records[idx_A]
         rec_B = records[idx_B]
 
+        # Detect whether this is an exact-same-image pair or same-app hard negative
+        relpath_A = _get_image_relpath(rec_A)
+        relpath_B = _get_image_relpath(rec_B)
+        pair_type = (
+            "exact_image" if (relpath_A and relpath_B and relpath_A == relpath_B)
+            else "same_app_hard_negative"
+        )
+
         img_path_A = _get_image_path(rec_A, image_root)
         if img_path_A is None:
             n_skip += 1
@@ -166,18 +213,18 @@ def run_exp4(
         n_w = pred_AA["n_width"]
         n_h = pred_AA["n_height"]
 
-        # Safety: verify n_width/n_height are consistent between passes
         if pred_AB["n_width"] != n_w or pred_AB["n_height"] != n_h:
             warnings.warn(f"[exp4] Grid size mismatch for pair {pair_id}, skipping.")
             n_skip += 1
             continue
 
-        # ── Compute per-layer masses ───────────────────────────────────────────
+        # ── Compute per-layer metrics ──────────────────────────────────────────
         mass_A_given_IA = []
         mass_A_given_IB = []
         mass_B_given_IB = []
-        switch_score    = []
-        old_target_supp = []
+        switch_score    = []   # proxy — reliable only for exact_image pairs
+        old_target_supp = []   # primary: valid for both pair types
+        posterior_js    = []   # primary: valid for both pair types
 
         probs_AA = pred_AA["per_layer_probs"]
         probs_AB = pred_AB["per_layer_probs"]
@@ -193,26 +240,33 @@ def run_exp4(
             mass_A_given_IA.append(mAA)
             mass_A_given_IB.append(mAB)
             mass_B_given_IB.append(mBB)
-            switch_score.append(mBB - mAB)       # positive = posterior moved toward B
-            old_target_supp.append(mAA - mAB)    # positive = instruction B suppressed A's region
+            old_target_supp.append(mAA - mAB)
+            switch_score.append(mBB - mAB)
+            posterior_js.append(_js_divergence(p_AA, p_AB))
 
         result = {
             "pair_id":          pair_id,
+            "pair_type":        pair_type,
             "idx_A":            idx_A,
             "idx_B":            idx_B,
             "model_type":       model_type,
             "app":              rec_A.get("application", rec_A.get("app", "")),
             "image_size":       rec_A.get("image_size"),
+            "image_path_A":     relpath_A,
+            "image_path_B":     relpath_B,
             "instruction_A":    instruction_A,
             "instruction_B":    instruction_B,
             "bbox_A_norm":      list(bbox_A_norm),
             "bbox_B_norm":      list(bbox_B_norm),
             "probe_layers":     probe_layers,
+            # Primary metrics (safe for both pair types)
+            "old_target_suppression": old_target_supp,
+            "posterior_js":           posterior_js,
+            # Secondary / appendix metrics
             "mass_A_given_IA":  mass_A_given_IA,
             "mass_A_given_IB":  mass_A_given_IB,
             "mass_B_given_IB":  mass_B_given_IB,
-            "switch_score":     switch_score,
-            "old_target_suppression": old_target_supp,
+            "switch_score":     switch_score,   # proxy for same_app_hard_negative
         }
         append_jsonl(output_path, result)
         done_ids.add(pair_id)

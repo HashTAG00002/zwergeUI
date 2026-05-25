@@ -61,7 +61,7 @@ if [[ "${MODEL}" == "all" || "${MODEL}" == "uitars" ]]; then
 fi
 
 if [[ "${MODEL}" == "all" || "${MODEL}" == "guiowl7b" ]]; then
-    run_model guiowl7b "${CKPT_BASE}/guiowl7b_A7_exp001/checkpoint-2800" qwen25
+    run_model guiowl7b "${CKPT_BASE}/guiowl7b_A7_exp001/checkpoint-2400" qwen25
 fi
 
 if [[ "${MODEL}" == "all" || "${MODEL}" == "guiowl" ]]; then

@@ -107,9 +107,14 @@ def find_coord_token_positions(
     input_ids_1d: torch.Tensor,
     tokenizer,
     model_type: str,
+    native_response: Optional[str] = None,
 ) -> Tuple[List[int], List[int], List[int], List[int]]:
     """
     Find positions of coordinate value tokens and protocol tokens in input_ids.
+
+    For Qwen3/uivenus: uses exact token subsequence search over candidate
+    coordinate substrings derived from native_response (most robust).
+    Falls back to bracket-scan heuristic if subsequence search fails.
 
     Returns:
         coord_positions : list of int (positions of digit tokens)
@@ -121,7 +126,6 @@ def find_coord_token_positions(
 
     if model_type in ("uitars", "guiowl7b", "uitars1"):
         # Format: <|box_start|>(x,y)<|box_end|>
-        # Special tokens are added tokens — look them up
         bs_id = _tok_id(tokenizer, "<|box_start|>")
         be_id = _tok_id(tokenizer, "<|box_end|>")
         if bs_id is None or be_id is None:
@@ -136,23 +140,21 @@ def find_coord_token_positions(
             return [], [], [], []
 
     elif model_type in ("guiowl", "uivenus"):
-        # Format: [..., [x1k, y1k], ...] or JSON
-        # Strategy: find the last run of digit/comma/bracket tokens near the end
-        # of the sequence (the assistant response).
-        # We look for the pattern where digits appear after the last '[' token.
-        bracket_id = _tok_id_str(tokenizer, "[")
-        # Scan from the end
+        # ── Primary: exact token subsequence search ───────────────────────────
+        if native_response is not None:
+            result = _find_coord_by_subsequence(ids, tokenizer, native_response)
+            if result is not None:
+                return result
+
+        # ── Fallback: bracket-scan heuristic ─────────────────────────────────
         last_bracket = -1
         for i in range(len(ids) - 1, -1, -1):
             tok_str = tokenizer.convert_ids_to_tokens([ids[i]])
             if tok_str and ("[" in tok_str[0] or "coordinate" in tok_str[0].lower()):
                 last_bracket = i
                 break
-
         if last_bracket < 0:
             return [], [], [], []
-
-        # Collect tokens after last_bracket until ']'
         coord_pos, coord_ids_out = [], []
         for i in range(last_bracket + 1, len(ids)):
             tok_str = tokenizer.convert_ids_to_tokens([ids[i]])
@@ -160,10 +162,103 @@ def find_coord_token_positions(
                 break
             coord_pos.append(i)
             coord_ids_out.append(ids[i])
-
         return coord_pos, coord_ids_out, [last_bracket], [ids[last_bracket]]
 
     return [], [], [], []
+
+
+def _find_coord_by_subsequence(
+    ids: List[int],
+    tokenizer,
+    native_response: str,
+) -> Optional[Tuple[List[int], List[int], List[int], List[int]]]:
+    """
+    Tokenize candidate coordinate substrings from native_response and find
+    their last occurrence as a contiguous subsequence in ids.
+
+    Handles the coordinate part (digits inside [...]) and the surrounding
+    bracket/JSON protocol part separately.
+    """
+    import re
+
+    # Extract the coordinate portion: last [...] in the response
+    coord_match = re.search(r'\[(\d+),\s*(\d+)\]', native_response)
+    if coord_match is None:
+        return None
+
+    x_str = coord_match.group(1)
+    y_str = coord_match.group(2)
+    coord_span = coord_match.group(0)  # "[x,y]" or "[x, y]"
+
+    # Build candidate strings to search for the coordinate interior (no brackets)
+    coord_interior_candidates = [
+        f"{x_str},{y_str}",
+        f"{x_str}, {y_str}",
+        f" {x_str},{y_str}",
+        f" {x_str}, {y_str}",
+    ]
+
+    # Build candidate strings for the full coordinate span (with brackets)
+    coord_full_candidates = [
+        f"[{x_str},{y_str}]",
+        f"[{x_str}, {y_str}]",
+        f"[{x_str},{y_str} ]",
+    ]
+
+    def _find_last_subseq(haystack: List[int], needle: List[int]) -> int:
+        """Return start index of last occurrence of needle in haystack, or -1."""
+        n, m = len(haystack), len(needle)
+        if m == 0 or m > n:
+            return -1
+        for i in range(n - m, -1, -1):
+            if haystack[i:i + m] == needle:
+                return i
+        return -1
+
+    def _tokenize(s: str) -> List[int]:
+        return tokenizer.encode(s, add_special_tokens=False)
+
+    # Search for the coordinate interior tokens
+    coord_pos: List[int] = []
+    coord_ids_found: List[int] = []
+    for cand in coord_interior_candidates:
+        needle = _tokenize(cand)
+        if not needle:
+            continue
+        start = _find_last_subseq(ids, needle)
+        if start >= 0:
+            coord_pos      = list(range(start, start + len(needle)))
+            coord_ids_found = needle
+            break
+
+    if not coord_pos:
+        return None
+
+    # Search for the protocol bracket tokens (the enclosing "[" and "]")
+    proto_pos: List[int] = []
+    proto_ids_found: List[int] = []
+    for cand in coord_full_candidates:
+        needle = _tokenize(cand)
+        if not needle:
+            continue
+        start = _find_last_subseq(ids, needle)
+        if start < 0:
+            continue
+        # Protocol = tokens before coord_pos[0] and after coord_pos[-1] within needle span
+        end = start + len(needle)
+        pre  = [i for i in range(start, coord_pos[0]) if i < end]
+        post = [i for i in range(coord_pos[-1] + 1, end)]
+        if pre or post:
+            proto_pos      = pre + post
+            proto_ids_found = [ids[i] for i in proto_pos]
+            break
+
+    # Fallback: just use the token immediately before coord_pos[0] as protocol
+    if not proto_pos and coord_pos[0] > 0:
+        proto_pos      = [coord_pos[0] - 1]
+        proto_ids_found = [ids[coord_pos[0] - 1]]
+
+    return coord_pos, coord_ids_found, proto_pos, proto_ids_found
 
 
 def _tok_id(tokenizer, token_str: str) -> Optional[int]:
@@ -186,6 +281,33 @@ def _tok_id_str(tokenizer, s: str) -> Optional[int]:
         return None
 
 
+# ── Logit-lens helpers ────────────────────────────────────────────────────────
+
+class _StopForward(Exception):
+    """Raised inside a forward hook to abort the forward pass after the last probe layer."""
+
+
+def make_next_token_targets(
+    target_positions: List[int],
+    target_ids: List[int],
+) -> Tuple[List[int], List[int]]:
+    """
+    Convert (target_positions, target_ids) into the teacher-forcing-safe form:
+
+      predictor_position p-1  →  predicts token at position p
+
+    Positions with p == 0 are dropped (no prior context).
+    Returns (predictor_positions, shifted_target_ids).
+    """
+    pred_pos: List[int] = []
+    pred_ids: List[int] = []
+    for pos, tid in zip(target_positions, target_ids):
+        if pos > 0:
+            pred_pos.append(pos - 1)
+            pred_ids.append(tid)
+    return pred_pos, pred_ids
+
+
 # ── Logit-lens NLL via forward hooks ─────────────────────────────────────────
 
 def logit_lens_nll_hooks(
@@ -199,15 +321,21 @@ def logit_lens_nll_hooks(
     """
     Memory-efficient logit lens using PyTorch forward hooks.
 
-    Computes per-layer NLL of target_ids at target_positions WITHOUT storing
-    all hidden states simultaneously (avoids OOM for large GUI screenshots).
+    Token shift (teacher-forcing fix): for each target token at position p,
+    we use the hidden state at position p-1 to predict token p.  This avoids
+    the situation where position p's hidden state has already "seen" token p
+    via the embedding, which would artificially deflate NLL at all layers.
+
+    Early-exit via _StopForward: after the last probe layer fires its hook the
+    forward pass is aborted, avoiding the cost of remaining layers and the
+    final lm_head projection over the full sequence.
 
     Args:
         model           : the ZwerGe retrofit model (UITARSRetrofitModel etc.)
         inputs          : dict from build_zwerge_inputs() (input_ids, pixel_values, ...)
-        target_positions: sequence positions to measure NLL at
-        target_ids      : ground-truth token ids at those positions
-        probe_layers    : layer indices to probe
+        target_positions: sequence positions whose tokens we want to predict
+        target_ids      : ground-truth token ids AT those positions (p, not p-1)
+        probe_layers    : layer indices to probe (must be sorted ascending)
         device          : torch device
 
     Returns:
@@ -216,56 +344,63 @@ def logit_lens_nll_hooks(
     if not target_positions or not target_ids:
         return {}
 
-    norm    = _get_lm_norm(model)
-    lm_head = _get_lm_head(model)
-    target_t = torch.tensor(target_ids, dtype=torch.long, device=device)
+    # Apply token shift: use hidden state at p-1 to predict token at p
+    pred_positions, shifted_target_ids = make_next_token_targets(target_positions, target_ids)
+    if not pred_positions:
+        return {}
+
+    norm     = _get_lm_norm(model)
+    lm_head  = _get_lm_head(model)
+    target_t = torch.tensor(shifted_target_ids, dtype=torch.long, device=device)
     results: Dict[int, float] = {}
+
+    max_probe_layer = max(probe_layers)
 
     def make_hook(li: int):
         def hook_fn(module, inp, out):
-            # out is typically (hidden_state, ...) or just hidden_state
             h = out[0] if isinstance(out, tuple) else out  # [bsz, seq_len, d]
-            # Grab positions from sequence dim
-            h_pos = h[0, target_positions, :].detach().float()  # [n_target, d]
-            h_n   = norm(h_pos)                                  # [n_target, d]
-            logits = lm_head(h_n)                                 # [n_target, vocab]
+            # Use predictor positions (p-1) to predict tokens at p
+            h_pos  = h[0, pred_positions, :].detach().float()  # [n_target, d]
+            h_n    = norm(h_pos)                                # [n_target, d]
+            logits = lm_head(h_n)                               # [n_target, vocab]
             nll = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 target_t[:h_pos.shape[0]].to(logits.device),
                 reduction="mean",
             )
             results[li] = float(nll.item())
-            # Free immediately — don't accumulate
             del h_pos, h_n, logits, nll
+            # Abort forward pass after the last probe layer — saves compute
+            if li == max_probe_layer:
+                raise _StopForward
         return hook_fn
 
-    # Register hooks only for probe layers
     hooks = []
     for li in probe_layers:
         layer = _get_decoder_layer(model, li)
         hooks.append(layer.register_forward_hook(make_hook(li)))
 
     try:
-        # Move inputs to device
         dev_inputs = {
             k: v.to(device) if isinstance(v, torch.Tensor) else v
             for k, v in inputs.items()
         }
-        # Handle pixel_values dtype
         if "pixel_values" in dev_inputs and dev_inputs["pixel_values"] is not None:
             dev_inputs["pixel_values"] = dev_inputs["pixel_values"].to(
                 device=device, dtype=model.dtype
             )
 
         with torch.no_grad():
-            # Run full model forward — hooks fire at each probe layer
-            model(
-                output_hidden_states=False,
-                output_attentions=False,
-                use_cache=False,
-                return_dict=True,
-                **dev_inputs,
-            )
+            try:
+                model(
+                    output_hidden_states=False,
+                    output_attentions=False,
+                    use_cache=False,
+                    return_dict=True,
+                    **dev_inputs,
+                )
+            except _StopForward:
+                pass  # expected early exit — results are populated
     finally:
         for h in hooks:
             h.remove()

@@ -194,7 +194,8 @@ def run_exp3(
 
         input_ids_1d = native_inputs["input_ids"][0]
         coord_pos, coord_ids, proto_pos, proto_ids = find_coord_token_positions(
-            input_ids_1d, grounder.processor.tokenizer, model_type
+            input_ids_1d, grounder.processor.tokenizer, model_type,
+            native_response=native_resp,
         )
 
         if len(coord_ids) == 0:
