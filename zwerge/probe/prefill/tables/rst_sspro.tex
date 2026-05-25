@@ -1,0 +1,107 @@
+% \begin{table*}[t]
+% \centering
+% \caption{Results on ScreenSpot-Pro. Methods marked with \repro{} are reproduced using the zoom-in strategy adopted in this work.}
+% \label{tab:main_sspro}
+% \resizebox{\textwidth}{!}{%
+% \begin{tabular}{l *{12}{c} >{\columncolor{blue!10}}c}
+% \toprule
+% \multirow{2}{*}{\textbf{Model}} &
+% \multicolumn{2}{c}{\textbf{Development}} &
+% \multicolumn{2}{c}{\textbf{Creative}} &
+% \multicolumn{2}{c}{\textbf{CAD}} &
+% \multicolumn{2}{c}{\textbf{Scientific}} &
+% \multicolumn{2}{c}{\textbf{Office}} &
+% \multicolumn{2}{c}{\textbf{OS}} &
+% \multicolumn{1}{c}{\multirow{2}{*}{\textbf{Overall}}} \\
+% \cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9} \cmidrule(lr){10-11} \cmidrule(lr){12-13}
+%  & Text & Icon & Text & Icon & Text & Icon & Text & Icon & Text & Icon & Text & Icon & \cellcolor{white} \\
+% \midrule
+% UI-TARS-72B~\citep{uitars} & 63.0 & 17.3 & 57.1 & 15.4 & 18.8 & 12.5 & 64.6 & 20.9 & 63.3 & 26.4 & 42.1 & 15.7 & 38.1 \\
+% GTA1-32B~\citep{gta1} & 83.1 & 37.9 & 72.2 & 25.9 & 70.1 & 31.3 & 84.7 & 39.1 & 89.3 & 64.2 & 76.6 & 51.7 & 63.6 \\
+% UI-Ins-32B~\citep{uiins} & 51.8 & 29.7 & 83.1 & 26.9 & 69.7 & 18.9 & 83.3 & 34.5 & 88.7 & 50.9 & 70.1 & 34.8 & 57.0 \\
+% GuirlVG~\citep{guirlvg} & 64.9 & 7.6 & 42.9 & 11.2 & 28.9 & 9.4 & 63.9 & 16.4 & 63.8 & 26.4 & 43.9 & 13.5 & 36.1 \\
+% GUI-Spotlight~\citep{guispotlight} & - & - & - & - & - & - & - & - & - & - & - & - & 52.8 \\
+% GUI-Cursor-7B~\citep{guicursor} & 80.5 & 33.1 & 65.7 & 18.2 & 62.4 & 25.0 & 83.3 & 32.7 & 84.2 & 43.4 & 65.4 & 31.5 & 56.5 \\
+% MAI-UI-8B~\citep{maiui} & 78.6 & 58.6 & 78.8 & 46.9 & 80.7 & 43.8 & 86.1 & 49.1 & 88.1 & 81.1 & 76.6 & 51.7 & 70.9 \\
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 90.2 & 68.9 & 84.8 & 56.6 & 86.8 & 62.5 & 89.5 & 55.4 & 91.5 & 71.6 & 86.9 & 53.9 & 77.8 \\
+% \midrule
+% \multicolumn{14}{l}{\textit{Training-free methods}} \\
+% CoG~\citep{chainofground} & - & - & - & - & - & - & - & - & - & - & - & - & 68.4 \\
+% ZoomClick-32B~\citep{zoomclick} & 88.3 & 55.9 & 82.8 & 38.5 & 80.7 & 42.2 & 90.2 & 40.9 & 93.8 & 77.4 & 84.1 & 51.7 & 72.1 \\
+% MVP-8B~\citep{mvp} & - & - & - & - & - & - & - & - & - & - & - & - & 65.3 \\
+% MVP-32B~\citep{mvp} & - & - & - & - & - & - & - & - & - & - & - & - & 74.0 \\
+% \midrule
+% \textit{\textcolor{gray}{Qwen3-VL-8B-Instruct~\citep{qwen3vl}}}\repro        & 87.7 & 37.9 & 78.8 & 36.4 & 72.6 & 28.1 & 86.8 & 38.2 & 89.3 & 54.7 & 79.4 & 47.2 & 65.8 \\
+% \ \ + Re-Prefill         & 90.9 & 47.6 & 81.8 & 39.2 & 73.1 & 40.6 & 89.6 & 41.8 & 92.7 & 66.0 & 86.0 & 50.6 & 70.1\up{4.3} \\
+% \midrule
+% MAI-UI-8B~\citep{maiui}\repro          & 83.8 & 49.0 & 77.3 & 40.6 & 79.2 & 34.4 & 85.4 & 48.2 & 91.5 & 69.8 & 80.4 & 56.2 & 69.6 \\
+% \ \ + Re-Prefill         & 87.7 & 56.6 & 80.3 & 44.8 & 78.7 & 45.3 & 81.9 & 50.9 & 91.5 & 77.4 & 83.2 & 55.1 & 72.0\up{2.4} \\
+% \midrule
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl}\repro     & 81.2 & 69.7 & 83.8 & 58.0 & 84.8 & 57.8 & 93.1 & 65.5 & 93.2 & 69.8 & 85.1 & 61.8 & 78.0 \\
+% \ \ + Re-Prefill         & 88.3 & 73.8 & 85.9 & 58.0 & 85.8 & 64.1 & 91.0 & 65.5 & 93.2 & 75.5 & 86.9 & 67.4 & 80.1\up{2.1} \\
+% \midrule
+% Qwen3-VL-32B-Instruct~\citep{qwen3vl}\repro       & 89.6 & 49.7 & 85.4 & 46.2 & 83.8 & 45.3 & 89.6 & 47.3 & 94.4 & 77.4 & 91.6 & 53.9 & 74.3 \\
+% \ \ + Re-Prefill         & 93.5 & 54.5 & 87.4 & 51.7 & 83.8 & 43.8 & 94.4 & 49.1 & 94.9 & 77.4 & 88.8 & 64.0 & 76.8\up{2.5} \\
+% \bottomrule
+% \end{tabular}%
+% }
+% \end{table*}
+\begin{table*}[t]
+\centering
+\caption{Results on ScreenSpot-Pro. Methods marked with \repro{} are reproduced using the zoom-in strategy adopted in this work.}
+\label{tab:main_sspro}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l *{12}{c} >{\columncolor{blue!10}}c}
+\toprule
+\multirow{2}{*}{\textbf{Model}} &
+\multicolumn{2}{c}{\textbf{Development}} &
+\multicolumn{2}{c}{\textbf{Creative}} &
+\multicolumn{2}{c}{\textbf{CAD}} &
+\multicolumn{2}{c}{\textbf{Scientific}} &
+\multicolumn{2}{c}{\textbf{Office}} &
+\multicolumn{2}{c}{\textbf{OS}} &
+\multicolumn{1}{c}{\multirow{2}{*}{\textbf{Overall}}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9} \cmidrule(lr){10-11} \cmidrule(lr){12-13}
+ & Text & Icon & Text & Icon & Text & Icon & Text & Icon & Text & Icon & Text & Icon & \cellcolor{white} \\
+\midrule
+UI-TARS-72B~\citep{uitars} & 63.0 & 17.3 & 57.1 & 15.4 & 18.8 & 12.5 & 64.6 & 20.9 & 63.3 & 26.4 & 42.1 & 15.7 & 38.1 \\
+GTA1-32B~\citep{gta1} & 83.1 & 37.9 & 72.2 & 25.9 & 70.1 & 31.3 & 84.7 & 39.1 & 89.3 & 64.2 & 76.6 & 51.7 & 63.6 \\
+UI-Ins-32B~\citep{uiins} & 51.8 & 29.7 & 83.1 & 26.9 & 69.7 & 18.9 & 83.3 & 34.5 & 88.7 & 50.9 & 70.1 & 34.8 & 57.0 \\
+GuirlVG~\citep{guirlvg} & 64.9 & 7.6 & 42.9 & 11.2 & 28.9 & 9.4 & 63.9 & 16.4 & 63.8 & 26.4 & 43.9 & 13.5 & 36.1 \\
+% GUI-Spotlight~\citep{guispotlight} & - & - & - & - & - & - & - & - & - & - & - & - & 52.8 \\
+GUI-Cursor-7B~\citep{guicursor} & 80.5 & 33.1 & 65.7 & 18.2 & 62.4 & 25.0 & 83.3 & 32.7 & 84.2 & 43.4 & 65.4 & 31.5 & 56.5 \\
+MAI-UI-8B~\citep{maiui} & 78.6 & 58.6 & 78.8 & 46.9 & 80.7 & 43.8 & 86.1 & 49.1 & 88.1 & 81.1 & 76.6 & 51.7 & 70.9 \\
+GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 90.2 & 68.9 & 84.8 & 56.6 & 86.8 & 62.5 & 89.5 & 55.4 & 91.5 & 71.6 & 86.9 & 53.9 & 77.8 \\
+\midrule
+\multicolumn{14}{l}{\textit{Training-free methods}} \\
+RegionFocus~\citep{regionfocus} & 75.3 & 25.5 & 76.3 & 30.8 & 71.6 & 28.1 & 87.5 & 39.1 & 87.0 & 60.4 & 74.8 & 36.0 & 61.6 \\
+% CoG~\citep{chainofground} & - & - & - & - & - & - & - & - & - & - & - & - & 68.4 \\
+UI-Zoomer~\citep{uizoomer} & 85.7 & 42.1 & 75.1 & 44.8 & 76.1 & 40.6 & 84.0 & 42.7 & 86.5 & 69.8 & 83.2 & 48.3 & 67.8 \\
+ZoomClick~\citep{zoomclick} & 88.3 & 55.9 & 82.8 & 38.5 & 80.7 & 42.2 & 90.2 & 40.9 & 93.8 & 77.4 & 84.1 & 51.7 & 72.1 \\
+MVP-8B~\citep{mvp} & - & - & - & - & - & - & - & - & - & - & - & - & 65.3 \\
+MVP-32B~\citep{mvp} & - & - & - & - & - & - & - & - & - & - & - & - & 74.0 \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-8B-Instruct~\citep{qwen3vl}}}\repro 
+& \textcolor{gray}{87.7} & \textcolor{gray}{37.9} & \textcolor{gray}{78.8} & \textcolor{gray}{36.4} & \textcolor{gray}{72.6} & \textcolor{gray}{28.1} & \textcolor{gray}{86.8} & \textcolor{gray}{38.2} & \textcolor{gray}{89.3} & \textcolor{gray}{54.7} & \textcolor{gray}{79.4} & \textcolor{gray}{47.2} & \textcolor{gray}{65.8} \\
+\ \ + Re-Prefill         & 90.9 & 47.6 & 81.8 & 39.2 & 73.1 & 40.6 & 89.6 & 41.8 & 92.7 & 66.0 & 86.0 & 50.6 & 70.1\up{4.3} \\
+\midrule
+
+\textit{\textcolor{gray}{MAI-UI-8B~\citep{maiui}}}\repro 
+& \textcolor{gray}{83.8} & \textcolor{gray}{49.0} & \textcolor{gray}{77.3} & \textcolor{gray}{40.6} & \textcolor{gray}{79.2} & \textcolor{gray}{34.4} & \textcolor{gray}{85.4} & \textcolor{gray}{48.2} & \textcolor{gray}{91.5} & \textcolor{gray}{69.8} & \textcolor{gray}{80.4} & \textcolor{gray}{56.2} & \textcolor{gray}{69.6} \\
+\ \ + Re-Prefill         & 87.7 & 56.6 & 80.3 & 44.8 & 78.7 & 45.3 & 81.9 & 50.9 & 91.5 & 77.4 & 83.2 & 55.1 & 72.0\up{2.4} \\
+\midrule
+
+\textit{\textcolor{gray}{GUI-Owl-1.5-8B-Instruct~\citep{guiowl}}}\repro 
+& \textcolor{gray}{81.2} & \textcolor{gray}{69.7} & \textcolor{gray}{83.8} & \textcolor{gray}{58.0} & \textcolor{gray}{84.8} & \textcolor{gray}{57.8} & \textcolor{gray}{93.1} & \textcolor{gray}{65.5} & \textcolor{gray}{93.2} & \textcolor{gray}{69.8} & \textcolor{gray}{85.1} & \textcolor{gray}{61.8} & \textcolor{gray}{78.0} \\
+\ \ + Re-Prefill         & 88.3 & 73.8 & 85.9 & 58.0 & 85.8 & 64.1 & 91.0 & 65.5 & 93.2 & 75.5 & 86.9 & 67.4 & 80.1\up{2.1} \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-32B-Instruct~\citep{qwen3vl}}}\repro 
+& \textcolor{gray}{89.6} & \textcolor{gray}{49.7} & \textcolor{gray}{85.4} & \textcolor{gray}{46.2} & \textcolor{gray}{83.8} & \textcolor{gray}{45.3} & \textcolor{gray}{89.6} & \textcolor{gray}{47.3} & \textcolor{gray}{94.4} & \textcolor{gray}{77.4} & \textcolor{gray}{91.6} & \textcolor{gray}{53.9} & \textcolor{gray}{74.3} \\
+\ \ + Re-Prefill         & 93.5 & 54.5 & 87.4 & 51.7 & 83.8 & 43.8 & 94.4 & 49.1 & 94.9 & 77.4 & 88.8 & 64.0 & 76.8\up{2.5} \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{-1.3em}
+\end{table*}

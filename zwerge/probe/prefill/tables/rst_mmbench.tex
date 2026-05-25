@@ -1,0 +1,88 @@
+% \begin{table*}[t]
+% \centering
+% \caption{Results on MMBench-GUI-L2. Methods marked with \repro{} are reproduced using the zoom-in strategy adopted in this work.}
+% \label{tab:main_mmbench}
+% \resizebox{\textwidth}{!}{%
+% \begin{tabular}{l *{12}{c} >{\columncolor{blue!10}}c}
+% \toprule
+% \multirow{2}{*}{\textbf{Model}} &
+% \multicolumn{2}{c}{\textbf{Windows}} &
+% \multicolumn{2}{c}{\textbf{MacOS}} &
+% \multicolumn{2}{c}{\textbf{Linux}} &
+% \multicolumn{2}{c}{\textbf{iOS}} &
+% \multicolumn{2}{c}{\textbf{Android}} &
+% \multicolumn{2}{c}{\textbf{Web}} &
+% \multicolumn{1}{c}{\multirow{2}{*}{\cellcolor{white}\textbf{Overall}}} \\
+% \cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9} \cmidrule(lr){10-11} \cmidrule(lr){12-13}
+%  & Basic & Adv. & Basic & Adv. & Basic & Adv. & Basic & Adv. & Basic & Adv. & Basic & Adv. & \cellcolor{white} \\
+% \midrule
+% UI-TARS-72B~\citep{uitars} & 78.6 & 51.8 & 80.3 & 62.7 & 68.6 & 51.5 & 90.8 & 81.2 & 93.0 & 80.0 & 88.1 & 68.5 & 74.3 \\
+% UI-TARS-1.5-7B~\citep{uitars15} & 68.3 & 39.0 & 69.0 & 44.5 & 64.4 & 37.8 & 88.5 & 69.4 & 90.5 & 69.3 & 81.0 & 56.5 & 64.3 \\
+% UI-Ins-32B~\citep{uiins} & 84.9 & 68.4 & 88.4 & 73.4 & 68.6 & 56.1 & 96.5 & 91.2 & 97.2 & 92.4 & 94.8 & 85.1 & 84.9 \\
+% MAI-UI-8B~\citep{maiui} & 92.3 & 74.3 & 90.7 & 86.4 & 81.2 & 67.3 & 97.1 & 90.0 & 97.5 & 92.7 & 95.8 & 86.0 & 88.8 \\
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 89.7 & 65.4 & 88.1 & 72.8 & 72.8 & 56.6 & 95.9 & 83.9 & 95.2 & 82.9 & 93.2 & 77.6 & 82.5 \\
+% \midrule
+% Qwen3-VL-8B-Instruct~\citep{qwen3vl}\repro       & 90.4 & 70.6 & 86.7 & 73.4 & 77.5 & 62.8 & 95.2 & 85.8 & 95.5 & 86.8 & 94.8 & 78.2 & 84.2 \\
+% \ \ + Re-Prefill        & 90.0 & 73.5 & 89.0 & 78.3 & 82.2 & 67.9 & 96.2 & 86.7 & 96.1 & 88.5 & 95.5 & 82.1 & 86.4\up{2.2} \\
+% \midrule
+% MAI-UI-8B~\citep{maiui}\repro         & 93.0 & 71.0 & 91.9 & 78.6 & 83.2 & 67.9 & 96.5 & 87.6 & 98.0 & 88.2 & 96.4 & 83.1 & 87.2 \\
+% \ \ + Re-Prefill        & 93.0 & 74.6 & 93.0 & 80.6 & 83.8 & 71.4 & 95.9 & 90.0 & 97.8 & 91.3 & 95.5 & 84.4 & 88.5\up{1.3} \\
+% \midrule
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl}\repro    & 92.6 & 65.8 & 88.4 & 73.1 & 82.2 & 58.2 & 97.1 & 86.4 & 97.5 & 83.9 & 95.8 & 80.2 & 84.5 \\
+% \ \ + Re-Prefill        & 90.8 & 68.8 & 87.8 & 74.3 & 82.7 & 61.7 & 96.5 & 86.7 & 97.8 & 85.1 & 95.5 & 81.2 & 85.1\up{0.6} \\
+% \midrule
+% Qwen3-VL-32B-Instruct~\citep{qwen3vl}\repro      & 93.4 & 71.3 & 90.4 & 80.3 & 86.9 & 70.4 & 97.1 & 90.3 & 97.8 & 91.5 & 96.8 & 84.1 & 88.4 \\
+% \ \ + Re-Prefill        & 92.6 & 72.4 & 91.9 & 84.7 & 85.9 & 76.0 & 97.5 & 91.8 & 96.9 & 91.5 & 97.1 & 86.4 & 89.5\up{1.1} \\
+% \bottomrule
+% \end{tabular}%
+% }
+% \end{table*}
+
+\begin{table*}[t]
+\centering
+\caption{Results on MMBench-GUI-L2. Methods marked with \repro{} are reproduced using the zoom-in strategy adopted in this work.}
+\label{tab:main_mmbench}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l *{12}{c} >{\columncolor{blue!10}}c}
+\toprule
+\multirow{2}{*}{\textbf{Model}} &
+\multicolumn{2}{c}{\textbf{Windows}} &
+\multicolumn{2}{c}{\textbf{MacOS}} &
+\multicolumn{2}{c}{\textbf{Linux}} &
+\multicolumn{2}{c}{\textbf{iOS}} &
+\multicolumn{2}{c}{\textbf{Android}} &
+\multicolumn{2}{c}{\textbf{Web}} &
+\multicolumn{1}{c}{\multirow{2}{*}{\cellcolor{white}\textbf{Overall}}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9} \cmidrule(lr){10-11} \cmidrule(lr){12-13}
+ & Basic & Adv. & Basic & Adv. & Basic & Adv. & Basic & Adv. & Basic & Adv. & Basic & Adv. & \cellcolor{white} \\
+\midrule
+UI-TARS-72B~\citep{uitars} & 78.6 & 51.8 & 80.3 & 62.7 & 68.6 & 51.5 & 90.8 & 81.2 & 93.0 & 80.0 & 88.1 & 68.5 & 74.3 \\
+UI-TARS-1.5-7B~\citep{uitars15} & 68.3 & 39.0 & 69.0 & 44.5 & 64.4 & 37.8 & 88.5 & 69.4 & 90.5 & 69.3 & 81.0 & 56.5 & 64.3 \\
+UI-Ins-32B~\citep{uiins} & 84.9 & 68.4 & 88.4 & 73.4 & 68.6 & 56.1 & 96.5 & 91.2 & 97.2 & 92.4 & 94.8 & 85.1 & 84.9 \\
+MAI-UI-8B~\citep{maiui} & 92.3 & 74.3 & 90.7 & 86.4 & 81.2 & 67.3 & 97.1 & 90.0 & 97.5 & 92.7 & 95.8 & 86.0 & 88.8 \\
+GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 89.7 & 65.4 & 88.1 & 72.8 & 72.8 & 56.6 & 95.9 & 83.9 & 95.2 & 82.9 & 93.2 & 77.6 & 82.5 \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-8B-Instruct~\citep{qwen3vl}}}\repro &
+\textcolor{gray}{90.4} & \textcolor{gray}{70.6} & \textcolor{gray}{86.7} & \textcolor{gray}{73.4} & \textcolor{gray}{77.5} & \textcolor{gray}{62.8} & \textcolor{gray}{95.2} & \textcolor{gray}{85.8} & \textcolor{gray}{95.5} & \textcolor{gray}{86.8} & \textcolor{gray}{94.8} & \textcolor{gray}{78.2} & \textcolor{gray}{84.2} \\
+\ \ + Re-Prefill & 90.0 & 73.5 & 89.0 & 78.3 & 82.2 & 67.9 & 96.2 & 86.7 & 96.1 & 88.5 & 95.5 & 82.1 & 86.4\up{2.2} \\
+\midrule
+
+\textit{\textcolor{gray}{MAI-UI-8B~\citep{maiui}}}\repro &
+\textcolor{gray}{93.0} & \textcolor{gray}{71.0} & \textcolor{gray}{91.9} & \textcolor{gray}{78.6} & \textcolor{gray}{83.2} & \textcolor{gray}{67.9} & \textcolor{gray}{96.5} & \textcolor{gray}{87.6} & \textcolor{gray}{98.0} & \textcolor{gray}{88.2} & \textcolor{gray}{96.4} & \textcolor{gray}{83.1} & \textcolor{gray}{87.2} \\
+\ \ + Re-Prefill & 93.0 & 74.6 & 93.0 & 80.6 & 83.8 & 71.4 & 95.9 & 90.0 & 97.8 & 91.3 & 95.5 & 84.4 & 88.5\up{1.3} \\
+\midrule
+
+\textit{\textcolor{gray}{GUI-Owl-1.5-8B-Instruct~\citep{guiowl}}}\repro &
+\textcolor{gray}{92.6} & \textcolor{gray}{65.8} & \textcolor{gray}{88.4} & \textcolor{gray}{73.1} & \textcolor{gray}{82.2} & \textcolor{gray}{58.2} & \textcolor{gray}{97.1} & \textcolor{gray}{86.4} & \textcolor{gray}{97.5} & \textcolor{gray}{83.9} & \textcolor{gray}{95.8} & \textcolor{gray}{80.2} & \textcolor{gray}{84.5} \\
+\ \ + Re-Prefill & 90.8 & 68.8 & 87.8 & 74.3 & 82.7 & 61.7 & 96.5 & 86.7 & 97.8 & 85.1 & 95.5 & 81.2 & 85.1\up{0.6} \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-32B-Instruct~\citep{qwen3vl}}}\repro &
+\textcolor{gray}{93.4} & \textcolor{gray}{71.3} & \textcolor{gray}{90.4} & \textcolor{gray}{80.3} & \textcolor{gray}{86.9} & \textcolor{gray}{70.4} & \textcolor{gray}{97.1} & \textcolor{gray}{90.3} & \textcolor{gray}{97.8} & \textcolor{gray}{91.5} & \textcolor{gray}{96.8} & \textcolor{gray}{84.1} & \textcolor{gray}{88.4} \\
+\ \ + Re-Prefill & 92.6 & 72.4 & 91.9 & 84.7 & 85.9 & 76.0 & 97.5 & 91.8 & 96.9 & 91.5 & 97.1 & 86.4 & 89.5\up{1.1} \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{-0.8em}
+\end{table*}

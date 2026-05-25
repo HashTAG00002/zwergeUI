@@ -1,0 +1,88 @@
+% \begin{table}[t]
+% \centering
+% \caption{Results on ScreenSpot-V2. Methods marked with \repro{} are reproduced in this work.}
+% \label{tab:main_ssv2}
+% \small
+% \begin{tabular}{l *{6}{c} >{\columncolor{blue!10}}c}
+% \toprule
+% \multirow{2}{*}{\textbf{Model}} &
+% \multicolumn{2}{c}{\textbf{Mobile}} &
+% \multicolumn{2}{c}{\textbf{Desktop}} &
+% \multicolumn{2}{c}{\textbf{Web}} &
+% \multicolumn{1}{c}{\multirow{2}{*}{\cellcolor{white}\textbf{Overall}}} \\
+% \cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7}
+%  & Text & Icon & Text & Icon & Text & Icon & \cellcolor{white} \\
+% \midrule
+% UI-TARS-72B~\citep{uitars} & 94.8 & 86.3 & 91.2 & 87.9 & 91.5 & 87.7 & 90.3 \\
+% % GTA1-7B~\citep{gta1} & 99.0 & 88.6 & 94.9 & 89.3 & 92.3 & 86.7 & 92.4 \\
+% GTA1-32B~\citep{gta1} & 99.7 & 90.5 & 99.0 & 94.3 & 95.7 & 90.1 & 95.2 \\
+% OpenCUA-32B~\citep{opencua} & - & - & - & - & - & - & 93.4 \\
+% GUI-Cursor-7B~\citep{guicursor} & 99.2 & 90.6 & 94.4 & 91.3 & 96.1 & 89.0 & 93.9 \\
+% UI-Ins-32B~\citep{uiins} & 98.6 & 90.0 & 99.0 & 87.9 & 97.0 & 93.1 & 94.9 \\
+% GuirlVG~\citep{guirlvg} & 98.3 & 89.6 & 94.3 & 80.7 & 95.7 & 86.2 & 91.9 \\
+% EvoCUA-32B~\citep{evocua} & - & - & - & - & - & - & 90.4 \\
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 97.4 & 90.5 & 96.4 & 90.7 & 94.2 & 89.7 & 93.7 \\
+% \midrule
+% Qwen3-VL-8B-Instruct~\citep{qwen3vl}\repro       & 99.3 & 88.2 & 97.9 & 87.9 & 96.6 & 87.2 & 93.6 \\
+% \ \ + Re-Prefill        & 99.7 & 89.6 & 97.9 & 90.0 & 97.0 & 90.1 & 94.7\up{1.1} \\
+% \midrule
+% MAI-UI-8B~\citep{maiui}\repro         & 99.0 & 89.6 & 97.9 & 91.4 & 97.4 & 91.6 & 94.2 \\
+% \ \ + Re-Prefill        & 99.3 & 90.0 & 97.9 & 92.1 & 97.9 & 91.6 & 95.3\up{1.1} \\
+% \midrule
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl}\repro    & 98.6 & 90.0 & 97.4 & 89.3 & 96.2 & 88.2 & 93.9 \\
+% \ \ + Re-Prefill        & - & - & - & - & - & - & 94.2\up{0.3} \\
+% \midrule
+% Qwen3-VL-32B-Instruct~\citep{qwen3vl}\repro      & 99.0 & 91.5 & 98.5 & 90.0 & 96.6 & 91.1 & 95.0 \\
+% \ \ + Re-Prefill        & 99.3 & 91.9 & 98.5 & 91.4 & 97.4 & 90.1 & 95.3\up{0.3} \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+\begin{table}[t]
+\centering
+\caption{Results on ScreenSpot-V2. Methods marked with \repro{} are reproduced in this work.}
+\label{tab:main_ssv2}
+\footnotesize
+\begin{tabular}{l *{6}{c} >{\columncolor{blue!10}}c}
+\toprule
+\multirow{2}{*}{\textbf{Model}} &
+\multicolumn{2}{c}{\textbf{Mobile}} &
+\multicolumn{2}{c}{\textbf{Desktop}} &
+\multicolumn{2}{c}{\textbf{Web}} &
+\multicolumn{1}{c}{\multirow{2}{*}{\cellcolor{white}\textbf{Overall}}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7}
+ & Text & Icon & Text & Icon & Text & Icon & \cellcolor{white} \\
+\midrule
+UI-TARS-72B~\citep{uitars} & 94.8 & 86.3 & 91.2 & 87.9 & 91.5 & 87.7 & 90.3 \\
+% GTA1-7B~\citep{gta1} & 99.0 & 88.6 & 94.9 & 89.3 & 92.3 & 86.7 & 92.4 \\
+GTA1-32B~\citep{gta1} & 99.7 & 90.5 & 99.0 & 94.3 & 95.7 & 90.1 & 95.2 \\
+% OpenCUA-32B~\citep{opencua} & - & - & - & - & - & - & 93.4 \\
+GUI-Cursor-7B~\citep{guicursor} & 99.2 & 90.6 & 94.4 & 91.3 & 96.1 & 89.0 & 93.9 \\
+UI-Ins-32B~\citep{uiins} & 98.6 & 90.0 & 99.0 & 87.9 & 97.0 & 93.1 & 94.9 \\
+GuirlVG~\citep{guirlvg} & 98.3 & 89.6 & 94.3 & 80.7 & 95.7 & 86.2 & 91.9 \\
+% EvoCUA-32B~\citep{evocua} & - & - & - & - & - & - & 90.4 \\
+GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 97.4 & 90.5 & 96.4 & 90.7 & 94.2 & 89.7 & 93.7 \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-8B-Instruct~\citep{qwen3vl}}}\repro &
+\textcolor{gray}{99.3} & \textcolor{gray}{88.2} & \textcolor{gray}{97.9} & \textcolor{gray}{87.9} & \textcolor{gray}{96.6} & \textcolor{gray}{87.2} & \textcolor{gray}{93.6} \\
+\ \ + Re-Prefill & 99.7 & 89.6 & 97.9 & 90.0 & 97.0 & 90.1 & 94.7\up{1.1} \\
+\midrule
+
+\textit{\textcolor{gray}{MAI-UI-8B~\citep{maiui}}}\repro &
+\textcolor{gray}{99.0} & \textcolor{gray}{89.6} & \textcolor{gray}{97.9} & \textcolor{gray}{91.4} & \textcolor{gray}{97.4} & \textcolor{gray}{91.6} & \textcolor{gray}{94.2} \\
+\ \ + Re-Prefill & 99.3 & 90.0 & 97.9 & 92.1 & 97.9 & 91.6 & 95.3\up{1.1} \\
+\midrule
+
+\textit{\textcolor{gray}{GUI-Owl-1.5-8B-Instruct~\citep{guiowl}}}\repro &
+\textcolor{gray}{98.6} & \textcolor{gray}{90.0} & \textcolor{gray}{97.4} & \textcolor{gray}{89.3} & \textcolor{gray}{96.2} & \textcolor{gray}{88.2} & \textcolor{gray}{93.9} \\
+\ \ + Re-Prefill & 98.3 & 91.0 & 97.9 & 92.1 & 96.2 & 89.7 & 94.6\up{0.7} \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-32B-Instruct~\citep{qwen3vl}}}\repro &
+\textcolor{gray}{99.0} & \textcolor{gray}{91.5} & \textcolor{gray}{98.5} & \textcolor{gray}{90.0} & \textcolor{gray}{96.6} & \textcolor{gray}{91.1} & \textcolor{gray}{95.0} \\
+\ \ + Re-Prefill & 99.3 & 91.9 & 98.5 & 91.4 & 97.4 & 90.1 & 95.3\up{0.3} \\
+\bottomrule
+\end{tabular}
+\vspace{-2.6em}
+\end{table}

@@ -1,0 +1,1053 @@
+你这个判断是对的：**P0-1 “prefill-only vs generate” 现在不适合作为主实验**。Re-Prefill 已经把 “prefill determines grounding, decoding refines coordinates” 这条线抢得很正，它还专门用 query-position attention 的空间方差和 attention centroid 到 GT 的距离来证明 prefill 阶段错误会延续到 decoding。它的方法也是在初次 prefill 后选取跨层高注意力视觉 token 和 instruction hidden states，再做第二次 prefill。([arXiv][1])
+
+所以我们的切口必须从：
+
+> “decoding 前是不是已经决定了 grounding？”
+
+改成：
+
+> **“在 decoding 前的同一个 prefill 内部，空间 grounding 表示到底在哪些层形成？为什么最后层反而不适合 spatial decoding？坐标输出是否只是把中间层空间意图序列化为 action/coordinate protocol？”**
+
+这会把我们和 Re-Prefill 清楚切开。Re-Prefill 是 **stage-level attention bottleneck**；我们应该包装成 **layer-level spatial-to-serialization bottleneck**。
+
+---
+
+# 1. 先删掉或降级的实验
+
+## 不建议主文使用：Prefill-only vs Generate
+
+这个实验现在容易被审稿人抓住说：
+
+> 你们证明的其实就是 Re-Prefill 证明过的 prefill bottleneck。
+
+即使我们的实现不同，审稿人第一眼也会把它归到 “prefill matters” 这一类。最多把它作为 appendix sanity check，用一句话说我们的 layer probe 使用的是 first-token generation 前的 hidden states，不作为贡献点。
+
+## 谨慎使用：occlusion causal experiment
+
+遮挡中间层 posterior 区域后最终输出变差，这个实验有一定因果味，但也容易被质疑为“你遮掉的本来就是 GT 附近区域，所以当然会掉”。它可以放 appendix，不要作为主支撑。
+
+## 谨慎使用：norm sink / register diagnostic
+
+这个很有趣，但如果曲线不稳定，容易被说 speculative。`Vision Transformers Need Registers` 的原始发现是 high-norm artifact token 出现在低信息背景区域并被模型复用作内部计算。([arXiv][2]) 这能给我们提供叙事灵感，但不适合成为 deadline 前必须押注的主实验。可以作为 “late-layer representation drift” 的 appendix figure。
+
+---
+
+# 2. 新的核心假说：不要叫 prefill bottleneck，叫 serialization bottleneck
+
+建议把论文里的中心术语改成：
+
+> **Coordinate Serialization Bottleneck**
+
+或者更完整：
+
+> **Layerwise Spatial-to-Serialization Bottleneck**
+
+含义是：
+
+> GUI agent 的中间层已经形成可解码的空间 posterior；最后几层并不是更好地保留空间信息，而是把空间意图转成模型输出协议，例如 pointer token、coordinate digits、`pyautogui.click(...)` 格式。因此最后层 spatial decoding 反而下降。
+
+这个表述和 Re-Prefill 的区别很大：
+
+| 维度           | Re-Prefill                             | 我们                                                            |
+| ------------ | -------------------------------------- | ------------------------------------------------------------- |
+| 问题粒度         | prefill vs decoding 两阶段                | prefill 内部的 layerwise 演化                                      |
+| 主要信号         | query-position attention across layers | layer-specific internal posterior / hidden-state probe        |
+| 主要结论         | prefill 选候选，decode 细化坐标                | 中间层空间最好，最后层转向输出序列化                                            |
+| 方法属性         | training-free second prefill           | supervised layerwise probe + fusion / controller              |
+| 工程侧重点        | attention-guided re-prefill            | FA2-compatible hidden-state / sparse-QK probe                 |
+| 最容易撞车的 claim | “before decoding”                      | “middle-layer spatial lens vs final-layer serialization lens” |
+
+你们 `.mrules` 里已经强调 ZwerGe 的定位是 **GUI-specific layer-wise internal posterior modeling + compute-aware learned zoom policy**，并且明确区分 Re-Prefill：Re-Prefill 依赖 attention 作为工程手段，而 ZwerGe 把 layer-wise posterior 演化本身作为研究对象。([GitHub][3]) 这个边界要在 abstract、intro 和 related work 里反复打牢。
+
+---
+
+# 3. Probe analysis 阶段建议交付：4 个主图 + 3 个主表
+
+不要做太多散实验。现在最优策略是：**少而狠，每个图都证明一个和 Re-Prefill 不同的点。**
+
+## 主文 Figure 1：Layerwise Spatial Lens Fingerprint
+
+**目的**：证明 prefill 不是一个均匀阶段，layer identity 决定 grounding quality。
+
+**图名建议**：
+
+> **Figure 1: GUI grounding is a layerwise phenomenon, not a homogeneous prefill-stage effect.**
+
+**内容**：
+
+一个 2×2 或 1×4 多面板图，横轴统一为 normalized layer depth，纵轴分别是：
+
+1. hit@1
+2. target mass
+3. normalized entropy
+4. adjacent-layer JS divergence
+
+每条线对应一个模型：`uitars`, `guiowl7b`, `guiowl`, `uivenus`。Qwen2.5-VL 和 Qwen3-VL 可以用不同线型，避免颜色太多。
+
+**必须标注**：
+
+* 中间峰值层：例如 L20/L21、L23/L24。
+* 最后层 collapse 区域：用半透明灰/红色 shaded band。
+* “spatial emergence band”：用淡绿色 shaded band。
+* 图上直接写小字：`Peak ≠ Final`。
+
+**和 Re-Prefill 的差异点**：
+
+Re-Prefill 把 prefill 当成一个 stage，并平均或聚合跨层 attention；我们证明 **同一个 prefill 内部存在层级相变**。这个点非常重要。
+
+**数据来源**：
+
+你现有逐层表就能先画 hit@1；target mass / entropy / JS 需要补跑小规模 200–500 样本即可。
+
+---
+
+## 主文 Figure 2：Layer Averaging Hides the Best Grounding Layer
+
+**目的**：正面切 Re-Prefill。证明 “跨层平均 attention / posterior” 会掩盖最强层，layer-specific posterior 才是核心。
+
+**图名建议**：
+
+> **Figure 2: Collapsing layers into a single prefill attention map loses spatial grounding signal.**
+
+**内容**：
+
+左边是定量 bar/line：
+
+比较 4 种 lens：
+
+1. `Query-Attn All-Layer Mean`：Re-Prefill 风格，query-position → visual token attention，跨层平均。
+2. `Query-Attn Best Layer`：只选最优 attention layer。
+3. `ZwerGe Spatial Probe Best Layer`：我们的 best single layer posterior。
+4. `Final Layer Probe`：最后层 posterior。
+
+指标用：
+
+* hit@1
+* target mass
+* entropy
+* overlap@1
+
+右边放 2–3 个 qualitative examples：
+
+每个样本一行：
+
+```text
+Screenshot | all-layer query attention | mid-layer spatial probe | final-layer probe
+```
+
+GT bbox 用绿色框，预测点用圆点。把 all-layer attention 画成 “多个候选都亮”，mid-layer probe 画成 “目标更集中”，final layer 画成 “偏移/坍缩/协议化后空间弱化”。
+
+**和 Re-Prefill 的差异点**：
+
+Re-Prefill 的方法核心是跨层高注意力视觉 token 选择；我们要展示跨层聚合只是候选集级别信号，而不是最佳 grounding posterior。Re-Prefill 的论文描述其 prefill attention 常分散在多个候选区域，之后 Re-Prefill 通过二次 prefill 重新聚焦。([arXiv][1]) 我们的图要强调：不用二次 prefill，也不把所有层混在一起，而是识别 **哪一层本来已经最适合 spatial decoding**。
+
+---
+
+## 主文 Figure 3：Spatial Lens vs Serialization Lens Crossing
+
+**目的**：这是最关键的新实验。它直接验证 “坐标输出只是中间层空间意图的序列化”。
+
+**图名建议**：
+
+> **Figure 3: Spatial localization peaks before coordinate/action serialization.**
+
+**内容**：
+
+每个模型画一条双轴曲线：
+
+* 左轴：spatial hit@1 或 target mass，来自每层 spatial posterior。
+* 右轴：coordinate/action protocol NLL，来自每层 logit lens / teacher-forced token lens。
+
+理想现象是：
+
+```text
+中间层：spatial hit / target mass 最高
+最后层：coordinate token / pointer protocol NLL 更低
+```
+
+也就是两条曲线发生错位：
+
+> spatial lens peaks earlier; serialization lens peaks later.
+
+**具体实现**：
+
+对每个样本构造 teacher-forced assistant target：
+
+* 文本坐标模型：用 GT center 生成坐标字符串，例如 `(x, y)` 或模型对应格式。
+* pointer/action 模型：使用已有 pointer token protocol，例如 `<|pointer_start|><|pointer_pad|><|pointer_end|>`。
+
+对每一层 hidden state 做 logit lens：
+
+```python
+h_l = hidden_states[l][:, pos, :]
+logits_l = model.get_output_embeddings()(model.model.norm(h_l))
+nll_l = cross_entropy(logits_l, target_token_id)
+```
+
+如果模型结构里 final norm 命名不同，Claude Code 需要自动 fallback：
+
+```python
+norm = getattr(model.model, "norm", None) or getattr(model, "norm", None)
+lm_head = model.get_output_embeddings()
+```
+
+**和 Re-Prefill 的差异点**：
+
+Re-Prefill 的结论是 prefill 选目标，decode 细化坐标；我们的结论是 **中间层负责 spatial localization，最后层负责 serialization protocol**。这不是同一个问题。
+
+这个图如果跑出来，会是全文最强图。
+
+---
+
+## 主文 Figure 4：Same-Screen Counterfactual Target Switch
+
+**目的**：证明我们的中间层 posterior 不是通用 saliency，也不是 “看到一堆按钮”；它会跟随 instruction 在同一张图上的目标切换而切换。
+
+**图名建议**：
+
+> **Figure 4: The mid-layer posterior follows the instruction, not generic UI saliency.**
+
+**不要只做 blank/shuffle prompt**。更强的做法是：
+
+1. 在数据集中找同一张 screenshot 对应多个 instruction / bbox 的样本。
+2. 原样本：image + instruction A → target A。
+3. 反事实样本：same image + instruction B → target B。
+4. 比较每层 posterior 在 A 和 B 上的 mass 是否发生切换。
+
+**指标**：
+
+```text
+Mass_A(I_A): 原 instruction 对原 target 的 mass
+Mass_B(I_B): 替换 instruction 后对新 target 的 mass
+Mass_A(I_B): 替换 instruction 后仍落在旧 target 的 mass
+SwitchScore_l = Mass_B(I_B) - Mass_A(I_B)
+OldTargetSuppression_l = Mass_A(I_A) - Mass_A(I_B)
+```
+
+**图形设计**：
+
+左边放 qualitative：
+
+```text
+same screenshot
+Instruction A: "click the Save button" -> mid-layer heatmap on Save
+Instruction B: "click the Cancel button" -> mid-layer heatmap on Cancel
+```
+
+右边放 layerwise curve：
+
+```text
+x: layer
+y: SwitchScore / OldTargetSuppression
+```
+
+如果数据集里同图多 instruction 不够，就 fallback：
+
+* same `ui_type`
+* same platform
+* same resolution bucket
+* hard negative instruction shuffle
+
+但主文最好优先用 **same-screen target switch**，这比普通 shuffle 高级很多。
+
+**和 Re-Prefill 的差异点**：
+
+Re-Prefill 强调 prefill attention 会落在候选区域；我们证明中间层 posterior 是 **instruction-conditioned spatial representation**，而不是 generic candidate attention。
+
+---
+
+## 主文 Table 1：Boundary with Re-Prefill and Other Decode/Zoom Methods
+
+这张表不是结果表，而是防撞车表。必须放在 related work 或 method 前后。
+
+**表名建议**：
+
+> **Table 1: ZwerGe studies a different bottleneck from Re-Prefill.**
+
+列：
+
+| Method     | Main signal              | Unit of analysis              | Needs decoding? | Uses all-layer attention? | Learns probe? | Main claim                                 |
+| ---------- | ------------------------ | ----------------------------- | --------------- | ------------------------- | ------------- | ------------------------------------------ |
+| Re-Prefill | query-position attention | prefill vs decode stage       | no              | yes                       | no            | prefill selects candidate                  |
+| AutoFocus  | coordinate perplexity    | decoded candidates            | yes             | no                        | no            | decode uncertainty guides search           |
+| UI-Zoomer  | stochastic candidates    | multi-run consensus           | yes/multi-run   | no                        | no            | sampling uncertainty guides zoom           |
+| ZwerGe-UI  | layerwise posterior      | individual transformer layers | no full decode  | no                        | yes           | mid layers localize; late layers serialize |
+
+`.mrules` 里已经给出了这些边界，尤其是 Re-Prefill 依赖 attention、AutoFocus 的 uncertainty 来自 decode、UI-Zoomer 来自多次采样，而 ZwerGe 的 uncertainty 来自 single-pass internal hidden state。([GitHub][3])
+
+---
+
+## 主文 Table 2：Layer Summary Across Models and Benchmarks
+
+**表名建议**：
+
+> **Table 2: Spatial grounding consistently peaks before the final layers.**
+
+列：
+
+| Model | Backbone | Dataset | Peak layer | Relative depth | Peak hit | Final-layer hit | Collapse gap | Fusion hit | Best-vs-fusion gap |
+| ----- | -------- | ------- | ---------: | -------------: | -------: | --------------: | -----------: | ---------: | -----------------: |
+
+这张表直接用你已有实验结果就能填大部分。
+
+重点不是谁分数最高，而是：
+
+* peak layer 稳定出现在中后层；
+* final-layer hit 明显低于 peak；
+* fusion 往往不如 best single layer，说明简单平均/融合不够；
+* Qwen3-VL 的平台期更宽，Qwen2.5-VL 的 final collapse 更明显。
+
+---
+
+## 主文 Table 3：Lens Comparison Against All-Layer Attention
+
+**表名建议**：
+
+> **Table 3: Layer-specific spatial probes outperform prefill-level attention aggregation.**
+
+列：
+
+| Model | Dataset | Query-attn all-layer | Query-attn best-layer | Spatial probe best-layer | Spatial probe final-layer | Δ best probe - all-layer attn |
+| ----- | ------- | -------------------: | --------------------: | -----------------------: | ------------------------: | ----------------------------: |
+
+这个表非常关键，因为它是最直接的 Re-Prefill 区分实验。它不需要复现 Re-Prefill 全方法，只需要复现它的核心观察信号：query-position attention across layers。
+
+---
+
+# 4. Optional Appendix：只在时间允许时做
+
+## Appendix Figure A1：Small Target / High-Resolution Amplifies the Bottleneck
+
+按 bbox area quartile 分桶：
+
+```text
+Q1: tiny targets
+Q2
+Q3
+Q4: large targets
+```
+
+每桶报告：
+
+* peak hit
+* final hit
+* collapse gap
+* overlap-hit gap
+
+预期：小目标、高分辨率、复杂布局时，mid-layer advantage 更强，overlap-hit gap 更大。
+
+这能把你的论文和 “GUI 高分辨率与多控件复杂布局” 绑定起来。
+
+## Appendix Figure A2：Late-Layer Norm / Sink Diagnostic
+
+计算每层 visual token norm 的：
+
+* norm gini
+* top-1% norm mass
+* corr(norm, posterior)
+* top-norm tokens 是否落在 GT bbox
+
+如果发现最后层 norm sink 变强，同时 spatial posterior 退化，就作为 diagnostic evidence。不要写成因果结论，只写成 “late-layer representation drift correlates with spatial degradation”。
+
+---
+
+# 5. Fancy 作图方案
+
+## Figure 1 的画法
+
+不要普通折线图。用 **phase diagram** 风格：
+
+* 横轴上方：absolute layer index。
+* 横轴下方：normalized depth。
+* 背景分三段：
+
+  * `Early visual parsing`
+  * `Spatial emergence`
+  * `Serialization / collapse`
+* 每条曲线加 bootstrap 95% CI 阴影。
+* peak layer 用星号标出来。
+* final layer 区域用红色半透明 band。
+* 每个模型曲线旁边直接贴 label，不用图例挤在角落。
+
+## Figure 2 的画法
+
+做成 “quant + qualitative hybrid”：
+
+```text
+左 60%：bar plot / slope plot
+右 40%：三列 heatmap examples
+```
+
+heatmap 必须统一 colormap 和 alpha。GT bbox 用绿色虚线框，预测点用圆点，错误点用红色，命中点用绿色。layer label 直接写在图上，例如：
+
+```text
+All-layer q-attn: 38.2 hit
+Mid-layer probe L23: 51.2 hit
+Final L35: 33.0 hit
+```
+
+## Figure 3 的画法
+
+最推荐 **crossing plot**：
+
+* spatial quality 用实线；
+* serialization NLL 用虚线；
+* NLL 轴反向，越高越好可以画成 `-NLL`；
+* 在两条曲线 peak 处分别放 marker；
+* 图中间写：
+
+```text
+spatial peak precedes serialization peak
+```
+
+这个图视觉上会非常抓人。
+
+## Figure 4 的画法
+
+做成 counterfactual storyboard：
+
+```text
+same screen
+instruction A -> target A heatmap
+instruction B -> target B heatmap
+```
+
+右边再放 layerwise switch score。审稿人一眼就能看懂：同一张图，不同文字，中间层 posterior 会切换。
+
+## 表格美化
+
+* Table 2 里对 `Peak layer` 加粗。
+* `Collapse gap` 用红色渐变底色。
+* `Relative depth` 写成百分比，比如 `71% depth`。
+* 对 `Best-vs-fusion gap` 负值加红色小三角。
+* Table 3 的最后一列 `Δ best probe - all-layer attn` 用绿色上箭头。
+
+---
+
+# 6. 重新设计后的实验清单
+
+## Experiment 1：Layerwise Spatial Lens Fingerprint
+
+**问题**
+GUI grounding signal 是否在 prefill 内部均匀存在？
+
+**答案目标**
+不是。它有明确的层级峰值，中间层最好，最后层退化。
+
+**输入**
+现有 A7 probe 权重和评估数据。
+
+**输出**
+Figure 1 + Table 2。
+
+**指标**
+
+```python
+hit_l
+overlap_l
+target_mass_l
+entropy_l
+margin_l
+active_area_l
+js_to_next_l
+final_collapse_l = hit_best_mid - hit_l
+```
+
+**优先数据集**
+
+* SS-Pro：主图。
+* OSWorld-G：Table 2 支撑。
+* SS-v2：appendix sanity。
+* UI-Vision：appendix，不作为主判断。
+
+---
+
+## Experiment 2：Layer Aggregation vs Layer-Specific Posterior
+
+**问题**
+跨层 attention/posterior 聚合是否足够？
+
+**答案目标**
+不够。跨层平均只给候选区域，best layer posterior 才给 grounding peak。
+
+**输入**
+
+* Re-Prefill-style query-position attention。
+* ZwerGe layerwise spatial posterior。
+
+**输出**
+Figure 2 + Table 3。
+
+**指标**
+
+```python
+hit@1
+overlap@1
+target_mass
+entropy
+top1_patch_distance
+```
+
+**对照组**
+
+```text
+Query-Attn All-Layer Mean
+Query-Attn Best Layer
+Probe Best Layer
+Probe Final Layer
+CosMeta Fusion
+```
+
+**注意**
+不要说我们复现 Re-Prefill 方法，只说复现其核心分析信号：query-position attention over visual tokens。Re-Prefill 的完整方法是 attention-guided second prefill；我们这里只比较 “attention aggregation signal” 与 “layerwise spatial posterior signal”。([arXiv][1])
+
+---
+
+## Experiment 3：Spatial Lens vs Serialization Lens
+
+**问题**
+最后几层 spatial probe 变差，是不是因为模型不知道位置？
+
+**答案目标**
+不是。最后几层更像在把位置转成输出 protocol。
+
+**输入**
+
+* 同一批样本。
+* 原 prompt + teacher-forced GT coordinate/action sequence。
+
+**输出**
+Figure 3。
+
+**指标**
+
+```python
+spatial_hit_l
+target_mass_l
+coord_token_nll_l
+pointer_protocol_nll_l
+serialization_score_l = -nll_l
+peak_spatial_layer
+peak_serialization_layer
+layer_gap = peak_serialization_layer - peak_spatial_layer
+```
+
+**预期结果**
+
+```text
+Spatial peak: L20–L24
+Serialization/token peak: later layers, closer final
+```
+
+这个实验直接支撑：
+
+> 中间层知道 where，最后层负责 how to say / how to serialize.
+
+---
+
+## Experiment 4：Same-Screen Counterfactual Target Switch
+
+**问题**
+中间层 posterior 是否只是 generic UI saliency？
+
+**答案目标**
+不是。它会随 instruction 在同一张截图中切换目标。
+
+**输入**
+
+从数据集中找同一 image path / image hash 下多个 instruction 的样本对。
+
+**输出**
+Figure 4。
+
+**指标**
+
+```python
+Mass_A_given_IA
+Mass_B_given_IB
+Mass_A_given_IB
+SwitchScore_l = Mass_B_given_IB - Mass_A_given_IB
+OldTargetSuppression_l = Mass_A_given_IA - Mass_A_given_IB
+```
+
+**fallback**
+
+如果 same-screen pair 数量不足：
+
+```text
+same ui_type + same resolution bucket + shuffled instruction
+```
+
+但主文优先用 same-screen pair。
+
+---
+
+## Experiment 5：Small Target / High-Resolution Stratification
+
+**问题**
+坐标序列化瓶颈是否在高分辨率、小目标、多控件场景更明显？
+
+**答案目标**
+是。越小的目标、越复杂的布局，best-mid 与 final-layer gap 越大。
+
+**输出**
+Appendix Figure A1 或主文小表。
+
+**指标**
+
+```python
+bbox_area = (x2 - x1) * (y2 - y1)
+resolution = image_w * image_h
+ambiguity = number_of connected components above 0.3 * max posterior
+collapse_gap = hit_best_mid - hit_final
+overlap_hit_gap = overlap - hit
+```
+
+---
+
+# 7. 最小侵入式 coding 方案：新建一个文件夹，原代码只读
+
+建议新建：
+
+```text
+probe_patch/
+  README.md
+  run_probe_suite.py
+  import_upstream.py
+  collectors.py
+  metrics.py
+  token_lens.py
+  counterfactual.py
+  plotting.py
+  table_export.py
+  configs/
+    sspro_a7.yaml
+    osworldg_a7.yaml
+    quick_debug.yaml
+  scripts/
+    run_collect_sspro.sh
+    run_all_analysis.sh
+  outputs/
+    cache/
+    metrics/
+    figures/
+    tables/
+```
+
+这个文件夹不改 `GUI-AIMA/eval/layer_probe.py`。只通过 import / wrapper 调用现有代码。
+
+`layer_probe.py` 已经有两种模式：`probe` 统计每层 grounding ACC / DIST / ENTROPY，`eval` 支持 `--layer_mask` 复现完整推断；它也已经用 `output_hidden_states=True` 和 QK 重算提取层级 attention map，避免保存完整 attention matrix。([GitHub][4]) 所以新代码应该复用它，而不是重写一套模型加载。
+
+---
+
+## 7.1 `import_upstream.py`
+
+功能：动态加载上游 `layer_probe.py`。
+
+```python
+# probe_patch/import_upstream.py
+
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+import sys
+
+def load_layer_probe(repo_root: str):
+    repo_root = Path(repo_root).resolve()
+    gui_aima_root = repo_root / "GUI-AIMA"
+    eval_file = gui_aima_root / "eval" / "layer_probe.py"
+
+    if not eval_file.exists():
+        raise FileNotFoundError(f"Cannot find layer_probe.py: {eval_file}")
+
+    sys.path.insert(0, str(gui_aima_root))
+    module = SourceFileLoader("zwerge_upstream_layer_probe", str(eval_file)).load_module()
+    return module
+```
+
+---
+
+## 7.2 `collectors.py`
+
+功能：调用上游 `_forward_one()`，收集每层 posterior 和必要 metadata。
+
+核心输出是 jsonl + npz：
+
+```text
+outputs/cache/{model_key}_{dataset}_{split}_posterior.jsonl
+outputs/cache/{model_key}_{dataset}_{split}_posterior_arrays.npz
+```
+
+每条样本 metadata：
+
+```json
+{
+  "sample_id": "sspro_000123",
+  "image_key": "/path/to/image.png",
+  "instruction": "...",
+  "bbox_norm": [0.1, 0.2, 0.15, 0.25],
+  "ui_type": "button",
+  "image_size": [1440, 900],
+  "patch_grid": [32, 50],
+  "layers": [14, 15, 16, 17, 18, 19, 20, 21],
+  "array_key": "sample_000123"
+}
+```
+
+每个 `array_key` 对应：
+
+```python
+posterior[layer, patch]
+query_attn[layer, patch]
+probe_scores[layer, patch]
+hidden_norm[layer, patch]  # optional
+```
+
+为了节省空间：
+
+* posterior 用 `float16`。
+* 只存 active layers。
+* 如果磁盘紧张，只存 top-k + metrics；但 JS / entropy 最好保留完整 patch distribution。
+
+---
+
+## 7.3 `metrics.py`
+
+实现所有基础指标：
+
+```python
+def scores_to_prob(scores, mode="auto", temperature=1.0):
+    """
+    mode=auto:
+    - if scores are non-negative and sum positive: normalize
+    - otherwise: softmax
+    """
+
+def normalized_entropy(p):
+    return -(p * (p + 1e-12).log()).sum() / math.log(p.numel())
+
+def margin(p):
+    top2 = torch.topk(p, k=2).values
+    return top2[0] - top2[1]
+
+def active_area(p, ratio=0.3):
+    return (p > p.max() * ratio).float().mean()
+
+def js_divergence(p, q):
+    m = 0.5 * (p + q)
+    return 0.5 * kl(p, m) + 0.5 * kl(q, m)
+
+def target_mass(p, patch_boxes, bbox):
+    mask = patch_intersects_bbox(patch_boxes, bbox)
+    return p[mask].sum()
+
+def point_from_posterior(p, grid_w, grid_h, threshold_ratio=0.3):
+    # reuse upstream patch_scores_to_point if possible
+```
+
+---
+
+## 7.4 `token_lens.py`
+
+功能：做 Spatial Lens vs Serialization Lens。
+
+输入：
+
+```text
+prompt + image + forced assistant target
+```
+
+输出每层：
+
+```python
+coord_token_nll
+pointer_protocol_nll
+digit_token_nll
+format_token_nll
+```
+
+核心逻辑：
+
+```python
+def layerwise_token_nll(model, hidden_states, target_positions, target_ids):
+    norm = getattr(model.model, "norm", None)
+    lm_head = model.get_output_embeddings()
+
+    out = []
+    for l, h in enumerate(hidden_states):
+        h_pos = h[:, target_positions, :]
+        if norm is not None:
+            h_pos = norm(h_pos)
+        logits = lm_head(h_pos)
+        nll = F.cross_entropy(
+            logits.reshape(-1, logits.size(-1)),
+            target_ids.reshape(-1),
+            reduction="mean",
+        )
+        out.append(float(nll))
+    return out
+```
+
+建议把 token 分成两类：
+
+```text
+coordinate value tokens: digits, comma, decimal
+protocol tokens: pointer_start, pointer_pad, pointer_end, pyautogui.click syntax
+```
+
+如果来不及细分，就先报整体 target sequence NLL。
+
+---
+
+## 7.5 `counterfactual.py`
+
+功能：构造 same-screen target switch pairs。
+
+优先策略：
+
+```python
+group_by_image_key = defaultdict(list)
+for rec in records:
+    group_by_image_key[rec["image_path"]].append(rec)
+
+pairs = []
+for image_key, group in group_by_image_key.items():
+    if len(group) >= 2:
+        for a, b in hard_pairs(group):
+            pairs.append((a, b))
+```
+
+`hard_pairs(group)` 可以优先选 bbox 距离近、ui_type 相同或文本相似的 pair。
+
+fallback：
+
+```python
+same_ui_type
+same_resolution_bucket
+different_image
+```
+
+输出：
+
+```text
+outputs/metrics/{model}_{dataset}_counterfactual.csv
+```
+
+字段：
+
+```text
+sample_a, sample_b, layer, mass_A_given_IA, mass_B_given_IB,
+mass_A_given_IB, switch_score, old_target_suppression
+```
+
+---
+
+## 7.6 `plotting.py`
+
+统一出图：
+
+```bash
+python probe_patch/run_probe_suite.py plot \
+  --metrics_dir probe_patch/outputs/metrics \
+  --figure_dir probe_patch/outputs/figures \
+  --paper_style acl
+```
+
+输出：
+
+```text
+fig_layerwise_fingerprint_sspro.pdf
+fig_layer_aggregation_vs_probe.pdf
+fig_spatial_vs_serialization_lens.pdf
+fig_same_screen_counterfactual.pdf
+fig_small_target_stratification_appendix.pdf
+fig_norm_sink_appendix.pdf
+```
+
+---
+
+## 7.7 `table_export.py`
+
+输出 LaTeX 表：
+
+```text
+tab_method_boundary.tex
+tab_layer_summary.tex
+tab_lens_comparison.tex
+tab_stratified_collapse_appendix.tex
+```
+
+---
+
+# 8. CLI 设计
+
+## 收集 posterior
+
+```bash
+python probe_patch/run_probe_suite.py collect \
+  --repo_root /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code \
+  --model_key guiowl7b \
+  --model_path /path/to/guiowl7b_A7_exp001/ckpt-2400 \
+  --dataset sspro \
+  --dataset_path /path/to/sspro.json \
+  --layers 14-27 \
+  --max_samples 500 \
+  --batch_size 1 \
+  --output_dir probe_patch/outputs/cache
+```
+
+## 计算 layer fingerprint
+
+```bash
+python probe_patch/run_probe_suite.py analyze_layer \
+  --cache probe_patch/outputs/cache/guiowl7b_sspro_posterior.npz \
+  --meta probe_patch/outputs/cache/guiowl7b_sspro_posterior.jsonl \
+  --output probe_patch/outputs/metrics/guiowl7b_sspro_layer_metrics.csv
+```
+
+## 计算 attention vs probe
+
+```bash
+python probe_patch/run_probe_suite.py compare_lenses \
+  --cache probe_patch/outputs/cache/guiowl7b_sspro_posterior.npz \
+  --meta probe_patch/outputs/cache/guiowl7b_sspro_posterior.jsonl \
+  --output probe_patch/outputs/metrics/guiowl7b_sspro_lens_compare.csv
+```
+
+## 计算 token lens
+
+```bash
+python probe_patch/run_probe_suite.py token_lens \
+  --repo_root /path/to/repo \
+  --model_key guiowl7b \
+  --model_path /path/to/ckpt \
+  --dataset_path /path/to/sspro.json \
+  --layers 14-27 \
+  --max_samples 200 \
+  --output probe_patch/outputs/metrics/guiowl7b_sspro_token_lens.csv
+```
+
+## 计算 same-screen counterfactual
+
+```bash
+python probe_patch/run_probe_suite.py counterfactual \
+  --repo_root /path/to/repo \
+  --model_key guiowl7b \
+  --model_path /path/to/ckpt \
+  --dataset_path /path/to/sspro.json \
+  --layers 14-27 \
+  --max_pairs 200 \
+  --output probe_patch/outputs/metrics/guiowl7b_sspro_counterfactual.csv
+```
+
+## 一键画图和导表
+
+```bash
+python probe_patch/run_probe_suite.py plot_all \
+  --metrics_dir probe_patch/outputs/metrics \
+  --output_dir probe_patch/outputs/figures
+
+python probe_patch/run_probe_suite.py export_tables \
+  --metrics_dir probe_patch/outputs/metrics \
+  --output_dir probe_patch/outputs/tables
+```
+
+---
+
+# 9. 24 小时内的执行优先级
+
+## 必做，最能和 Re-Prefill 拉开差异
+
+1. **Figure 1 + Table 2：Layerwise Spatial Lens Fingerprint**
+   用现有结果先画 hit 曲线，补 target mass / entropy / JS。
+
+2. **Figure 2 + Table 3：Layer Aggregation vs Layer-Specific Posterior**
+   这是正面区分 Re-Prefill 的关键图表。
+
+3. **Figure 3：Spatial Lens vs Serialization Lens**
+   这是 coordinate serialization bottleneck 的关键证据。
+
+## 强烈建议做
+
+4. **Figure 4：Same-Screen Counterfactual Target Switch**
+   这个实验很讨巧，审稿人容易觉得“有洞察”。
+
+## 有时间再做
+
+5. small target stratification
+6. norm sink diagnostic
+7. occlusion causal-ish experiment
+8. prefill-only sanity check
+
+---
+
+# 10. 给 Claude Code 的可执行任务描述
+
+可以直接复制给 Claude Code：
+
+```text
+Create a new folder `probe_patch/` and do not modify existing files under GUI-AIMA or GUI-Actor.
+
+Goal:
+Implement a minimally invasive observation suite that imports GUI-AIMA/eval/layer_probe.py as a read-only upstream module and produces four paper-ready probe analyses for ZwerGe-UI:
+
+1. Layerwise Spatial Lens Fingerprint:
+   Compute per-layer hit@1, overlap@1, target mass, entropy, margin, active area, adjacent-layer JS, and final-collapse gap.
+
+2. Layer Aggregation vs Layer-Specific Posterior:
+   Compare Re-Prefill-style query-position all-layer attention aggregation against layer-specific ZwerGe spatial posterior, best layer, final layer, and cos_meta fusion.
+
+3. Spatial Lens vs Serialization Lens:
+   Under teacher forcing, compute layerwise coordinate/action protocol token NLL with a logit-lens style readout, and plot it against layerwise spatial quality.
+
+4. Same-Screen Counterfactual Target Switch:
+   Find pairs with the same screenshot but different instructions and GT boxes. Measure whether mid-layer posterior mass switches from target A to target B when instruction changes.
+
+Constraints:
+- Do not set output_attentions=True for full attention matrices.
+- Reuse existing sparse QK recomputation in layer_probe.py where possible.
+- Keep FlashAttention-2 compatibility.
+- Save all intermediate posterior arrays as float16 npz plus jsonl metadata.
+- Produce ACL-ready PDF figures and LaTeX tables.
+- Main outputs:
+  fig_layerwise_fingerprint_sspro.pdf
+  fig_layer_aggregation_vs_probe.pdf
+  fig_spatial_vs_serialization_lens.pdf
+  fig_same_screen_counterfactual.pdf
+  tab_method_boundary.tex
+  tab_layer_summary.tex
+  tab_lens_comparison.tex
+```
+
+---
+
+# 11. 论文里应该怎么写差异
+
+建议 intro 里加一段非常明确的话：
+
+> Concurrent work has shown that GUI grounding errors are largely determined before decoding and proposes to revisit the prefill stage with attention-guided re-prefill. Our work asks a different question: within the prefill computation itself, where is the spatial target represented? We find that GUI grounding is not uniformly encoded across prefill layers. Instead, spatial posteriors peak in middle layers and can deteriorate in final layers, while late layers become better aligned with coordinate/action serialization. This layerwise spatial-to-serialization transition motivates decoding grounding from intermediate representations rather than treating prefill attention as a single aggregated signal.
+
+这段能把边界讲清楚。
+
+---
+
+# 12. 题目也建议避开 “Before Decoding”
+
+现在不建议继续用：
+
+> Grounding Emerges Before Decoding
+
+因为 Re-Prefill 的题目就是 “What Happens Before Decoding?”，撞得太近。
+
+更建议：
+
+1. **Middle Layers Know Where to Click: Probing Coordinate Serialization Bottlenecks in GUI Agents**
+2. **Where to Click Before How to Say It: Layerwise Spatial Lenses for GUI Agents**
+3. **Spatial Grounding Peaks Before Coordinate Serialization in GUI Agents**
+4. **ZwerGe-UI: Layerwise Spatial Probing Reveals Coordinate Serialization Bottlenecks in GUI Agents**
+
+我最推荐第 3 或第 4 个。第 3 个最像 observation paper，第 4 个更像完整方法论文。
+
+[1]: https://arxiv.org/html/2605.12549v1 "What Happens Before Decoding? Prefill Determines GUI Grounding in VLMs"
+[2]: https://arxiv.org/abs/2309.16588?utm_source=chatgpt.com "Vision Transformers Need Registers"
+[3]: https://raw.githubusercontent.com/HashTAG00002/zwergeUI/master/.mrules "raw.githubusercontent.com"
+[4]: https://raw.githubusercontent.com/HashTAG00002/zwergeUI/master/GUI-AIMA/eval/layer_probe.py "raw.githubusercontent.com"

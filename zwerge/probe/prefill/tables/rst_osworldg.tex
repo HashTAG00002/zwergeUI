@@ -1,0 +1,113 @@
+\begin{table}[t]
+\centering
+\caption{Results on OSWorld-G. Methods marked with \repro{} are reproduced using the zoom-in strategy adopted in this work.}
+\label{tab:main_osworld_classified}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l c c c c c >{\columncolor{blue!10}}c}
+\toprule
+\textbf{Model} & \textbf{Text Match.} & \textbf{Element Rec.} & \textbf{Layout Under.} & \textbf{Fine-grained Manip.} & \textbf{Refusal} & \multicolumn{1}{c}{\cellcolor{white}\textbf{Overall}} \\
+\midrule
+UI-TARS-72B~\citep{uitars} & 69.4 & 60.6 & 62.9 & 45.6 & - & 57.1 \\
+UI-TARS-1.5-7B~\citep{uitars15} & 36.8 & 62.7 & 62.2 & 50.8 & - & 52.8 \\
+% GTA1-7B~\citep{gta1} & 42.1 & 65.7 & 62.7 & 56.1 & - & 55.1 \\
+GTA1-32B~\citep{gta1} & 63.2 & 78.4 & 73.3 & 65.2 & - & 65.2 \\
+% GUI-Spotlight~\citep{guispotlight} & 68.2 & 60.6 & 63.2 & 45.6 & - & 62.7 \\
+% OpenCUA-32B~\citep{opencua} & - & - & - & - & - & 59.6 \\
+% EvoCUA-32B~\citep{evocua} & - & - & - & - & - & 63.9 \\
+MAI-UI-8B~\citep{maiui} & 72.8 & 67.6 & 71.1 & 56.4 & - & 64.2 \\
+GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 67.8 & 68.5 & 68.5 & 65.5 & 42.6 & 65.8 \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-8B-Instruct~\citep{qwen3vl}}}\repro & 
+\textcolor{gray}{72.8} & \textcolor{gray}{66.7} & \textcolor{gray}{67.2} & \textcolor{gray}{53.7} & \textcolor{gray}{-} & \textcolor{gray}{63.0} \\
+\ \ + Re-Prefill & 75.5 & 69.7 & 71.2 & 54.4 & - & 65.7\up{2.7} \\
+\midrule
+
+\textit{\textcolor{gray}{MAI-UI-8B~\citep{maiui}}}\repro & 
+\textcolor{gray}{75.5} & \textcolor{gray}{70.3} & \textcolor{gray}{70.0} & \textcolor{gray}{53.7} & \textcolor{gray}{-} & \textcolor{gray}{65.5} \\
+\ \ + Re-Prefill & 76.6 & 71.8 & 74.7 & 55.7 & - & 67.7\up{2.2} \\
+\midrule
+
+\textit{\textcolor{gray}{GUI-Owl-1.5-8B-Instruct~\citep{guiowl}}}\repro & 
+\textcolor{gray}{75.5} & \textcolor{gray}{71.8} & \textcolor{gray}{73.5} & \textcolor{gray}{56.4} & \textcolor{gray}{-} & \textcolor{gray}{67.2} \\
+\ \ + Re-Prefill & 77.4 & 73.0 & 74.3 & 59.7 & - & 68.8\up{1.6} \\
+\midrule
+
+\textit{\textcolor{gray}{Qwen3-VL-32B-Instruct~\citep{qwen3vl}}}\repro & 
+\textcolor{gray}{76.6} & \textcolor{gray}{73.9} & \textcolor{gray}{77.9} & \textcolor{gray}{54.4} & \textcolor{gray}{-} & \textcolor{gray}{69.0} \\
+\ \ + Re-Prefill & 78.9 & 74.8 & 77.5 & 57.0 & - & 70.1\up{1.1} \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{-1.5em}
+\end{table}
+
+% \begin{table}[t]
+% \centering
+% \caption{Results on OSWorld-G. Methods marked with \repro{} are reproduced using the zoom-in strategy adopted in this work.}
+% \label{tab:main_osworld_classified}
+% \resizebox{\columnwidth}{!}{%
+% \begin{tabular}{l c c c c c >{\columncolor{blue!10}}c}
+% \toprule
+% \textbf{Model} & \textbf{Text Match.} & \textbf{Element Rec.} & \textbf{Layout Under.} & \textbf{Fine-grained Manip.} & \textbf{Refusal} & \multicolumn{1}{c}{\cellcolor{white}\textbf{Overall}} \\
+% \midrule
+% UI-TARS-72B~\citep{uitars} & 69.4 & 60.6 & 62.9 & 45.6 & - & 57.1 \\
+% UI-TARS-1.5-7B~\citep{uitars15} & 36.8 & 62.7 & 62.2 & 50.8 & - & 52.8 \\
+% % GTA1-7B~\citep{gta1} & 42.1 & 65.7 & 62.7 & 56.1 & - & 55.1 \\
+% GTA1-32B~\citep{gta1} & 63.2 & 78.4 & 73.3 & 65.2 & - & 65.2 \\
+% GUI-Spotlight~\citep{guispotlight} & 68.2 & 60.6 & 63.2 & 45.6 & - & 62.7 \\
+% OpenCUA-32B~\citep{opencua} & - & - & - & - & - & 59.6 \\
+% EvoCUA-32B~\citep{evocua} & - & - & - & - & - & 63.9 \\
+% MAI-UI-8B~\citep{maiui} & 72.8 & 67.6 & 71.1 & 56.4 & - & 64.2 \\
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 67.8 & 68.5 & 68.5 & 65.5 & 42.6 & 65.8 \\
+% \midrule
+% Qwen3-VL-8B-Instruct~\citep{qwen3vl}\repro       & 72.8 & 66.7 & 67.2 & 53.7 & - & 63.0 \\
+% \ \ + Re-Prefill        & 75.5 & 69.7 & 71.2 & 54.4 & - & 65.7\up{2.7} \\
+% \midrule
+% MAI-UI-8B~\citep{maiui}\repro         & 75.5 & 70.3 & 70.0 & 53.7 & - & 65.5 \\
+% \ \ + Re-Prefill        & 76.6 & 71.8 & 74.7 & 55.7 & - & 67.7\up{2.2} \\
+% \midrule
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl}\repro    & 75.5 & 71.8 & 73.5 & 56.4 & - & 67.2 \\
+% \ \ + Re-Prefill        & 77.4 & 73.0 & 74.3 & 59.7 & - & 68.8\up{1.6} \\
+% \midrule
+% Qwen3-VL-32B-Instruct~\citep{qwen3vl}\repro      & 76.6 & 73.9 & 77.9 & 54.4 & - & 69.0 \\
+% \ \ + Re-Prefill        & 78.9 & 74.8 & 77.5 & 57.0 & - & 70.1\up{1.1} \\
+% \bottomrule
+% \end{tabular}%
+% }
+% \end{table}
+
+% \begin{table}[t]
+% \centering
+% \caption{Results on OSWorld-G. Methods marked with \repro{} are reproduced using the zoom-in strategy.}
+% \label{tab:main_osworld_classified}
+% \resizebox{\columnwidth}{!}{%
+% \begin{tabular}{l c c c c >{\columncolor{blue!10}}c}
+% \toprule
+% \textbf{Model} & \textbf{Text Match.} & \textbf{Element Rec.} & \textbf{Layout Under.} & \textbf{Fine-grained Manip.} & \multicolumn{1}{c}{\cellcolor{white}\textbf{Overall}} \\
+% \midrule
+% UI-TARS-72B~\citep{uitars} & 69.4 & 60.6 & 62.9 & 45.6 & 57.1 \\
+% UI-TARS-1.5-7B~\citep{uitars15} & 36.8 & 62.7 & 62.2 & 50.8 & 52.8 \\
+% GTA1-7B~\citep{gta1} & 42.1 & 65.7 & 62.7 & 56.1 & 55.1 \\
+% GTA1-32B~\citep{gta1} & 63.2 & 78.4 & 73.3 & 65.2 & 65.2 \\
+% GUI-Spotlight~\citep{guispotlight} & 68.2 & 60.6 & 63.2 & 45.6 & 62.7 \\
+% OpenCUA-32B~\citep{opencua} & - & - & - & - & 59.6 \\
+% EvoCUA-32B~\citep{evocua} & - & - & - & - & 63.9 \\
+% MAI-UI-8B~\citep{maiui} & 72.8 & 67.6 & 71.1 & 56.4 & - & 64.2 \\
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl} & 67.8 & 68.5 & 68.5 & 65.5 & 42.6 & 65.8 \\
+% \midrule
+% Qwen3-VL-8B-Instruct~\citep{qwen3vl}\repro       & 72.8 & 66.7 & 67.2 & 53.7 & 63.0 \\
+% \ \ + Re-Prefill        & 75.5 & 69.7 & 71.2 & 54.4 & 65.7\up{2.7} \\
+% \midrule
+% MAI-UI-8B~\citep{maiui}\repro         & 75.5 & 70.3 & 70.0 & 53.7 & 65.5 \\
+% \ \ + Re-Prefill        & 76.6 & 71.8 & 74.7 & 55.7 & 67.7\up{2.2} \\
+% \midrule
+% GUI-Owl-1.5-8B-Instruct~\citep{guiowl}\repro    & 75.5 & 71.8 & 73.5 & 56.4 & 67.2 \\
+% \ \ + Re-Prefill        & 77.4 & 73.0 & 74.3 & 59.7 & 68.8\up{1.6} \\
+% \midrule
+% Qwen3-VL-32B-Instruct~\citep{qwen3vl}\repro      & 76.6 & 73.9 & 77.9 & 54.4 & 69.0 \\
+% \ \ + Re-Prefill        & 78.9 & 74.8 & 77.5 & 57.0 & 70.1\up{1.1} \\
+% \bottomrule
+% \end{tabular}%
+% }
+% \end{table}
