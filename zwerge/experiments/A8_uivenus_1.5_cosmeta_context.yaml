@@ -1,0 +1,65 @@
+# ============================================================
+# ZwerGe Experiment Config — A8 Stage-2 (Cos-Meta Context Fusion) / UI-Venus-1.5
+# ============================================================
+# A8 实验说明（UI-Venus-1.5，Qwen3-VL 36层，d=4096）：
+#
+#   加载：uivenus_A7_exp002 checkpoint-3100（完整 18 层 CrossAttn probe 权重）
+#   训练：
+#     - 12 层 active CrossAttn probes（layers 20-31）继续训练
+#       → 依据：guiowl_A7_exp002 / uivenus_A7_exp002 双模型加权 hit@1 分析，
+#               连续 12 层窗口 L20-L31 均优于其他候选（weighted mean=57.4/56.6%）
+#     - 6 层非 active probe（layers 18,19,32,33,34,35）保留但冻结
+#     - ~200K 参数的 ContextLoRACosMetaFusion head（新初始化）
+#     - new token embeddings（继续训练）
+#     - backbone 完全冻结
+#
+#   Probe 参数：d_attn=512 (8 heads × 64 dim)，CrossAttnGroundingProbe
+#   Fusion 参数：ContextLoRACosMetaFusion，fusion_lora_rank=128，context_rank=64
+#   模型：UI-Venus-1.5（Qwen3-VL, 36 层, hidden=4096）
+#   conda 环境：qwen3
+# ============================================================
+
+experiment_name: "uivenus_A8_cosmeta_ctx_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A8_cosmeta_context.sh"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "uivenus"
+    MODEL_NAME_OR_PATH: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A7_exp002/checkpoint-3100"
+    PROBE_LAYERS: "18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35"
+    ACTIVE_PROBE_LAYERS: "20,21,22,23,24,25,26,27,28,29,30,31"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    GROUNDING_LAMBDA_LAYER: "0.2"
+
+  save_steps: 400
+  num_train_epochs: 1
+
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "uivenus"
+    DECODE_STRATEGY: "centroid"
+
+  bench: "all"
+
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控配置 ──────────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+# ── 守护进程配置 ──────────────────────────────────────────────────────────────
+daemon:
+  tmp_dir: null
+  log_file: null

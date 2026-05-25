@@ -114,6 +114,12 @@ fi
 if [[ "${MODEL_TYPE}" == "guiowl7b" ]]; then
     CONDA_ENV="gui_actor"
     MAX_PIXELS="${MAX_PIXELS:-12845056}"
+elif [[ "${MODEL_TYPE}" == "guiowl" ]]; then
+    CONDA_ENV="qwen3"
+    MAX_PIXELS="${MAX_PIXELS:-16777216}"
+elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
+    CONDA_ENV="qwen3"
+    MAX_PIXELS="${MAX_PIXELS:-16777216}"
 else
     # uitars (默认)
     MODEL_TYPE="uitars"
