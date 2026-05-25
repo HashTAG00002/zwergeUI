@@ -45,7 +45,7 @@ class UITARSRetrofitModel(RetrofitModelMixin, Qwen2_5_VLForConditionalGeneration
       2. QUERY ANCHOR: <|ground|> at pre-coordinate action-prefix position
       3. FA2 COMPATIBLE: output_hidden_states=True, output_attentions=False
       4. LAYER-WISE PROBING: per-layer probe reads hidden states at probe_layers
-      5. LEARNED FUSION: readiness scorer learns which layer is most "ready"
+      5. LEARNED FUSION: ContextLoRACosMetaFusion (cos-meta context) learns layer weights
 
     Usage:
       model = UITARSRetrofitModel.from_pretrained(model_path, config=config)

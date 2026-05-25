@@ -718,16 +718,19 @@ class RetrofitInference(BaseZwergeInference):
         if visual_indices.numel() == 0:
             warnings.warn("No visual tokens found in sequence!")
             dummy = torch.ones(1, device=device) / 1
-            n_probes = len(self.model.layerwise_grounding_head.probe_layers)
+            _head = self.model.layerwise_grounding_head
+            n_all_probes = len(_head.probe_layers)
+            n_active     = _head.num_active_probes
             return {
-                "per_layer_probs":  [dummy] * n_probes,
-                "per_layer_points": [(0.5, 0.5)] * n_probes,
-                "per_layer_topk":   [[(0.5, 0.5)]] * n_probes,
-                "layer_indices":    self.model.layerwise_grounding_head.probe_layers,
-                "p_final":          dummy,
-                "omega":            torch.ones(n_probes) / n_probes,
+                "per_layer_probs":    [dummy] * n_all_probes,
+                "per_layer_points":   [(0.5, 0.5)] * n_all_probes,
+                "per_layer_topk":     [[(0.5, 0.5)]] * n_all_probes,
+                "layer_indices":      _head.probe_layers,
+                "active_probe_layers": _head.active_probe_layers,
+                "p_final":            dummy,
+                "omega":              torch.ones(n_active) / n_active,
                 "n_width": n_width, "n_height": n_height,
-                "anchor_strategy":  anchor_strategy.value,
+                "anchor_strategy":    anchor_strategy.value,
             }
 
         # Guiowl/UIVenus return a SPARSE tuple (Nones at non-probe positions).
@@ -742,10 +745,12 @@ class RetrofitInference(BaseZwergeInference):
             labels=None,
         )
 
-        per_layer_probs = head_out["per_layer_probs"]
-        p_final         = head_out["p_final"]
-        omega           = head_out["omega"]
-        layer_indices   = self.model.layerwise_grounding_head.probe_layers
+        per_layer_probs    = head_out["per_layer_probs"]
+        p_final            = head_out["p_final"]
+        omega              = head_out["omega"]
+        _head              = self.model.layerwise_grounding_head
+        layer_indices      = _head.probe_layers
+        active_probe_layers = _head.active_probe_layers
 
         per_layer_points = []
         per_layer_topk   = []
@@ -760,15 +765,16 @@ class RetrofitInference(BaseZwergeInference):
             per_layer_topk.append(centers)
 
         return {
-            "per_layer_probs":  [p.cpu() for p in per_layer_probs],
-            "per_layer_points": per_layer_points,
-            "per_layer_topk":   per_layer_topk,
-            "layer_indices":    layer_indices,
-            "p_final":          p_final.cpu(),
-            "omega":            omega.cpu(),
-            "n_width":          n_width,
-            "n_height":         n_height,
-            "anchor_strategy":  anchor_strategy.value,
+            "per_layer_probs":    [p.cpu() for p in per_layer_probs],
+            "per_layer_points":   per_layer_points,
+            "per_layer_topk":     per_layer_topk,
+            "layer_indices":      layer_indices,
+            "active_probe_layers": active_probe_layers,
+            "p_final":            p_final.cpu(),
+            "omega":              omega.cpu(),
+            "n_width":            n_width,
+            "n_height":           n_height,
+            "anchor_strategy":    anchor_strategy.value,
         }
 
     # ── Zoom-backbone decode strategy ────────────────────────────────────────

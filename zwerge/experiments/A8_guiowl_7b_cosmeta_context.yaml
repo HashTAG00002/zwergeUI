@@ -1,0 +1,61 @@
+# ============================================================
+# ZwerGe Experiment Config — A8 Stage-2 (Cos-Meta Context Fusion) / GUI-Owl-7B
+# ============================================================
+# A8 实验说明（GUI-Owl-7B 版本，与 uitars 版本完全对称）：
+#
+#   加载：guiowl7b A7 最后 checkpoint（全部 14 层 CrossAttn probe 权重）
+#   训练：
+#     - 10 层 active CrossAttn probes（layers 16-25）继续训练
+#     - 4 层非 active probe（layers 14,15,26,27）保留但冻结
+#     - ~200K 参数的 ContextLoRACosMetaFusion head（新初始化）
+#     - new token embeddings（继续训练）
+#     - backbone 完全冻结
+#
+#   模型：GUI-Owl-7B（Qwen2.5-VL, 28 层, hidden=3584）
+#         与 UI-TARS-1.5-7B 相同架构，作为控制变量对照实验
+# ============================================================
+
+experiment_name: "guiowl7b_A8_cosmeta_ctx_exp001"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  hope_file: "scripts/train_zwerge_uitars.hope"
+  bash_script: "scripts/train_ablation_A8_cosmeta_context.sh"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "guiowl7b"
+    MODEL_NAME_OR_PATH: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl7b_A7_exp001/checkpoint-3129"
+    PROBE_LAYERS: "14,15,16,17,18,19,20,21,22,23,24,25,26,27"
+    ACTIVE_PROBE_LAYERS: "16,17,18,19,20,21,22,23,24,25"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    GROUNDING_LAMBDA_LAYER: "0.2"
+
+  save_steps: 400
+  num_train_epochs: 1
+
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  hope_template: "scripts/eval/eval_zwerge.hope"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "guiowl7b"
+    DECODE_STRATEGY: "centroid"
+
+  bench: "all"
+
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控配置 ──────────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+# ── 守护进程配置 ──────────────────────────────────────────────────────────────
+daemon:
+  tmp_dir: null
+  log_file: null

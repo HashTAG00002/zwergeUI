@@ -882,7 +882,7 @@ class RetrofitTrainer(Trainer):
                 self._custom_metrics.get("lm_loss", 0.0) + ll
             )
 
-        # ── layer weights (omega) from LayerFusionScorer ──────────────────
+        # ── layer weights (omega) from ContextLoRACosMetaFusion ──────────────
         if hasattr(outputs, "layer_weights") and outputs.layer_weights is not None:
             omegas_batch = [w for w in outputs.layer_weights if w is not None]
             if omegas_batch:

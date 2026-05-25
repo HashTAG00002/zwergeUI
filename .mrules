@@ -2114,3 +2114,337 @@
     注：output_hidden_states=True 比旧 hook 方案多占 ~2.2GB 显存（37 层 vs 15 层），
         80GB A100 batch_size=2 仍绰绰有余；若 OOM 请降低 batch_size/max_pixels，勿重引 hook。
 
+  - [2026-05-25] 【Qwen3.5 适配（model_type="qwen35"）】
+
+    ─── 模型参数（实测自 Qwen3.5-9B/config.json）─────────────────────────────────────────
+    num_hidden_layers = 32   ← 注意：不是 36（Qwen3-VL），不是 28（Qwen2.5-VL），是 32
+    conda 环境 = qwen35      ← 独立环境，与 guiowl/uivenus 的 qwen3 不同
+    MODEL_PATH = /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/Qwen/Qwen3.5-9B
+    PROBE_LAYERS = 16-31     ← last 16 of 32（last 1/2，与 guiowl/uivenus 的策略一致）
+    MAX_PIXELS = 16777216    ← 与 Qwen3-VL 家族相同（patch_size=16，暂定）
+    坐标系 = relative 1000   ← 与 guiowl/uivenus 相同，与 uitars 的绝对像素不同
+    prompt 格式 = XML-style tool-call（不同于 guiowl 的 JSON tool-call）
+
+    ─── 新增/修改文件 ──────────────────────────────────────────────────────────────────────
+
+    constants.py：
+      新增 QWEN35_GROUND_RESPONSE（XML-style tool-call，含 pointer tokens，用于 retrofit 训练/prefill）
+      新增 QWEN35_SYSTEM_PROMPT（grounding-only 改造版，XML-style，含 pointer tokens 示例）
+      新增 QWEN35_NATIVE_SYSTEM_PROMPT（原生 XML-style，不含 pointer tokens，用于 zoom-backbone 第二阶段）
+      新增 QWEN35_NATIVE_USER_PROMPT_TEMPLATE（"Please generate the next move..." 格式）
+      新增 QWEN35_NUM_LAYERS = 32，QWEN35_DEFAULT_PROBE_LAYERS = [16..31]（last 16 of 32）
+      新增 MODEL_TYPE_CONSTANTS["qwen35"]（system_message/ground_response/default_probe_layers/merge_size）
+      删除 qwen35prompt.py（已合并进 constants.py，不再单独存在）
+
+    src/zwerge_retrofit/modeling_qwen35.py（新增）：
+      Qwen35RetrofitModel 继承 GUIOwlRetrofitModel（Qwen3VL 架构，含 DeepStack），
+      forward 路径完全复用，仅 prompt 由 MODEL_TYPE_CONSTANTS["qwen35"] 区分。
+
+    src/zwerge_retrofit/__init__.py：
+      get_model_class / __getattr__ / MODEL_REGISTRY 均注册 "qwen35"
+
+    train_retrofit.py：
+      model_type help 文本新增 qwen35 说明
+      DDP/GC 修复分支：("guiowl", "uivenus", "qwen35")（共用相同的 ddp_find_unused=True 配置）
+      chat_template 条件：qwen35 不走 CHAT_TEMPLATE（保留模型自带模板），与 guiowl/uivenus 同策略
+
+    eval/inference_qwen35.py（新增）：
+      Qwen35RetrofitInference：model_type="qwen35", patch_size=16（暂定）, merge_size=2
+        parse_backbone_coordinate：XML 格式 <coordinate>[x,y]</coordinate> → /1000 → [0,1]
+        _zoom_native_system_message = QWEN35_NATIVE_SYSTEM_PROMPT
+        _zoom_native_user_template  = QWEN35_NATIVE_USER_PROMPT_TEMPLATE
+      Qwen35NativeInference：原生 Qwen3.5 模型推理，parse_qwen35_coordinate()
+
+    eval/eval_retrofit.py：get_inference_class 注册 ("qwen35", "retrofit") → Qwen35RetrofitInference
+
+    eval/inference_base.py：max_pixels 分组：qwen35 与 guiowl/uivenus 同组（16,777,216）
+
+    eval/run_eval.sh：
+      conda env 分支拆分（⚠️ 与 guiowl/uivenus 不同）：
+        guiowl / uivenus → qwen3
+        qwen35           → qwen35   ← 独立 env
+      max_pixels / ckpt 默认值新增 qwen35 分支
+
+    scripts/train_ablation_A7_crossattn_probe.sh：
+      新增 elif [[ "${MODEL_TYPE}" == "qwen35" ]] 分支
+        MODEL_PATH=.../Qwen/Qwen3.5-9B
+        PROBE_LAYERS=16,17,...,31（16 层，last 1/2 of 32）
+        CONDA_ENV=qwen35
+        MAX_PIXELS=16777216
+
+    experiments/A7_qwen35.yaml（新增）：
+      experiment_name: "qwen35_A7_exp001"，MODEL_TYPE: "qwen35"
+      train.hope_file: scripts/train_qwen3.hope
+      train.bash_script: scripts/train_ablation_A7_crossattn_probe.sh
+      eval.hope_template: scripts/eval/eval_zwerge_qwen3.hope
+
+    ─── 关键差异汇总（qwen35 vs guiowl/uivenus）─────────────────────────────────────────
+
+    维度              guiowl / uivenus           qwen35
+    ─────────────── ─────────────────────────── ────────────────────────────────
+    基础模型          Qwen3-VL (36层)             Qwen3.5-9B (32层)
+    conda 环境        qwen3                       qwen35
+    probe layers      last 18 of 36 (18-35)       last 16 of 32 (16-31)
+    坐标系            relative 1000               relative 1000（相同）
+    prompt 格式       JSON tool-call              XML-style tool-call（不同）
+    zoom native 消息  ONLY_TWO_ACTION_SYSTEM /    QWEN35_NATIVE_SYSTEM_PROMPT
+                      None (venus)                （XML 格式，无 pointer tokens）
+
+  - [2026-05-25] 【Qwen3.5 modeling_qwen35.py 重写：修复 transformers 5.9.0 类层级不兼容】
+
+    ─── 问题根因 ─────────────────────────────────────────────────────────────────────
+
+    原始 modeling_qwen35.py 将 Qwen35RetrofitModel 实现为 GUIOwlRetrofitModel 的子类，
+    其 _get_concrete_class() 调用 GUIOwlRetrofitModel._get_concrete_class()，
+    后者内部加载的是 Qwen3VLForConditionalGeneration（Qwen3-VL，transformers/models/qwen3_vl/）。
+
+    但 Qwen3.5-9B 的 config.json 显示：
+      "architectures": ["Qwen3_5ForConditionalGeneration"]
+      "model_type": "qwen3_5"
+
+    transformers 5.9.0（qwen35 conda 环境）中：
+      Qwen3_5ForConditionalGeneration（qwen3_5 模块）
+      Qwen3VLForConditionalGeneration（qwen3_vl 模块）
+    二者是**完全独立的平行类**，不存在任何继承关系。
+
+    因此原实现在 from_pretrained("Qwen3.5-9B") 时会触发 HuggingFace 类型检查失败。
+
+    ─── 解决方案 ─────────────────────────────────────────────────────────────────────
+
+    重写 modeling_qwen35.py：完全独立，不继承 GUIOwlRetrofitModel，不引用 qwen3_vl 相关代码。
+    新增独立懒加载函数 _get_qwen35_class()：from transformers import Qwen3_5ForConditionalGeneration。
+    Qwen35RetrofitModel 继承 RetrofitModelMixin（shell），_get_concrete_class() 创建：
+      _Qwen35Impl(RetrofitModelMixin, Qwen3_5ForConditionalGeneration)
+    工厂模式、forward 逻辑、_init_retrofit_from_config() 与 GUIOwlRetrofitModel 完全对称，
+    因为两个类的 forward 参数签名和 output 字段完全相同（API 层面兼容）。
+
+    ─── API 兼容性审计结论（audit 范围：qwen35 专属文件）───────────────────────────────
+
+    文件                         结论       说明
+    modeling_qwen35.py           ✅ 已修复   使用正确的 Qwen3_5ForConditionalGeneration 基类
+    inference_qwen35.py          ✅ 无需改   AutoModelForImageTextToText / AutoProcessor API 稳定
+    constants.py（qwen35 部分）   ✅ 无需改   纯 Python 字符串常量，无 transformers 依赖
+    run_eval.sh（qwen35 分支）    ✅ 无需改   shell 层，conda 环境已正确隔离
+    train_ablation_A7_crossattn_probe.sh  ✅ 无需改  shell 层
+
+    guiowl / uivenus / uitars / guiowl7b 代码：不受此次修改影响（未触碰）。
+
+    ─── 关键差异：新旧实现对比 ────────────────────────────────────────────────────────
+
+    旧实现（错误）：
+      class Qwen35RetrofitModel(GUIOwlRetrofitModel):
+        _get_concrete_class() → GUIOwlImpl(RetrofitModelMixin, Qwen3VLForConditionalGeneration)
+        → 继承错误类，from_pretrained 类型不匹配 Qwen3.5 config
+
+    新实现（正确）：
+      class Qwen35RetrofitModel(RetrofitModelMixin):  ← 不继承 GUIOwlRetrofitModel
+        _get_concrete_class() → _Qwen35Impl(RetrofitModelMixin, Qwen3_5ForConditionalGeneration)
+        → 正确基类，from_pretrained 与 config architectures 匹配
+
+    _init_retrofit_from_config 默认 num_hidden_layers 从 36 修正为 32（Qwen3.5-9B 实际层数）。
+
+  - [2026-05-25] 【UI-TARS-7B-SFT 适配（model_type="uitars1"）】
+
+    目标：为 UI-TARS-7B-SFT（Qwen2-VL 架构）增加完整的 ZwerGe retrofit 支持。
+    与 uitars（Qwen2.5-VL）的关键区别：坐标系为 relative 1000（非绝对像素）。
+
+    ─── 架构信息 ──────────────────────────────────────────────────────────────────
+
+    模型路径：.hdd/models/huggingface.co/GUI_Agents/UI-TARS-7B-SFT
+    config.json 关键字段：
+      "architectures": ["Qwen2VLForConditionalGeneration"]
+      "model_type": "qwen2_vl"
+      num_hidden_layers = 28, hidden_size = 3584, patch_size = 14
+
+    Qwen2VLForConditionalGeneration（transformers/models/qwen2_vl/）
+    与 Qwen2_5_VLForConditionalGeneration（transformers/models/qwen2_5_vl/）
+    是完全独立的两个类，无继承关系，不可混用。
+    因此需要独立的懒加载器 _get_qwen2vl_class()，不复用 UITARSRetrofitModel。
+
+    ─── 新增/修改文件 ──────────────────────────────────────────────────────────────
+
+    新增文件：
+      src/zwerge_retrofit/modeling_uitars1.py   — UITARS1RetrofitModel，独立懒加载
+      eval/inference_uitars1.py                 — UITARS1RetrofitInference
+      experiments/A7_uitars1.yaml               — A7 实验配置
+
+    修改文件：
+      src/zwerge_retrofit/constants.py          — 新增 UITARS1_NUM_LAYERS, UITARS1_HIDDEN_SIZE,
+                                                   UITARS1_DEFAULT_PROBE_LAYERS, MODEL_TYPE_CONSTANTS["uitars1"]
+      src/zwerge_retrofit/__init__.py           — 注册 "uitars1" 到 get_model_class() / __getattr__ / MODEL_REGISTRY
+      train_retrofit.py                         — model_type help 文本 + chat_template 分支加 "uitars1"
+      eval/eval_retrofit.py                     — get_inference_class() + argparse choices 加 "uitars1"
+      eval/inference_base.py                    — max_pixels 分支注释更新（uitars1 属 12,845,056 分支）
+      eval/run_eval.sh                          — conda env qwen2 + ckpt 默认路径 + MAX_PIXELS 注释
+      scripts/train_ablation_A7_crossattn_probe.sh — 新增 uitars1 分支（qwen2 env, relative 1000）
+
+    ─── 设计决策 ────────────────────────────────────────────────────────────────────
+
+    1. 懒加载模式（与 qwen35 完全一致）：
+       UITARS1RetrofitModel(RetrofitModelMixin) 是 shell；
+       _get_concrete_class() 返回 _UITARS1Impl(RetrofitModelMixin, Qwen2VLForConditionalGeneration)。
+       forward() 使用 super().forward(output_hidden_states=True) 路径（不做手工 embedding）。
+
+    2. 坐标系：relative 1000。
+       parse_backbone_coordinate 将 <|box_start|>(x,y)<|box_end|> 的 x,y 除以 1000.0（非 crop_w_resized）。
+       这与 uitars（绝对像素 ÷ crop_w_resized）完全不同，但与 guiowl/uivenus/qwen35 一致。
+
+    3. Prompt 格式：与 uitars (UI-TARS-1.5) 完全相同（GROUNDING_SYSTEM_MESSAGE / GROUND_RESPONSE_CLICK）。
+
+    4. chat_template：使用项目内 CHAT_TEMPLATE（与 uitars/guiowl7b 相同），不保留模型原生 template。
+
+    5. DDP：uitars1 无 deepstack，ddp_find_unused_parameters 不需要强制置 True（与 uitars 相同）。
+
+    6. Probe 层：last 14 of 28（layers 14-27，last 1/2），与 uitars 的 last 14 of 28 策略一致。
+
+    7. conda 环境：qwen2（新独立环境，与 gui_actor/qwen25/qwen3/qwen35 均不同）。
+
+    8. max_pixels：12,845,056（patch_size=14，与 uitars/guiowl7b 相同）。
+
+  - [2026-05-25] 【A8 Stage-2：ContextLoRACosMetaFusion 融合头训练（双阶段训练体系）】
+
+    ─── 背景与动机 ──────────────────────────────────────────────────────────────────
+
+    A7（Stage-1）：14 层独立 CrossAttn probe（layers 14-27，independent_layers=True）
+    A8（Stage-2）：在 A7 checkpoint 基础上，加入 ContextLoRACosMetaFusion 融合头。
+    目标：学习跨层权重 ω，将 10 个 active probe 的预测融合为最终定位分布 p_fuse。
+
+    ─── ContextLoRACosMetaFusion 结构（~200,203 参数）────────────────────────────────
+
+    输入：active probes 的 q_l 向量（从 CrossAttnGroundingProbe 提取，d_attn=512）
+    路径：
+      1. LoRA 残差（per-layer 精炼）：z = ln_f(q) + B_f(A_f(ln_f(q)))   [M×512, rank=128]
+      2. 跨层上下文（均值池化 → LoRA）：c = B_c(A_c(ln_c(z.mean(0))))  [512, rank=64]
+      3. 注入上下文：z̃ = ln_o(z + c)
+      4. Cos-meta 评分：cos = F.normalize(z̃) · F.normalize(q_meta)      [M]
+      5. 软温度加权：ω = softmax(α + softplus(ρ) · cos)                 [M]
+    参数：A_f/B_f（512→128→512）+ A_c/B_c（512→64→512）+ ln_f/ln_c/ln_o +
+          q_meta[512] + α[10] + ρ（标量）= 200,203
+
+    ─── Active-Subset 设计（关键设计决策）───────────────────────────────────────────
+
+    A8 在 A7 的 14 个 probe 权重之上运行，但只激活其中 10 层（layers 16-25）参与训练：
+
+      probe_layers（全部保留）：[14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
+      active_probe_layers（参与 forward/loss/fusion）：[16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+      inactive probes（layers 14,15,26,27）：保留在模型中但冻结（requires_grad=False）
+
+    设计原因：
+      - probe_layers 必须与 A7 checkpoint 完全一致 → from_pretrained 无 key mismatch
+      - 外层 probe（14,15,26,27）贡献质量较低；中间 10 层质量更优，适合学习融合权重
+      - ContextLoRACosMetaFusion.num_layers = 10（active probes 数量，非全量 14）
+
+    ─── Stage-2 可训练参数汇总 ──────────────────────────────────────────────────────
+
+    参数组                           参数量（估算）    是否新初始化
+    ───────────────────────────────────────────────────────────────
+    active probes × 10（layers 16-25）  ~36.7M          否（继承 A7）
+    ContextLoRACosMetaFusion            ~200K            是（Xavier + zeros）
+    new token embeddings × 4            ~14K             否（继承 A7）
+    inactive probes × 4（层14,15,26,27）  ~14.7M         保留但冻结
+    backbone（全部）                    ~8B              完全冻结
+    ───────────────────────────────────────────────────────────────
+    总可训练                             ~36.9M
+
+    ─── 损失函数与梯度路径全解析 ──────────────────────────────────────────────────────
+
+    A8 损失：
+      L_A8 = KL(y ‖ p_fuse) + λ_layer × mean_{l∈active} KL(y ‖ p_l)
+      其中 p_fuse = Σ_j ω_j · p_j（仅 active probes），λ_layer=0.2
+
+    梯度路径：
+      loss_fuse（主损失，KL(y ‖ p_fuse)）：
+        ∂loss_fuse/∂ω_j：fusion 内部参数（q_meta, α, ρ, A_f, B_f, A_c, B_c, LayerNorms）
+        ∂loss_fuse/∂W_{q,k}（probe 内部）：通过 p_l（未 detach）→ p_fuse，
+            ω_j 是融合输出，fusion 以 q_l.detach() 为输入 → ω_j 对 W_q/W_k 是常数标量
+            因此：loss_fuse 对第 j 个 active probe 贡献梯度，等效权重 = ω_j（比 1/10 更精细）
+
+      loss_layer（辅助损失，KL 均值）：
+        直接梯度 → 每个 active probe 的 W_q/W_k，等权（1/10）
+
+      结论：active probes 接收两条梯度路径，loss_fuse 通过 p_l（非 q_l）传入 W_q/W_k，
+            loss_layer 直接传入。q_l.detach() 仅阻断了"omega ← W_q/W_k"的反向路径，
+            未阻断"p_l → p_fuse → loss_fuse → W_q/W_k"的路径。
+
+    ─── 关键参数流向（YAML → Python）───────────────────────────────────────────────
+
+    YAML env:
+      PROBE_LAYERS: "14,15,16,17,18,19,20,21,22,23,24,25,26,27"  ← 必须与 A7 完全一致
+      ACTIVE_PROBE_LAYERS: "16,17,18,19,20,21,22,23,24,25"
+
+    → bash env var → train_retrofit.py CLI:
+      --probe_layers ${PROBE_LAYERS}
+      --grounding_active_probe_layers ${ACTIVE_PROBE_LAYERS}
+      --reinit_grounding_head false              ← 保留 A7 probe 权重，不重新初始化
+      --stage2_from_retrofit_checkpoint true     ← 启用 probe key 加载校验
+      --grounding_independent_layers false       ← 开启融合头
+      --grounding_fusion_type cos_meta_context_lora
+
+    → model_config.grounding_active_probe_layers = [16..25]
+    → LayerWiseGroundingHead.active_probe_indices = [2,3,4,5,6,7,8,9,10,11]
+    → ContextLoRACosMetaFusion(num_layers=10)
+
+    ─── 注意事项（容易出错的地方）──────────────────────────────────────────────────
+
+    1. probe_layers 必须与 A7 checkpoint config 完全匹配
+       from_pretrained 会对 probe key 做校验（stage2_from_retrofit_checkpoint=True 时），
+       任何 key mismatch（如 probe 数量变化）都会抛出 RuntimeError。
+       → 即使只想用 10 个 active probe，也要在 --probe_layers 传入全部 14 个层编号。
+
+    2. reinit_grounding_head 必须显式设置为 false
+       默认行为（None）由 _is_resuming 自动判断：若输出目录无 checkpoint-* → reinit=True。
+       Stage-2 第一次启动时输出目录为空，自动判断会错误地 reinit 并破坏 A7 权重。
+       → 务必通过 --reinit_grounding_head false 或 REINIT_GROUNDING_HEAD=false 显式禁用。
+
+    3. ContextLoRACosMetaFusion 在 A8 checkpoint 中会被保存（fusion.* keys）
+       当从 A8 checkpoint resume 训练时，_is_resuming=True → reinit=False（正确）。
+       当从 A7 checkpoint 冷启动时，loading_info["missing_keys"] 中 fusion.* 为预期缺失，
+       代码会记录日志但不报错（正常行为）。
+
+    4. omega 长度 = num_active_probes（10），不等于 len(probe_layers)（14）
+       eval/inference_base.py predict_layerwise() 返回值、eval_retrofit.py 的 per-sample JSON
+       均包含 "active_probe_layers" 字段来提供对齐上下文。
+       解析 eval 结果时：omega[j] 对应 active_probe_layers[j]，不是 probe_layers[j]。
+
+    5. WandB layer omega 标签使用 active_probe_layers（L16..L25，非 L0..L9）
+       train_retrofit.py 在构造 WandbRetrofitCallback 时传入 active_probe_layers 列表。
+       若误传 probe_layers（14 元素）而 omega 只有 10 个，会触发长度不匹配错误。
+
+    6. 36 层模型（uivenus/guiowl-1.5）适配：仅改 YAML 中的 PROBE_LAYERS 和 ACTIVE_PROBE_LAYERS
+       Python 代码中没有硬编码的层数。active_probe_indices 由 model_config 动态计算，
+       inactive probe 冻结也完全基于 head.active_probe_indices 动态推算。
+
+    7. 从 A8 向 A9/下一阶段迁移时：probe_layers 参数仍需传入 A8 checkpoint 的全量 probe 列表；
+       可以通过调整 active_probe_layers 来改变哪些层参与新阶段的训练。
+
+    ─── 修改文件清单 ────────────────────────────────────────────────────────────────
+
+    src/zwerge_retrofit/modeling_base.py：
+      新增 ContextLoRACosMetaFusion（替换 LayerFusionScorer，删除 compute_readiness_features）
+      LayerWiseGroundingHead：新增 active_probe_layers/active_probe_indices/num_active_probes
+      _init_retrofit_from_config：读取 5 个新 fusion config 字段
+      LayerWiseGroundingHead.forward：all 14 probes forward，fusion/loss 只用 active 10 个
+
+    train_retrofit.py：
+      新增 ModelArguments 字段：grounding_active_probe_layers, grounding_fusion_lora_rank,
+        grounding_fusion_context_rank, grounding_fusion_learn_temperature,
+        grounding_fusion_detach_queries, reinit_grounding_head, stage2_from_retrofit_checkpoint
+      A8 checkpoint load 校验（output_loading_info=True + probe key mismatch 检测）
+      inactive probe 冻结（post-unfreeze，动态计算 inactive_indices）
+      WandbRetrofitCallback 使用 active_probe_layers 标签
+
+    eval/inference_base.py：
+      dummy fallback：omega 长度改为 n_active = head.num_active_probes
+      normal return：新增 "active_probe_layers" 字段
+
+    eval/eval_retrofit.py：
+      读取 active_probe_layers from head；per-sample record / shard summary / merged summary
+      均新增 "active_probe_layers" 字段用于 omega 对齐
+
+    scripts/train_ablation_A8_cosmeta_context.sh（新增）：
+      A8 专用训练脚本，stage2 相关参数默认值均已设置
+
+    experiments/A8_uitars_1.5_cosmeta_context.yaml（新增）：uitars 版 A8 配置
+    experiments/A8_guiowl_7b_cosmeta_context.yaml（新增）：guiowl7b 版 A8 配置
+
+

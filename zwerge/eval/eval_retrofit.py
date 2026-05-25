@@ -133,7 +133,9 @@ def _worker(
     else:
         success_dir = failure_dir = ""
 
-    probe_layers = list(grounder.model.layerwise_grounding_head.probe_layers)
+    _head               = grounder.model.layerwise_grounding_head
+    probe_layers        = list(_head.probe_layers)
+    active_probe_layers = list(_head.active_probe_layers)
     n_probes     = len(probe_layers)
     layer_stats  = [{"hit1": 0, "hitk": 0, "overlap1": 0, "overlapk": 0, "total": 0}
                     for _ in range(n_probes)]
@@ -308,6 +310,7 @@ def _worker(
             "n_width": n_w, "n_height": n_h,
             "omega": pred["omega"].tolist(),
             "probe_layers": probe_layers,
+            "active_probe_layers": pred.get("active_probe_layers", probe_layers),
             "layer_metrics": layer_metrics,
             "fusion_hit1": fhit1, "fusion_overlap1": fov1,
             "fusion_hitk": fhitk, "fusion_overlapk": fovk,
@@ -369,6 +372,7 @@ def _worker(
         "bench": bench_name, "bench_key": bench_key,
         "total": len(shard), "valid": valid_total, "skipped": skip_total,
         "slice": [start, end], "probe_layers": probe_layers,
+        "active_probe_layers": active_probe_layers,
         "layer_accs": layer_accs, "fusion_acc": fusion_acc,
         "fusion_group_accs": fusion_group_accs,
     }
@@ -387,8 +391,9 @@ def _aggregate_shards(output_dir: str, bench_key: str, topk: int, skip_vis: bool
     if not shard_files:
         raise FileNotFoundError(f"No shard summary files for {bench_key} in {output_dir}")
 
-    summaries    = [json.load(open(fp)) for fp in shard_files]
-    probe_layers = summaries[0]["probe_layers"]
+    summaries           = [json.load(open(fp)) for fp in shard_files]
+    probe_layers        = summaries[0]["probe_layers"]
+    active_probe_layers = summaries[0].get("active_probe_layers", probe_layers)
     n_probes     = len(probe_layers)
     bench_name   = summaries[0]["bench"]
 
@@ -462,6 +467,7 @@ def _aggregate_shards(output_dir: str, bench_key: str, topk: int, skip_vis: bool
         "bench": bench_name, "bench_key": bench_key,
         "total": total, "valid": valid, "skipped": skipped, "topk": topk,
         "probe_layers": probe_layers,
+        "active_probe_layers": active_probe_layers,
         "layer_accs": layer_accs, "layer_accs_sorted": layer_accs_sorted,
         "fusion_acc": fusion_acc, "fusion_group_accs": fusion_group_accs,
     }

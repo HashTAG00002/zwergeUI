@@ -160,7 +160,7 @@ class ModelArguments:
     )
     grounding_fusion_type: str = field(
         default="cos_meta",
-        metadata={"help": "Fusion scorer: 'cos_meta' (q_meta·q_l, default) or 'readiness' (original 5-feature MLP)"},
+        metadata={"help": "Fusion type: 'cos_meta_context_lora' (context-aware cos-meta, A8 default)"},
     )
     grounding_use_shared_mlp: bool = field(
         default=True,
@@ -190,6 +190,50 @@ class ModelArguments:
     grounding_attn_head_dim: int = field(
         default=64,
         metadata={"help": "Per-head dimension in cross-attention probe (adapter_type='attn', default 64 → d_attn=512)"},
+    )
+    # ── A8 Stage-2 fusion parameters ──
+    grounding_active_probe_layers: Optional[str] = field(
+        default=None,
+        metadata={"help": (
+            "Comma-separated active probe layers subset (e.g. '16,17,18,19,20,21,22,23,24,25'). "
+            "None = use all probe_layers. Used in A8 stage-2 to select a subset of A7 probes "
+            "for fusion training while keeping the rest frozen."
+        )},
+    )
+    grounding_fusion_lora_rank: int = field(
+        default=128,
+        metadata={"help": "LoRA rank for ContextLoRACosMetaFusion A_f/B_f projectors (default 128)"},
+    )
+    grounding_fusion_context_rank: int = field(
+        default=64,
+        metadata={"help": "Rank for ContextLoRACosMetaFusion A_c/B_c context projectors (default 64)"},
+    )
+    grounding_fusion_learn_temperature: bool = field(
+        default=True,
+        metadata={"help": "Whether fusion temperature rho is a learnable parameter (default True)"},
+    )
+    grounding_fusion_detach_queries: bool = field(
+        default=True,
+        metadata={"help": (
+            "Detach q_l before passing to fusion cosine scoring. "
+            "Prevents fusion weight gradients from back-propagating into W_q. "
+            "Probes still receive gradients through p_l and p_fuse (default True)."
+        )},
+    )
+    reinit_grounding_head: Optional[bool] = field(
+        default=None,
+        metadata={"help": (
+            "Explicitly control whether grounding head is re-initialized after from_pretrained. "
+            "None = auto-detect from output_dir (True if fresh run, False if resuming). "
+            "For A8 stage-2 loading from A7 checkpoint: must set to False to preserve A7 weights."
+        )},
+    )
+    stage2_from_retrofit_checkpoint: bool = field(
+        default=False,
+        metadata={"help": (
+            "Validate that A7 probe keys loaded cleanly (no shape mismatch). "
+            "Set to True for A8 stage-2 runs that load from an A7 retrofit checkpoint."
+        )},
     )
 
 
@@ -406,6 +450,14 @@ def update_model_config_for_retrofit(
     model_config.grounding_adapter_type       = model_args.grounding_adapter_type
     model_config.grounding_attn_heads         = model_args.grounding_attn_heads
     model_config.grounding_attn_head_dim      = model_args.grounding_attn_head_dim
+    # A8 Stage-2 fusion config
+    if model_args.grounding_active_probe_layers:
+        active_layers = [int(x.strip()) for x in model_args.grounding_active_probe_layers.split(",")]
+        model_config.grounding_active_probe_layers = active_layers
+    model_config.grounding_fusion_lora_rank        = model_args.grounding_fusion_lora_rank
+    model_config.grounding_fusion_context_rank     = model_args.grounding_fusion_context_rank
+    model_config.grounding_fusion_learn_temperature = model_args.grounding_fusion_learn_temperature
+    model_config.grounding_fusion_detach_queries   = model_args.grounding_fusion_detach_queries
 
     # Special token IDs (needed for inference)
     # convert_tokens_to_ids is safer than encode()[0] — avoids BOS/extra-token prepending
@@ -556,16 +608,52 @@ def train():
     base_config.grounding_adapter_type       = model_args.grounding_adapter_type
     base_config.grounding_attn_heads         = model_args.grounding_attn_heads
     base_config.grounding_attn_head_dim      = model_args.grounding_attn_head_dim
+    # A8 Stage-2 fusion config
+    if model_args.grounding_active_probe_layers:
+        base_config.grounding_active_probe_layers = [
+            int(x.strip()) for x in model_args.grounding_active_probe_layers.split(",")
+        ]
+    base_config.grounding_fusion_lora_rank        = model_args.grounding_fusion_lora_rank
+    base_config.grounding_fusion_context_rank     = model_args.grounding_fusion_context_rank
+    base_config.grounding_fusion_learn_temperature = model_args.grounding_fusion_learn_temperature
+    base_config.grounding_fusion_detach_queries   = model_args.grounding_fusion_detach_queries
 
     attn_impl = "flash_attention_2" if model_args.flash_attn_2_enabled else "sdpa"
     rank0_print(f"Using attn_implementation={attn_impl}")
-    model = ModelClass.from_pretrained(
-        model_args.model_name_or_path,
+
+    model_load_kwargs = dict(
         config=base_config,
         attn_implementation=attn_impl,
         torch_dtype=torch.bfloat16 if training_args.bf16 else torch.float32,
         low_cpu_mem_usage=False,
     )
+    if model_args.stage2_from_retrofit_checkpoint:
+        model, loading_info = ModelClass.from_pretrained(
+            model_args.model_name_or_path,
+            output_loading_info=True,
+            **model_load_kwargs,
+        )
+        unexpected_probe = [k for k in loading_info["unexpected_keys"]
+                            if "layerwise_grounding_head.probes" in k]
+        missing_probe    = [k for k in loading_info["missing_keys"]
+                            if "layerwise_grounding_head.probes" in k]
+        if unexpected_probe or missing_probe:
+            raise RuntimeError(
+                f"A8 stage-2: probe key mismatch — probe_layers must match A7 checkpoint config.\n"
+                f"  Unexpected probe keys: {unexpected_probe[:5]}\n"
+                f"  Missing probe keys:    {missing_probe[:5]}\n"
+                "Check --probe_layers matches the A7 checkpoint."
+            )
+        rank0_print(
+            f"[A8] stage-2 checkpoint load OK. "
+            f"Missing keys (expected: fusion.*): "
+            f"{[k for k in loading_info['missing_keys'] if 'fusion' in k]}"
+        )
+    else:
+        model = ModelClass.from_pretrained(
+            model_args.model_name_or_path,
+            **model_load_kwargs,
+        )
     model.config.use_cache = False
     model.reset_loss_weights(
         grounding_loss_weight=training_args.grounding_loss_weight,
@@ -603,14 +691,19 @@ def train():
     # reinit_grounding_head=True only when starting fresh from a base model;
     # False when resuming from a retrofit checkpoint (trained weights must not be reset).
     _is_resuming = len(list(pathlib.Path(training_args.output_dir).glob("checkpoint-*"))) > 0
+    if model_args.reinit_grounding_head is not None:
+        _reinit_head = model_args.reinit_grounding_head
+    else:
+        _reinit_head = not _is_resuming
+    rank0_print(f"reinit_grounding_head={_reinit_head} (is_resuming={_is_resuming})")
     _vision_end_id = getattr(model.config, "vision_end_token_id", None)
     model.setup_special_token_ids(
         ground_token_id=model.config.ground_token_id,
         pointer_start_token_id=model.config.pointer_start_token_id,
         vision_end_token_id=_vision_end_id,
-        reinit_grounding_head=not _is_resuming,
+        reinit_grounding_head=_reinit_head,
     )
-    rank0_print(f"setup_special_token_ids: reinit_head={'yes' if not _is_resuming else 'NO (resuming)'}")
+    rank0_print(f"setup_special_token_ids: reinit_head={'yes' if _reinit_head else 'NO'}")
     rank0_print(
         f"setup_special_token_ids: ground={model.config.ground_token_id}, "
         f"pointer_start={model.config.pointer_start_token_id}, "
@@ -638,6 +731,24 @@ def train():
 
     # ── Freeze / unfreeze params ─────────────────────────────────────────────
     setup_trainable_params(model, training_args)
+
+    # ── A8: freeze inactive probes (retain for checkpoint compat, not trained) ──
+    if (not model_args.grounding_independent_layers
+            and model_args.grounding_active_probe_layers
+            and training_args.unfreeze_grounding_head):
+        head = model.layerwise_grounding_head
+        inactive_indices = [
+            i for i in range(head.num_probes)
+            if i not in set(head.active_probe_indices)
+        ]
+        for i in inactive_indices:
+            for p in head.probes[i].parameters():
+                p.requires_grad_(False)
+        if inactive_indices:
+            rank0_print(
+                f"[A8] Froze inactive probes at indices {inactive_indices} "
+                f"(layers {[head.probe_layers[i] for i in inactive_indices]})"
+            )
 
     # ── New-token embeddings: separate nn.Parameter (avoids 543M Adam state) ──
     # Instead of gradient-hook on the full embed_tokens.weight (which forces Adam to
@@ -734,8 +845,14 @@ def train():
         ),
     ]
     # WandB callback (log retrofit-specific metrics)
+    # For A8: omega has len=num_active_probes; use active_probe_layers for correct L-labels.
     if "wandb" in training_args.report_to:
-        callbacks.append(WandbRetrofitCallback(probe_layers=probe_layers_list))
+        _wandb_layers = probe_layers_list
+        if model_args.grounding_active_probe_layers:
+            _wandb_layers = [
+                int(x.strip()) for x in model_args.grounding_active_probe_layers.split(",")
+            ]
+        callbacks.append(WandbRetrofitCallback(probe_layers=_wandb_layers))
         callbacks.append(SaveWandbRunIdCallback())
     # In-training eval callback
     if training_args.val_steps > 0:

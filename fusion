@@ -1,0 +1,1001 @@
+可以。下面是我建议你直接丢给 Claude 的**最终版第二阶段 A8 交付方案**。我把它写成“实现任务说明 + 数学定义 + 代码改造点 + 训练超参 + 验证清单”的形式。
+
+有一个关键修正：**根据当前 GitHub 上的 A7 配置，`uitars_A7_exp001` 和 `guiowl7b_A7_exp001` 都已经是最后连续 10 层 `18-27`，不是 14 层。** UI-TARS 的 A7 yaml 写明 probe 层是 `18-27`，GUIOwl-7B 的 A7 yaml 也写明是 `18-27`。所以 A8 默认应该继续使用 `18-27`，不要默认改成 `16-25`，除非你本地 checkpoint 的 state_dict 证明它实际保存了 14 层 probe。([GitHub][1])
+
+---
+
+# A8 Stage-2: 200K-param Context-Aware Cos-Meta Fusion
+
+## 0. 背景
+
+当前代码中，A7 已经使用 `CrossAttnGroundingProbe` 替换 LoRA probe。`CrossAttnGroundingProbe` 的核心是每层独立的全秩 `W_q/W_k`，其中 `W_q/W_k` 将 `d_model` 投影到 `n_heads * d_head`，默认 `8 × 64 = 512`；每层还带有 `q_ln/k_ln/head_gate`，最后输出每层 patch posterior (p_l) 和 query 表示 (q_l)。当前 A7 脚本也明确说明 `ADAPTER_TYPE=attn`、`ATTN_HEADS=8`、`ATTN_HEAD_DIM=64`、`INDEPENDENT_LAYERS=true`，也就是逐层独立监督、无 fusion。([GitHub][2])
+
+`.mrules` 里以前的 cos-meta 方案是针对旧 LoRA/shared-MLP 风格写的：使用每层 query 向量 (q_l)，通过
+
+[
+score_l = \alpha_l + \cos(q_{\text{meta}}, q_l)
+]
+
+得到 layer weight，而不是 readiness 特征；它的动机是 readiness 的 entropy/margin/top-k 这些手工特征在训练早期噪声较大、input-adaptive 不够。([GitHub][3])
+
+现在 A8 的目标是：
+
+[
+\textbf{完全放弃 readiness，只做 cos-meta fusion。}
+]
+
+但由于现在是 `adapter_type="attn"`，旧的 cos-meta 不能直接复用：当前代码在 `adapter_type=="attn"` 时会强制 `use_shared_mlp=False`，然后 `LayerWiseGroundingHead` 给 fusion 的维度会走到 `d_model`，而 CrossAttn 返回的 (q_l) 实际是 (n_{\text{heads}}\cdot d_{\text{head}}=512)，两者维度不一致。([GitHub][2])
+
+---
+
+# 1. 实验目标
+
+实现一个新的 fusion 类型：
+
+```text
+grounding_fusion_type = "cos_meta_context_lora"
+```
+
+它用于第二阶段 A8：
+
+```text
+A7 checkpoint: 已训练好的 per-layer CrossAttn heads
+A8 training: 继续训练选中 10 层 heads + 新 token embedding + 新 fusion head
+Backbone: frozen
+Readiness: completely disabled
+Fusion: context-aware cos-meta
+```
+
+默认用于两个模型：
+
+```text
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars_A7_exp001
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl7b_A7_exp001
+```
+
+A8 输出目录建议：
+
+```text
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars_A8_cosmeta_ctx_exp001
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl7b_A8_cosmeta_ctx_exp001
+```
+
+默认 probe layers：
+
+```text
+18,19,20,21,22,23,24,25,26,27
+```
+
+原因：当前 GitHub 上两个 A7 yaml 都声明使用最后连续 10 层 `18-27`。不要在 A8 默认改成 `16-25`，除非本地 state_dict 检查发现 A7 checkpoint 实际保存了更多 probe 层。([GitHub][1])
+
+---
+
+# 2. 数学定义
+
+设第二阶段选中层集合为：
+
+[
+S = {18,19,20,21,22,23,24,25,26,27}
+]
+
+[
+M = |S| = 10
+]
+
+VLM backbone frozen。对每个样本，backbone 输出 hidden states：
+
+[
+H^{(l)} \in \mathbb{R}^{T \times d}
+]
+
+其中：
+
+[
+d = 3584
+]
+
+对每层 (l)，ground anchor token hidden state 是：
+
+[
+h_q^{(l)} \in \mathbb{R}^{d}
+]
+
+visual token hidden states 是：
+
+[
+H_v^{(l)} \in \mathbb{R}^{N_{\text{vis}} \times d}
+]
+
+每层 CrossAttn probe 计算：
+
+[
+Q_l = W_q^{(l)} \operatorname{Norm}(h_q^{(l)})
+]
+
+[
+K_l = W_k^{(l)} \operatorname{Norm}(H_v^{(l)})
+]
+
+其中：
+
+[
+W_q^{(l)}, W_k^{(l)} \in \mathbb{R}^{512 \times 3584}
+]
+
+reshape 后：
+
+[
+Q_l \in \mathbb{R}^{8 \times 64}
+]
+
+[
+K_l \in \mathbb{R}^{N_{\text{vis}} \times 8 \times 64}
+]
+
+每个 visual patch 的 per-head score：
+
+[
+s_{l,n,h}
+=========
+
+\frac{\langle Q_{l,h}, K_{l,n,h}\rangle}{\sqrt{64}}
+]
+
+head gate：
+
+[
+\beta_l = \operatorname{softmax}(g_l)
+]
+
+层内 patch logits：
+
+[
+u_{l,n}
+=======
+
+\sum_{h=1}^{8} \beta_{l,h}s_{l,n,h}
+]
+
+每层 posterior：
+
+[
+p_l(n)
+======
+
+\operatorname{softmax}*n(u*{l,n})
+]
+
+同时提取每层 query 向量：
+
+[
+q_l = \operatorname{vec}(Q_l) \in \mathbb{R}^{512}
+]
+
+当前代码里的 `CrossAttnGroundingProbe.forward()` 已经返回这个 (q_l)，shape 是 `[n_heads*d_head]`。([GitHub][2])
+
+---
+
+## 2.1 200K-param Fusion Head
+
+新增 fusion head 名称：
+
+```python
+ContextLoRACosMetaFusion
+```
+
+输入：
+
+[
+q_l \in \mathbb{R}^{512}, \quad l \in S
+]
+
+第一步，每层共享 LoRA projector：
+
+[
+\bar q_l = \operatorname{LN}_f(q_l)
+]
+
+[
+z_l
+===
+
+\bar q_l
++
+B_f A_f \bar q_l
+]
+
+其中：
+
+[
+A_f \in \mathbb{R}^{128 \times 512}
+]
+
+[
+B_f \in \mathbb{R}^{512 \times 128}
+]
+
+所以：
+
+[
+z_l \in \mathbb{R}^{512}
+]
+
+第二步，跨层 context：
+
+[
+\bar z
+======
+
+\frac{1}{M}
+\sum_{j \in S} z_j
+]
+
+第三步，context LoRA：
+
+[
+\bar c = \operatorname{LN}_c(\bar z)
+]
+
+[
+c
+=
+
+B_c A_c \bar c
+]
+
+其中：
+
+[
+A_c \in \mathbb{R}^{64 \times 512}
+]
+
+[
+B_c \in \mathbb{R}^{512 \times 64}
+]
+
+所以：
+
+[
+c \in \mathbb{R}^{512}
+]
+
+第四步，每层 context-aware representation：
+
+[
+\tilde z_l
+==========
+
+\operatorname{LN}_o(z_l + c)
+]
+
+第五步，cos-meta score：
+
+[
+a_l
+===
+
+\alpha_l
++
+\tau \cdot
+\cos(q_{\text{meta}}, \tilde z_l)
+]
+
+其中：
+
+[
+q_{\text{meta}} \in \mathbb{R}^{512}
+]
+
+[
+\alpha \in \mathbb{R}^{10}
+]
+
+[
+\tau = \operatorname{softplus}(\rho) + \epsilon
+]
+
+可以令初始：
+
+[
+\tau \approx 1
+]
+
+第六步，layer weights：
+
+[
+\omega_l
+========
+
+\frac{\exp(a_l)}
+{\sum_{j\in S}\exp(a_j)}
+]
+
+第七步，最终 posterior：
+
+[
+p_{\text{fuse}}
+===============
+
+\sum_{l\in S}
+\omega_l p_l
+]
+
+---
+
+## 2.2 Loss
+
+标签 patch distribution：
+
+[
+y \in \mathbb{R}^{N_{\text{vis}}}
+]
+
+[
+\sum_n y_n = 1
+]
+
+Fusion loss：
+
+[
+\mathcal{L}_{\text{fuse}}
+=========================
+
+\operatorname{KL}(y | p_{\text{fuse}})
+]
+
+Per-layer auxiliary loss：
+
+[
+\mathcal{L}_{\text{layer}}
+==========================
+
+\frac{1}{M}
+\sum_{l\in S}
+\operatorname{KL}(y | p_l)
+]
+
+第二阶段总 loss：
+
+[
+\mathcal{L}_{\text{A8}}
+=======================
+
+\mathcal{L}*{\text{fuse}}
++
+\lambda*{\text{layer}}
+\mathcal{L}_{\text{layer}}
+]
+
+建议：
+
+[
+\lambda_{\text{layer}} = 0.2
+]
+
+不要用 readiness loss，不要使用 readiness feature。
+
+---
+
+# 3. 参数量目标
+
+Fusion 新增参数使用：
+
+```text
+fusion_lora_rank = 128
+fusion_context_rank = 64
+d_attn = 512
+num_layers = 10
+```
+
+参数量：
+
+[
+A_f + B_f = 128 \times 512 + 512 \times 128 = 131{,}072
+]
+
+[
+A_c + B_c = 64 \times 512 + 512 \times 64 = 65{,}536
+]
+
+LayerNorm 三个：
+
+[
+3 \times (512 + 512) = 3{,}072
+]
+
+meta query：
+
+[
+512
+]
+
+alpha：
+
+[
+10
+]
+
+temperature rho：
+
+[
+1
+]
+
+总计：
+
+[
+131{,}072 + 65{,}536 + 3{,}072 + 512 + 10 + 1
+=============================================
+
+200{,}203
+]
+
+即：
+
+[
+\boxed{200.2K}
+]
+
+这满足“二阶段新引入约 200K 参数”的目标。
+
+A7 每 10 层 CrossAttn probe 参数本来约 36M，A7 脚本注释也写明 CrossAttn `n=8,d=64` 时 10 层约 36M / 42M，约占 7B/8B 的 0.52%。([GitHub][4])
+
+---
+
+# 4. 代码改造点
+
+## 4.1 `zwerge/src/zwerge_retrofit/modeling_base.py`
+
+### 新增类
+
+新增：
+
+```python
+class ContextLoRACosMetaFusion(nn.Module):
+    ...
+```
+
+构造参数：
+
+```python
+def __init__(
+    self,
+    num_layers: int,
+    d_attn: int,
+    lora_rank: int = 128,
+    context_rank: int = 64,
+    learn_temperature: bool = True,
+    detach_queries: bool = True,
+):
+```
+
+核心 forward：
+
+```python
+def forward(self, per_layer_queries: List[torch.Tensor]) -> torch.Tensor:
+    # q_stack: [M, d_attn]
+    q_stack = torch.stack(per_layer_queries, dim=0)
+
+    z = self.ln_f(q_stack)
+    z = z + self.B_f(self.A_f(z))
+
+    z_bar = z.mean(dim=0)
+    c = self.ln_c(z_bar)
+    c = self.B_c(self.A_c(c))
+
+    z_tilde = self.ln_o(z + c.unsqueeze(0))
+
+    q_meta = F.normalize(self.q_meta.to(z_tilde.dtype), dim=-1)
+    z_norm = F.normalize(z_tilde.to(q_meta.dtype), dim=-1)
+
+    cos = (z_norm * q_meta.unsqueeze(0)).sum(dim=-1)
+
+    tau = F.softplus(self.rho) + 1e-4
+    scores = self.alpha.to(cos.dtype) + tau.to(cos.dtype) * cos
+    return torch.softmax(scores, dim=-1)
+```
+
+初始化：
+
+```python
+self.A_f = nn.Linear(d_attn, lora_rank, bias=False)
+self.B_f = nn.Linear(lora_rank, d_attn, bias=False)
+self.A_c = nn.Linear(d_attn, context_rank, bias=False)
+self.B_c = nn.Linear(context_rank, d_attn, bias=False)
+
+nn.init.xavier_uniform_(self.A_f.weight, gain=0.02)
+nn.init.zeros_(self.B_f.weight)
+nn.init.xavier_uniform_(self.A_c.weight, gain=0.02)
+nn.init.zeros_(self.B_c.weight)
+
+self.q_meta = nn.Parameter(torch.empty(d_attn))
+nn.init.normal_(self.q_meta, std=0.01)
+
+self.alpha = nn.Parameter(torch.zeros(num_layers))
+self.rho = nn.Parameter(torch.tensor(0.5413))  # softplus(0.5413)≈1.0
+```
+
+### 修改 `LayerWiseGroundingHead.__init__`
+
+新增 config 参数：
+
+```python
+fusion_lora_rank: int = 128
+fusion_context_rank: int = 64
+fusion_detach_queries: bool = True
+fusion_learn_temperature: bool = True
+```
+
+当：
+
+```python
+fusion_type == "cos_meta_context_lora"
+```
+
+时：
+
+```python
+if adapter_type != "attn":
+    raise ValueError("cos_meta_context_lora is intended for adapter_type='attn'")
+
+d_attn = attn_n_heads * attn_d_head
+
+self.fusion = ContextLoRACosMetaFusion(
+    num_layers=self.num_probes,
+    d_attn=d_attn,
+    lora_rank=fusion_lora_rank,
+    context_rank=fusion_context_rank,
+    detach_queries=fusion_detach_queries,
+    learn_temperature=fusion_learn_temperature,
+)
+```
+
+注意：当前代码在 `adapter_type=="attn"` 时会把 `use_shared_mlp=False`，旧逻辑下 `d_for_fusion = d_model`，这对新 fusion 不适用，需要走 `d_attn = attn_n_heads * attn_d_head`。([GitHub][2])
+
+### 修改 `LayerWiseGroundingHead.forward`
+
+当前 forward 中非 independent 分支会无条件计算 readiness features：
+
+```python
+readiness_feats.append(compute_readiness_features(p_l.detach()))
+```
+
+A8 要完全禁用 readiness。建议改为：
+
+```python
+if not self.independent_layers:
+    if self.fusion_type == "readiness":
+        readiness_feats.append(compute_readiness_features(p_l.detach()))
+    per_layer_queries.append(q_l)
+```
+
+然后：
+
+```python
+if self.fusion_type == "readiness":
+    omega = self.fusion(readiness_feats, list(range(self.num_probes)), per_layer_queries)
+else:
+    omega = self.fusion(per_layer_queries)
+```
+
+也可以保持兼容接口，但不要在 A8 里计算 readiness。
+
+---
+
+## 4.2 `CrossAttnGroundingProbe.forward()` 的 detach 策略
+
+当前代码：
+
+```python
+q_l = Q.detach().view(-1)
+```
+
+第一版 A8 建议**保留 detach**，因为 per-layer heads 仍然会通过 (p_l) 和 (p_{\text{fuse}}) 接收梯度；detach 只是不让 fusion weight 的 cosine 路径反向扭曲 (W_q)。这更稳。
+
+实现上建议加参数：
+
+```python
+return_query_detached: bool = True
+```
+
+或者在 `LayerWiseGroundingHead` 里对 `q_l` 做：
+
+```python
+if self.fusion_detach_queries:
+    q_l = q_l.detach()
+```
+
+更推荐后者，这样 `CrossAttnGroundingProbe` 不必知道 fusion 策略。
+
+---
+
+## 4.3 `RetrofitModelMixin._init_retrofit_from_config`
+
+新增读取 config：
+
+```python
+fusion_lora_rank = getattr(config, "grounding_fusion_lora_rank", 128)
+fusion_context_rank = getattr(config, "grounding_fusion_context_rank", 64)
+fusion_detach_queries = getattr(config, "grounding_fusion_detach_queries", True)
+fusion_learn_temperature = getattr(config, "grounding_fusion_learn_temperature", True)
+```
+
+传给 `LayerWiseGroundingHead`。
+
+当前 mixin 已经读取 `grounding_fusion_type`、`adapter_type`、`attn_n_heads`、`attn_d_head` 等参数并构建 `LayerWiseGroundingHead`，所以这里只需要扩展 config 字段。([GitHub][2])
+
+---
+
+## 4.4 `train_retrofit.py`
+
+### 新增 training/model args
+
+添加：
+
+```python
+grounding_fusion_lora_rank: int = 128
+grounding_fusion_context_rank: int = 64
+grounding_fusion_detach_queries: bool = True
+grounding_fusion_learn_temperature: bool = True
+reinit_grounding_head: Optional[bool] = None
+stage2_from_retrofit_checkpoint: bool = False
+```
+
+并在 `update_model_config_for_retrofit()` 里写入 config。
+
+### 必须修复 reinit 逻辑
+
+当前 `train_retrofit.py` 里判断是否 reinit grounding head 是看 `output_dir` 里有没有 checkpoint：
+
+```python
+_is_resuming = len(list(pathlib.Path(training_args.output_dir).glob("checkpoint-*"))) > 0
+...
+reinit_grounding_head=not _is_resuming
+```
+
+这对 A8 是危险的：A8 会从 A7 checkpoint 加载，但输出目录是新目录，旧逻辑会把它误判成 fresh run，从而 reinit 掉 A7 已训练好的 probes。([GitHub][5])
+
+改成：
+
+```python
+if training_args.reinit_grounding_head is not None:
+    reinit_head = training_args.reinit_grounding_head
+else:
+    reinit_head = not _is_resuming
+
+model.setup_special_token_ids(..., reinit_grounding_head=reinit_head)
+```
+
+A8 必须传：
+
+```text
+--reinit_grounding_head False
+```
+
+### 训练参数选择
+
+当前 `setup_trainable_params` 支持冻结 backbone，并打开 `layerwise_grounding_head` 和新 token；这正符合 A8，只是需要保证不要重置 A7 权重。([GitHub][5])
+
+A8 可以继续使用：
+
+```text
+--unfreeze_grounding_head True
+--unfreeze_new_tokens True
+--unfreeze_lm_head False
+--unfreeze_visual_encoder False
+--unfreeze_last_n_layers -1
+```
+
+新增 token 学习率当前已有 `learning_rate_new_tokens`，默认 2e-4；A8 建议调低。([GitHub][5])
+
+---
+
+# 5. Checkpoint 加载策略
+
+A8 从 A7 最后 checkpoint 加载：
+
+```text
+model_name_or_path = /mnt/.../uitars_A7_exp001/checkpoint-<last>
+model_name_or_path = /mnt/.../guiowl7b_A7_exp001/checkpoint-<last>
+```
+
+注意：如果 A7 checkpoint 是 `independent_layers=True`，它没有 fusion 参数；A8 设置 `independent_layers=False` 且 `fusion_type=cos_meta_context_lora`，所以加载时应看到：
+
+```text
+missing keys: layerwise_grounding_head.fusion.*
+unexpected keys: none or only old fusion keys if any
+```
+
+A7 的 per-layer probes 必须完整加载。
+
+如果因为 probe layer 数变化导致 key shape 不匹配，立刻停止。默认不要换层，继续用 `18-27`。
+
+---
+
+# 6. A8 训练超参
+
+建议：
+
+```text
+num_train_epochs = 1
+probe_layers = 18,19,20,21,22,23,24,25,26,27
+
+adapter_type = attn
+attn_heads = 8
+attn_head_dim = 64
+independent_layers = false
+use_shared_mlp = false
+
+fusion_type = cos_meta_context_lora
+fusion_lora_rank = 128
+fusion_context_rank = 64
+fusion_detach_queries = true
+fusion_learn_temperature = true
+
+grounding_lambda_layer = 0.2
+grounding_loss_weight = 1.0
+lm_loss_weight = 0.0
+
+learning_rate = 5e-5
+learning_rate_new_tokens = 5e-5
+weight_decay = 0.0
+warmup_ratio = 0.02
+lr_scheduler_type = cosine
+max_grad_norm = 1.0
+bf16 = true
+gradient_checkpointing = true
+```
+
+如果支持 param group，最好：
+
+```text
+selected CrossAttn probes: 5e-5
+fusion parameters:        1e-4
+_new_token_emb:           5e-5
+```
+
+如果不想改 optimizer param group，统一：
+
+```text
+learning_rate = 5e-5
+learning_rate_new_tokens = 5e-5
+```
+
+warmup 建议保留，因为 fusion head 是新初始化的，尤其 (\alpha)、(q_{\text{meta}})、LoRA fusion projector 如果一开始学习率太大，容易让 (\omega) 快速 collapse 到单层。A8 只跑 1 epoch，所以 warmup 不要太长：
+
+```text
+warmup_ratio = 0.02
+```
+
+或：
+
+```text
+warmup_steps = min(100, int(0.02 * total_steps))
+```
+
+---
+
+# 7. 需要监控的指标
+
+继续使用已有 WandB 指标：
+
+```text
+train/omega_entropy
+layer_omega/L18 ... layer_omega/L27
+train/p_final_entropy
+train/p_final_max
+train/grounding_loss
+train/lr
+```
+
+`.mrules` 里已经记录过 `train/omega_entropy`、`train/p_final_entropy`、`train/p_final_max`、`layer_omega/Lxx` 这些指标，正好用来观察 fusion 是否 collapse。([GitHub][3])
+
+健康行为：
+
+[
+H(\omega) \approx \log 10 = 2.3026
+]
+
+开局应接近 uniform。
+
+训练中可以慢慢下降，但不要在前几百 step 直接：
+
+[
+\max_l \omega_l > 0.8
+]
+
+如果过早 collapse：
+
+```text
+降低 fusion LR 到 5e-5
+或增大 warmup_ratio 到 0.05
+或把 lambda_layer 从 0.2 提到 0.3
+```
+
+---
+
+# 8. 验证清单
+
+## 8.1 静态检查
+
+```bash
+grep -r "cos_meta_context_lora" zwerge/src/zwerge_retrofit zwerge/train_retrofit.py
+```
+
+确认新 fusion 类型接入。
+
+## 8.2 参数量检查
+
+启动时打印：
+
+```text
+layerwise_grounding_head trainable params
+fusion trainable params
+_new_token_emb params
+```
+
+期望：
+
+```text
+fusion new params ≈ 200,203
+10-layer probes ≈ 36M
+new tokens ≈ 14K
+total trainable ≈ 37.06M
+```
+
+## 8.3 checkpoint load 检查
+
+A8 加载 A7 checkpoint 时，必须确认：
+
+```text
+loaded CrossAttn probes from A7
+missing only fusion.*
+grounding head was NOT reinitialized
+```
+
+必须打印：
+
+```text
+reinit_grounding_head=False
+```
+
+## 8.4 smoke test
+
+用 2 个样本跑 forward：
+
+```text
+grounding_loss is finite
+p_final shape == [N_vis]
+omega shape == [10]
+omega sum ≈ 1
+all layer_omega/L18-L27 present
+```
+
+## 8.5 小步训练
+
+先跑：
+
+```text
+MAX_STEPS=50
+```
+
+观察：
+
+```text
+loss finite
+omega_entropy not collapse
+fusion params have grad
+probe params have grad
+_new_token_emb has grad
+backbone has no grad
+```
+
+---
+
+# 9. 给 Claude 的最终实现指令
+
+可以直接复制下面这段：
+
+```text
+请实现 A8 Stage-2 Context-Aware Cos-Meta Fusion。
+
+背景：
+当前仓库中 A7 已经训练了 attn-based CrossAttnGroundingProbe：
+adapter_type=attn, attn_heads=8, attn_head_dim=64, independent_layers=true。
+A7 的 UI-TARS 和 GUIOwl7B 配置都使用 Qwen2.5-VL 28 层模型的最后连续 10 层：18-27。
+现在要从 A7 checkpoint 继续第二阶段训练：
+- 继续训练这 10 层 CrossAttn probes；
+- 继续训练新增 token embedding；
+- 新增约 200K 参数的 context-aware cos-meta fusion head；
+- backbone / visual encoder / lm_head 继续冻结；
+- 完全放弃 readiness fusion。
+
+模型路径：
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars_A7_exp001
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl7b_A7_exp001
+
+新增 fusion_type:
+grounding_fusion_type = "cos_meta_context_lora"
+
+数学定义：
+每层 CrossAttn probe 返回 p_l 和 q_l，其中 q_l ∈ R^{512}。
+对每层：
+z_l = LN_f(q_l) + B_f A_f LN_f(q_l)
+其中 A_f: 512→128, B_f: 128→512。
+跨层 context:
+z_bar = mean_l z_l
+c = B_c A_c LN_c(z_bar)
+其中 A_c: 512→64, B_c: 64→512。
+每层 context-aware 表示：
+z_tilde_l = LN_o(z_l + c)
+cos-meta score:
+a_l = alpha_l + tau * cos(q_meta, z_tilde_l)
+omega = softmax(a)
+p_fuse = Σ_l omega_l p_l
+
+Loss:
+L = KL(y || p_fuse) + lambda_layer * mean_l KL(y || p_l)
+lambda_layer = 0.2
+
+新增参数量目标：
+A_f/B_f: 131,072
+A_c/B_c: 65,536
+3 LayerNorms: 3,072
+q_meta: 512
+alpha: 10
+rho/tau: 1
+total ≈ 200,203 params
+
+实现要求：
+1. 在 modeling_base.py 新增 ContextLoRACosMetaFusion。
+2. 扩展 LayerWiseGroundingHead 支持 fusion_type="cos_meta_context_lora"。
+3. 对 adapter_type="attn"，fusion 维度必须使用 attn_heads * attn_head_dim = 512，而不是 d_model。
+4. A8 完全不要计算 readiness_features。
+5. 默认 detach q_l for fusion scoring，即 fusion cosine 路径不反向扭曲 W_q；per-layer heads 仍通过 p_l 和 p_fuse 接收梯度。
+6. 在 train_retrofit.py 增加 config/CLI 参数：
+   grounding_fusion_lora_rank=128
+   grounding_fusion_context_rank=64
+   grounding_fusion_detach_queries=True
+   grounding_fusion_learn_temperature=True
+   reinit_grounding_head=False
+7. 修复当前 reinit_grounding_head 逻辑：A8 从 A7 checkpoint 加载时，不能因为 output_dir 是新目录而 reinit 已训练好的 probes。
+8. 新增 A8 训练脚本和两个 yaml：
+   experiments/A8_uitars_1.5_cosmeta_context.yaml
+   experiments/A8_guiowl_7b_cosmeta_context.yaml
+   输出目录分别为：
+   uitars_A8_cosmeta_ctx_exp001
+   guiowl7b_A8_cosmeta_ctx_exp001
+9. A8 默认超参：
+   probe_layers=18,19,20,21,22,23,24,25,26,27
+   adapter_type=attn
+   independent_layers=false
+   use_shared_mlp=false
+   fusion_type=cos_meta_context_lora
+   grounding_lambda_layer=0.2
+   num_train_epochs=1
+   learning_rate=5e-5
+   learning_rate_new_tokens=5e-5
+   weight_decay=0
+   warmup_ratio=0.02
+   lr_scheduler_type=cosine
+   max_grad_norm=1.0
+   bf16=true
+   gradient_checkpointing=true
+
+验证：
+- A8 从 A7 checkpoint load 后，missing keys 应主要是 layerwise_grounding_head.fusion.*。
+- 必须打印 reinit_grounding_head=False。
+- trainable params 中 backbone 为 0，fusion ≈ 200K，10-layer probes ≈ 36M，新 token ≈ 14K。
+- smoke test forward 后 omega shape=[10], sum≈1, p_final shape=[N_vis]。
+- WandB 必须记录 train/omega_entropy 和 layer_omega/L18-L27。
+```
+
+---
+
+我的最终建议：**A8 第一版就用这个 200K fusion head，不要再做 35K 小版。** 200K 相对 36M 的二阶段 trainable probes 仍然很小，但它解决了你担心的“每层 (q_l) 独立打分、没有跨层信息交互”的问题，而且仍然保持纯 cos-meta、无 readiness，实验解释非常干净。
+
+[1]: https://github.com/HashTAG00002/zwergeUI/blob/master/zwerge/experiments/A7_uitars_1.5.yaml "zwergeUI/zwerge/experiments/A7_uitars_1.5.yaml at master · HashTAG00002/zwergeUI · GitHub"
+[2]: https://raw.githubusercontent.com/HashTAG00002/zwergeUI/master/zwerge/src/zwerge_retrofit/modeling_base.py "raw.githubusercontent.com"
+[3]: https://raw.githubusercontent.com/HashTAG00002/zwergeUI/master/.mrules "raw.githubusercontent.com"
+[4]: https://github.com/HashTAG00002/zwergeUI/blob/master/zwerge/scripts/train_ablation_A7_crossattn_probe.sh "zwergeUI/zwerge/scripts/train_ablation_A7_crossattn_probe.sh at master · HashTAG00002/zwergeUI · GitHub"
+[5]: https://raw.githubusercontent.com/HashTAG00002/zwergeUI/master/zwerge/train_retrofit.py "raw.githubusercontent.com"
