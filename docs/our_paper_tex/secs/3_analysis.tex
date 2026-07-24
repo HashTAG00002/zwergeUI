@@ -1,0 +1,131 @@
+% ==============================================================================
+% Section 3: The Coordinate Serialization Bottleneck
+% ==============================================================================
+
+\section{The Coordinate Serialization Bottleneck}
+\label{sec:analysis}
+
+We investigate \emph{where} GUI grounding signals are encoded across transformer layers, building toward four findings that motivate our method.
+
+\paragraph{Experimental setup.}
+We study four GUI agents spanning two backbone families (Qwen2.5-VL~\cite{qwen25vl} and Qwen3-VL~\cite{qwen3vl}) on ScreenSpot-Pro~\citep{screenspotpro} and ScreenSpot-v2~\citep{Os-atlas}.
+Spatial grounding quality is measured via a lightweight per-layer grounding head (Stage~1 of \S\ref{sec:method:stage1}; ${\sim}$0.5\% of backbone parameters) trained with the backbone completely frozen, so it introduces no new spatial knowledge.
+Coordinate serialization quality is measured via the backbone's native language model head under teacher forcing, with no additional parameters.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figs/fig3_serialization_lens.pdf}
+  \caption{
+    \textbf{Spatial localization and coordinate serialization peak at different depths.}
+    Blue curves (left axis): spatial hit@1 $\uparrow$.
+    Orange curves (right axis): coordinate token log-likelihood $\uparrow$.
+    Both signals rise together, then diverge at the spatial peak $L^*$ (blue star): spatial quality declines while serialization continues rising to $L^\dagger$ (orange triangle).
+    The consistent lag $L^\dagger > L^*$ across all models constitutes direct evidence for the coordinate serialization bottleneck.
+  }
+  \label{fig:serialization_lens}
+\end{figure*}
+
+% ------------------------------------------------------------------------------
+\subsection{Spatial Grounding Peaks at Intermediate Layers}
+\label{sec:analysis:layerwise}
+% ------------------------------------------------------------------------------
+
+Autoregressive GUI agents implicitly assume final-layer representations carry the richest spatial information.
+Figure~\ref{fig:serialization_lens} (blue curves) challenges this: the spatial signal peaks at intermediate depths, then declines toward the output.
+This non-monotonic trajectory is consistent across both backbone families, ruling out any progressive-refinement interpretation.
+
+\begin{tcolorbox}[colback=gray!8, colframe=gray!40, boxrule=0.4pt, arc=2pt, left=4pt, right=4pt, top=3pt, bottom=3pt]
+\textbf{Finding 1.}
+\emph{Intermediate transformer layers are consistently better spatial decoders than the final layer.}
+\end{tcolorbox}
+
+% ------------------------------------------------------------------------------
+\subsection{A Dissociation Between Spatial Localization and Coordinate Serialization}
+\label{sec:analysis:serialization}
+% ------------------------------------------------------------------------------
+
+If late layers are not spatial refiners, what do they do?
+We hypothesize they are dedicated to \emph{coordinate serialization}, translating a latent spatial intent into the vocabulary-level token sequence required by the autoregressive head.
+We test this with a \emph{serialization lens}: coordinate token log-likelihood measured via teacher-forced inference at each layer.
+
+Figure~\ref{fig:serialization_lens} (red curves) reveals a striking dissociation.
+Both signals rise together through early layers, then diverge: spatial quality peaks and falls, while coordinate log-likelihood continues climbing to a later plateau.
+The lag between the spatial peak and the serialization plateau is consistent across all four models and both backbone families, providing direct evidence for a \textbf{coordinate serialization bottleneck}.
+
+
+\begin{tcolorbox}[colback=gray!8, colframe=gray!40, boxrule=0.4pt, arc=2pt, left=4pt, right=4pt, top=3pt, bottom=3pt]
+\textbf{Finding 2.}
+\emph{The layer that best decodes the target region consistently precedes the layer that best predicts the coordinate token sequence. Late layers are coordinate serializers, not spatial refiners.}
+\end{tcolorbox}
+
+% ------------------------------------------------------------------------------
+\subsection{The Mid-Layer Posterior Is Instruction-Conditioned, Not Visual Saliency}
+\label{sec:analysis:counterfactual}
+% ------------------------------------------------------------------------------
+
+A skeptical reading is that mid-layer spatial signals merely reflect \emph{visual saliency}: prominent targets appear highlighted regardless of the instruction.
+We design a counterfactual to falsify this: for pairs of records sharing the same screen but targeting disjoint elements, we swap the instruction while keeping the image fixed and measure how much the spatial posterior shifts.
+
+Figure~\ref{fig:counterfactual} shows the posterior shifts dramatically.
+Switching the instruction collapses the spatial mass on the original target by a substantial margin, concentrated at exactly the intermediate layers where grounding quality peaks.
+This decisively rules out the saliency account: the mid-layer representation is an instruction-conditioned spatial posterior, not a passive saliency map.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figs/fig4_instruction_suppression.pdf}
+  \caption{
+    \textbf{Instruction-switch counterfactual: the mid-layer posterior is instruction-conditioned.}
+    Blue curves: old-target suppression $\uparrow$.
+    Orange curves: posterior JS divergence $\uparrow$.
+    Both effects peak at the same intermediate layers as spatial grounding quality (cf.\ Fig.~\ref{fig:serialization_lens}) and are substantially nonzero, ruling out visual saliency.
+  }
+  \label{fig:counterfactual}
+\end{figure*}
+
+\begin{tcolorbox}[colback=gray!8, colframe=gray!40, boxrule=0.4pt, arc=2pt, left=4pt, right=4pt, top=3pt, bottom=3pt]
+\textbf{Finding 3.}
+\emph{Swapping the instruction while keeping the image fixed causes a large shift in the mid-layer spatial posterior. The spatial signal is instruction-conditioned grounding, not visual saliency.}
+\end{tcolorbox}
+
+% ------------------------------------------------------------------------------
+\subsection{The Bottleneck Is Amplified on High-Resolution Small-Target Layouts}
+\label{sec:analysis:resolution}
+% ------------------------------------------------------------------------------
+
+We ask whether the bottleneck is \emph{amplified} in the setting where GUI grounding is hardest: high-resolution screenshots with small, densely packed targets.
+
+We quantify severity via the \emph{collapse gap}: peak-layer hit@1 minus final-layer hit@1.
+Table~\ref{tab:resolution_comparison} shows the gap is consistently larger on ScreenSpot-Pro (high-resolution, small targets) than on ScreenSpot-v2 (mid-resolution, larger targets) across every model.
+This is not a difficulty artifact: even though absolute performance is higher on SS-v2, the relative degradation from peak to final layer is smaller.
+The serialization overhead is most costly precisely where spatial precision matters most.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrr@{\hspace{0.8em}}rrr}
+\toprule
+& \multicolumn{3}{c}{SS-Pro} & \multicolumn{3}{c}{SS-v2} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+Model & Pk & Fin & Gap$\downarrow$ & Pk & Fin & Gap$\downarrow$ \\
+\midrule
+UI-TARS-1.5-7B    & 46.0 & 30.5 & 15.5 & 91.5 & 80.0 & 11.5 \\
+GUI-Owl-7B        & 46.5 & 37.0 &  9.5 & 88.0 & 80.5 &  7.5 \\
+GUI-Owl-1.5-8B    & 54.0 & 30.5 & 23.5 & 90.5 & 84.5 &  6.0 \\
+UI-Venus-1.5-8B   & 54.0 & 32.5 & 21.5 & 91.5 & 85.0 &  6.5 \\
+\bottomrule
+\end{tabular}
+\caption{
+  \textbf{Collapse gap is larger on high-resolution layouts.}
+  Pk\,=\,peak-layer hit@1; Fin\,=\,final-layer hit@1 (pp).
+  SS-Pro gaps consistently exceed SS-v2 gaps.
+}
+\label{tab:resolution_comparison}
+\end{table}
+
+\begin{tcolorbox}[colback=gray!8, colframe=gray!40, boxrule=0.4pt, arc=2pt, left=4pt, right=4pt, top=3pt, bottom=3pt]
+\textbf{Finding 4.}
+\emph{The collapse gap from peak to final layer is consistently larger on high-resolution benchmarks with small targets. The coordinate serialization bottleneck is most damaging precisely where spatial precision matters most.}
+\end{tcolorbox}
+
+Taken together, the four findings motivate reading the spatial posterior from intermediate layers and using cross-layer fusion to select the optimal depth per sample, as described in \S\ref{sec:method}.

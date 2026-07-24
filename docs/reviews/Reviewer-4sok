@@ -1,0 +1,47 @@
+Official Review of Submission2403 by Reviewer 4sok
+Official Reviewby Reviewer 4sok06 Jul 2026, 18:19 (modified: 12 Jul 2026, 23:16)Program Chairs, Senior Area Chairs, Area Chairs, Reviewers Submitted, Authors, Reviewer 4sokRevisions
+Paper Summary:
+The paper investigates the internal representations of autoregressive GUI agents, identifying a "coordinate serialization bottleneck" where intermediate transformer layers hold optimal spatial grounding signals, while final layers specialize in coordinate token formatting. To exploit this, the authors propose ZwerGe-UI, a parameter-efficient, frozen-backbone retrofit. It extracts layer-wise spatial posteriors using intermediate cross-attention probes and dynamically aggregates them via a cross-layer fusion head. Evaluated on GUI benchmarks, ZwerGe-UI improves spatial grounding over standard autoregressive decoding.
+
+Summary Of Strengths:
+The isolation of the spatial-to-serialization transition using dual analytical lenses (spatial probes vs. teacher-forced coordinate log-likelihoods) provides insights into MLLM behavior.
+
+Freezing the backbone and appending shallow cross-attention probes (~0.5% of backbone parameters) could improve efficiency.
+
+The instruction-switch experiment rules out passive visual saliency, providing potential evidence that the mid-layer signals are instruction-conditioned spatial posteriors.
+
+Summary Of Weaknesses:
+I am a little confused by the CosMeta fusion design (Eq. 5). The text correctly notes the "heterogeneity of semantic spaces" across different depths (Section 3.1). Could the authors clarify how a single global, learnable meta-query (
+) can effectively compute cosine similarities across these heterogeneous latent spaces?
+
+Could you elaborate further on the behavior of the anisotropic Gaussian label (Eq. 3) for very small targets? Since the variance is defined as a fraction of the bounding box size (
+, 
+), it seems the variance might approach zero for tiny icons on high-resolution screens. I wonder if the authors could discuss whether this causes the KL divergence loss (Eq. 4) to revert to a hard, one-hot penalty in these exact scenarios, which is the specific issue soft-labeling aims to mitigate.
+
+Have the authors considered the potential impact of an out-of-distribution (OOD) shift during prefill-forced inference? The backbone agents (e.g., Qwen-VL variants) are typically trained to generate <|ground|><|pointer_start|> tokens autoregressively, often after latent reasoning or Chain-of-Thought tokens.
+
+What was the justification for applying a strict 
+ pre-scale constraint (
+) prior to LayerNorm (Section 3.1)? While this effectively prevents numerical overflow, in modern LLMs, activation magnitude often correlates with token confidence or attention sinks.
+
+It is not entirely clear how the continuous KL divergence training objective fully aligns with the discrete inference decoding strategy. While the model is trained to map a unimodal Gaussian posterior, inference relies on a "BFS centroid decode strategy with a 0.3x max threshold" (Section 4.1).
+
+Comments Suggestions And Typos:
+NA
+
+Confidence: 3 =  Pretty sure, but there's a chance I missed something. Although I have a good feel for this area in general, I did not carefully check the paper's details, e.g., the math or experimental design.
+Soundness: 3.5
+Excitement: 3 = Interesting: I might mention some points of this paper to others and/or attend its presentation in a conference if there's time.
+Overall Assessment: 3.5 = Borderline Conference
+Ethical Concerns:
+There are no concerns with this submission
+
+Reproducibility: 4 = They could mostly reproduce the results, but there may be some variation because of sample variance or minor variations in their interpretation of the protocol or method.
+Datasets: 1 = No usable datasets submitted.
+Software: 3 = Potentially useful: Someone might find the new software useful for their work.
+Knowledge Of Or Educated Guess At Author Identity: No
+Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Knowledge Of Paper Source: N/A, I do not know anything about the paper from outside sources
+Impact Of Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Reviewer Certification: I certify that the review I entered accurately reflects my assessment of the work. If you used any type of automated tool to help you craft your review, I hereby certify that its use was restricted to improving grammar and style, and the substance of the review is either my own work or the work of an acknowledged secondary reviewer.
+Publication Ethics Policy Compliance: I used a privacy-preserving tool exclusively for the use case(s) approved by PEC policy, such as language edits

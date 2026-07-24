@@ -1,0 +1,8 @@
+\section{Conclusion}
+
+We present \textsc{ZwerGe-UI}, a coordinate-free retrofit that exposes and exploits the coordinate serialization bottleneck in GUI agents.
+Layerwise probing shows that instruction-conditioned spatial posteriors often peak at intermediate transformer layers, while later layers increasingly specialize in coordinate serialization rather than localization refinement.
+Motivated by this finding, \textsc{ZwerGe-UI} freezes the original backbone and attaches lightweight per-layer grounding probes with a cross-layer fusion head, enabling single-pass spatial readout without autoregressive coordinate generation.
+Across diverse GUI grounding benchmarks, the retrofit recovers useful intermediate-layer spatial signals, with the strongest gains on spatial and layout-centric tasks.
+The remaining failures reveal two limitations: patch-level granularity on high-resolution small targets and OCR-dominated text matching.
+Overall, our results suggest that future GUI agents should decouple spatial grounding from coordinate serialization and combine intermediate-layer spatial evidence with finer-grained visual and textual signals.

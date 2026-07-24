@@ -6,6 +6,7 @@ Abstract base class, shared utilities, and RetrofitInference for all 3 retrofit 
 Mirrors src/zwerge_retrofit/modeling_base.py on the inference side.
 """
 
+import json
 import math
 import os
 import sys
@@ -363,40 +364,125 @@ BENCH_CONFIGS = {
         "eval_dir":    "ScreenSpot-Pro",
         "eval_json":   "eval.json",
         "group_field": "ui_type",
+        # domain: group field "group" → Development/Creative/CAD/Scientific/Office/OS
+        "domain_field": "group",
+        "domain_map": {
+            "Dev":        "Development",
+            "Creative":   "Creative",
+            "CAD":        "CAD",
+            "Scientific": "Scientific",
+            "Office":     "Office",
+            "OS":         "OS",
+        },
     },
     "ss_v2": {
         "name":        "ScreenSpot-v2",
         "eval_dir":    "ScreenSpot-v2",
         "eval_json":   "eval.json",
         "group_field": "data_type",
+        # domain: data_source → Mobile / Desktop / Web
+        "domain_field": "data_source",
+        "domain_map": {
+            "ios":     "Mobile",
+            "android": "Mobile",
+            "windows": "Desktop",
+            "macos":   "Desktop",
+            "linux":   "Desktop",
+            "forum":   "Web",
+            "tool":    "Web",
+            "gitlab":  "Web",
+            "shop":    "Web",
+        },
     },
     "osworld_g": {
         "name":        "OSWorld-G (refined)",
         "eval_dir":    "OSWorld-G",
         "eval_json":   "eval.json",
         "group_field": "GUI_types",
+        # domain: via external classification_result.json; id field maps to domain
+        # domain_field="__osworld_clf__" is a special sentinel handled in _get_domain_key
+        "domain_field": "__osworld_clf__",
+        "domain_clf_path": "OSWorld-G/benchmark/classification_result.json",
     },
     "osworld_g_orig": {
         "name":        "OSWorld-G (original)",
         "eval_dir":    "OSWorld-G",
         "eval_json":   "eval_orig.json",
         "group_field": "GUI_types",
+        "domain_field": "__osworld_clf__",
+        "domain_clf_path": "OSWorld-G/benchmark/classification_result.json",
     },
     "mmbench": {
         "name":        "MMBench-GUI-L2",
         "eval_dir":    "MMBench-GUI",
         "eval_json":   "eval.json",
         "group_field": "grounding_type",
+        # domain: platform → Windows/MacOS/Linux/iOS/Android/Web
+        "domain_field": "platform",
+        "domain_map": {
+            "os_windows": "Windows",
+            "os_mac":     "MacOS",
+            "os_linux":   "Linux",
+            "os_ios":     "iOS",
+            "os_android": "Android",
+            "os_web":     "Web",
+        },
     },
     "ui_vision": {
         "name":        "UI-Vision",
         "eval_dir":    "UI-Vision",
         "eval_json":   "eval.json",
         "group_field": "task_type",
+        # domain: task_type → Basic/Functional/Spatial/Layout
+        "domain_field": "task_type",
+        "domain_map": {
+            "element_grounding_basic":       "Basic",
+            "element_grounding_functional":  "Functional",
+            "element_grounding_spatial":     "Spatial",
+            "layout_grounding":              "Layout",
+        },
     },
 }
 
 MAIN_BENCH_KEYS = ["ss_pro", "ss_v2", "osworld_g", "osworld_g_orig", "mmbench", "ui_vision"]
+
+# Domain ordered labels for display (used in summary printing)
+DOMAIN_ORDER = {
+    "ss_pro":         ["Development", "Creative", "CAD", "Scientific", "Office", "OS"],
+    "ss_v2":          ["Mobile", "Desktop", "Web"],
+    "osworld_g":      ["Text Matching", "Element Recog.", "Layout Underst.", "Fine-grained Manip."],
+    "osworld_g_orig": ["Text Matching", "Element Recog.", "Layout Underst.", "Fine-grained Manip."],
+    "mmbench":        ["Windows", "MacOS", "Linux", "iOS", "Android", "Web"],
+    "ui_vision":      ["Basic", "Functional", "Spatial", "Layout"],
+}
+
+# OSWorld-G domain classification: loaded lazily per eval_root
+_OSWORLD_CLF_CACHE: dict = {}
+
+def _load_osworld_clf(eval_root: str, clf_rel_path: str) -> dict:
+    """Load OSWorld-G classification_result.json and return id→domain_label dict."""
+    key = (eval_root, clf_rel_path)
+    if key in _OSWORLD_CLF_CACHE:
+        return _OSWORLD_CLF_CACHE[key]
+    import os as _os
+    clf_path = _os.path.join(eval_root, clf_rel_path)
+    with open(clf_path) as f:
+        clf = json.load(f)
+    domain_map = {
+        "text_matching":          "Text Matching",
+        "element_recognition":    "Element Recog.",
+        "layout_understanding":   "Layout Underst.",
+        "fine_grained_manipulation": "Fine-grained Manip.",
+    }
+    id2domain: dict = {}
+    for dom_key, items in clf.get("classified", {}).items():
+        label = domain_map.get(dom_key)
+        if label is None:
+            continue
+        for item in items:
+            id2domain[item["id"]] = label
+    _OSWORLD_CLF_CACHE[key] = id2domain
+    return id2domain
 
 
 def _get_group_key(example: dict, group_field: Optional[str]) -> str:
@@ -405,6 +491,28 @@ def _get_group_key(example: dict, group_field: Optional[str]) -> str:
     val = example.get(group_field, "unknown")
     if isinstance(val, list):
         return ",".join(str(v) for v in val)
+    return str(val)
+
+
+def _get_domain_key(
+    example: dict,
+    cfg: dict,
+    eval_root: str,
+) -> Optional[str]:
+    """Return the domain label for an example, or None if not classifiable."""
+    domain_field = cfg.get("domain_field")
+    if not domain_field:
+        return None
+    if domain_field == "__osworld_clf__":
+        clf_rel = cfg.get("domain_clf_path", "OSWorld-G/benchmark/classification_result.json")
+        id2domain = _load_osworld_clf(eval_root, clf_rel)
+        return id2domain.get(example.get("id"))
+    val = example.get(domain_field)
+    if val is None:
+        return None
+    domain_map = cfg.get("domain_map", {})
+    if domain_map:
+        return domain_map.get(str(val))
     return str(val)
 
 

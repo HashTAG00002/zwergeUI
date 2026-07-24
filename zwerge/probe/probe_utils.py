@@ -8,6 +8,7 @@ All imports from existing eval/ and src/ code are read-only.
 No modifications to upstream code.
 """
 
+import gc
 import json
 import math
 import os
@@ -22,7 +23,7 @@ import torch.nn.functional as F
 
 # ── sys.path: add eval/ and src/ directories ─────────────────────────────────
 _PROBE_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT  = os.path.abspath(os.path.join(_PROBE_DIR, "../../.."))
+_REPO_ROOT  = os.path.abspath(os.path.join(_PROBE_DIR, "../.."))
 _EVAL_DIR   = os.path.join(_REPO_ROOT, "zwerge", "eval")
 _SRC_DIR    = os.path.join(_REPO_ROOT, "zwerge", "src")
 
@@ -34,15 +35,27 @@ for _d in [_EVAL_DIR, _SRC_DIR]:
 # ── Architecture helpers ──────────────────────────────────────────────────────
 
 def _get_decoder_layers(model):
-    """Return the list of transformer decoder layers, handling Qwen2.5-VL and Qwen3-VL."""
-    # Qwen2.5-VL: model.model.layers
-    if hasattr(model, "model") and hasattr(model.model, "layers"):
-        return model.model.layers
-    # Qwen3-VL: model.model.language_model.model.layers
-    if (hasattr(model, "model") and hasattr(model.model, "language_model")
-            and hasattr(model.model.language_model, "model")
-            and hasattr(model.model.language_model.model, "layers")):
-        return model.model.language_model.model.layers
+    """Return the list of transformer decoder layers, handling Qwen2.5-VL and Qwen3-VL.
+
+    Qwen2.5-VL (uitars, guiowl7b):
+        model  →  Qwen2VLForConditionalGeneration
+        .model →  Qwen2VLModel
+        .model.layers  ← here
+
+    Qwen3-VL (guiowl, uivenus):
+        model  →  Qwen3VLForConditionalGeneration
+        .model →  Qwen3VLModel
+        .model.language_model  →  Qwen3VLTextModel
+        .model.language_model.layers  ← here  (no extra .model.)
+    """
+    if hasattr(model, "model"):
+        mm = model.model
+        # Qwen2.5-VL: model.model.layers
+        if hasattr(mm, "layers"):
+            return mm.layers
+        # Qwen3-VL: model.model.language_model.layers
+        if hasattr(mm, "language_model") and hasattr(mm.language_model, "layers"):
+            return mm.language_model.layers
     raise AttributeError(f"Cannot find decoder layers on {type(model)}")
 
 
@@ -51,15 +64,19 @@ def _get_decoder_layer(model, layer_idx: int):
 
 
 def _get_lm_norm(model):
-    """Return the final LM norm module (pre-lm_head normalization)."""
-    # Qwen2.5-VL
-    if hasattr(model, "model") and hasattr(model.model, "norm"):
-        return model.model.norm
-    # Qwen3-VL
-    if (hasattr(model, "model") and hasattr(model.model, "language_model")
-            and hasattr(model.model.language_model, "model")
-            and hasattr(model.model.language_model.model, "norm")):
-        return model.model.language_model.model.norm
+    """Return the final LM norm module (pre-lm_head normalization).
+
+    Qwen2.5-VL: model.model.norm
+    Qwen3-VL:   model.model.language_model.norm
+    """
+    if hasattr(model, "model"):
+        mm = model.model
+        # Qwen2.5-VL
+        if hasattr(mm, "norm"):
+            return mm.norm
+        # Qwen3-VL
+        if hasattr(mm, "language_model") and hasattr(mm.language_model, "norm"):
+            return mm.language_model.norm
     raise AttributeError(f"Cannot find LM norm on {type(model)}")
 
 
@@ -308,7 +325,7 @@ def make_next_token_targets(
     return pred_pos, pred_ids
 
 
-# ── Logit-lens NLL via forward hooks ─────────────────────────────────────────
+# ── Logit-lens NLL via _forward_hidden_states_for_grounding ──────────────────
 
 def logit_lens_nll_hooks(
     model,
@@ -319,23 +336,28 @@ def logit_lens_nll_hooks(
     device: torch.device,
 ) -> Dict[int, float]:
     """
-    Memory-efficient logit lens using PyTorch forward hooks.
+    Logit lens NLL using _forward_hidden_states_for_grounding.
 
-    Token shift (teacher-forcing fix): for each target token at position p,
-    we use the hidden state at position p-1 to predict token p.  This avoids
-    the situation where position p's hidden state has already "seen" token p
-    via the embedding, which would artificially deflate NLL at all layers.
+    This avoids forward hooks entirely. The hook + _StopForward approach
+    causes persistent GPU memory leaks in Qwen3-VL because raising a Python
+    exception inside a PyTorch C++ forward loop orphans intermediate tensors
+    (logits, KV, hidden states) whose C++ RAII destructors never run, making
+    them invisible to gc.collect() and torch.cuda.empty_cache().
 
-    Early-exit via _StopForward: after the last probe layer fires its hook the
-    forward pass is aborted, avoiding the cost of remaining layers and the
-    final lm_head projection over the full sequence.
+    Instead, we call the same _forward_hidden_states_for_grounding that
+    predict_layerwise() uses (which has zero leaks), extract only the
+    probe-layer hidden states, immediately free the full hidden-states tuple,
+    then compute the NLL projection in pure Python/PyTorch.
+
+    Token shift (teacher-forcing): for each target token at position p,
+    we use the hidden state at position p-1 to predict token p.
 
     Args:
-        model           : the ZwerGe retrofit model (UITARSRetrofitModel etc.)
-        inputs          : dict from build_zwerge_inputs() (input_ids, pixel_values, ...)
+        model           : the ZwerGe retrofit model
+        inputs          : dict from build_zwerge_inputs() (CPU tensors)
         target_positions: sequence positions whose tokens we want to predict
         target_ids      : ground-truth token ids AT those positions (p, not p-1)
-        probe_layers    : layer indices to probe (must be sorted ascending)
+        probe_layers    : layer indices to probe
         device          : torch device
 
     Returns:
@@ -349,61 +371,75 @@ def logit_lens_nll_hooks(
     if not pred_positions:
         return {}
 
-    norm     = _get_lm_norm(model)
-    lm_head  = _get_lm_head(model)
+    norm    = _get_lm_norm(model)
+    lm_head = _get_lm_head(model)
+    _param  = next(norm.parameters(), None)
+    _dtype  = _param.dtype if _param is not None else torch.bfloat16
     target_t = torch.tensor(shifted_target_ids, dtype=torch.long, device=device)
     results: Dict[int, float] = {}
 
-    max_probe_layer = max(probe_layers)
+    # ── Move inputs to device ────────────────────────────────────────────────
+    input_ids      = inputs["input_ids"].to(device)
+    attention_mask = inputs.get("attention_mask")
+    if attention_mask is not None:
+        attention_mask = attention_mask.to(device)
+    pixel_values = inputs.get("pixel_values")
+    if pixel_values is not None:
+        pixel_values = pixel_values.to(device=device, dtype=model.dtype)
+    image_grid_thw = inputs.get("image_grid_thw")
+    if image_grid_thw is not None:
+        image_grid_thw = image_grid_thw.to(device)
+    mm_token_type_ids = inputs.get("mm_token_type_ids")
+    if mm_token_type_ids is not None:
+        mm_token_type_ids = mm_token_type_ids.to(device)
 
-    def make_hook(li: int):
-        def hook_fn(module, inp, out):
-            h = out[0] if isinstance(out, tuple) else out  # [bsz, seq_len, d]
-            # Use predictor positions (p-1) to predict tokens at p
-            h_pos  = h[0, pred_positions, :].detach().float()  # [n_target, d]
-            h_n    = norm(h_pos)                                # [n_target, d]
-            logits = lm_head(h_n)                               # [n_target, vocab]
+    # ── Full forward via _forward_hidden_states_for_grounding ────────────────
+    # This is the same call path as predict_layerwise(), which has zero memory
+    # leaks. It does a clean full forward and returns all hidden states as a
+    # plain Python tuple — no exception path, no C++ tensor orphaning.
+    try:
+        with torch.no_grad():
+            all_hidden_states = model._forward_hidden_states_for_grounding(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                image_grid_thw=image_grid_thw,
+                device=device,
+                mm_token_type_ids=mm_token_type_ids,
+            )
+    finally:
+        # Release GPU-side input copies immediately.
+        del input_ids, attention_mask, pixel_values, image_grid_thw, mm_token_type_ids
+
+    # ── Compute NLL per probe layer, then free each hs slice immediately ─────
+    # hidden_states[layer_idx + 1] is the output of layer layer_idx.
+    # Shape: [seq_len, d_model] (already squeezed: batch=1 is removed by
+    # _forward_hidden_states_for_grounding for UITARSRetrofitModel, or it
+    # returns [1, seq_len, d_model] for GUIOwl/UIVenus via super().forward).
+    try:
+        for li in probe_layers:
+            raw_hs = all_hidden_states[li + 1]   # [seq_len, d] or [1, seq_len, d]
+            # Normalise batch dimension
+            if raw_hs is None:
+                continue
+            hs = raw_hs[0] if raw_hs.dim() == 3 else raw_hs  # [seq_len, d]
+            # Extract predictor positions and compute NLL
+            h_pos  = hs[pred_positions].detach().to(dtype=_dtype)  # [n_target, d]
+            h_n    = norm(h_pos)                                    # [n_target, d]
+            logits = lm_head(h_n).float()                          # [n_target, vocab]
             nll = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 target_t[:h_pos.shape[0]].to(logits.device),
                 reduction="mean",
             )
             results[li] = float(nll.item())
-            del h_pos, h_n, logits, nll
-            # Abort forward pass after the last probe layer — saves compute
-            if li == max_probe_layer:
-                raise _StopForward
-        return hook_fn
-
-    hooks = []
-    for li in probe_layers:
-        layer = _get_decoder_layer(model, li)
-        hooks.append(layer.register_forward_hook(make_hook(li)))
-
-    try:
-        dev_inputs = {
-            k: v.to(device) if isinstance(v, torch.Tensor) else v
-            for k, v in inputs.items()
-        }
-        if "pixel_values" in dev_inputs and dev_inputs["pixel_values"] is not None:
-            dev_inputs["pixel_values"] = dev_inputs["pixel_values"].to(
-                device=device, dtype=model.dtype
-            )
-
-        with torch.no_grad():
-            try:
-                model(
-                    output_hidden_states=False,
-                    output_attentions=False,
-                    use_cache=False,
-                    return_dict=True,
-                    **dev_inputs,
-                )
-            except _StopForward:
-                pass  # expected early exit — results are populated
+            del h_pos, h_n, logits, nll, hs, raw_hs
     finally:
-        for h in hooks:
-            h.remove()
+        # Free the full hidden-states tuple (37 × [seq, d] tensors for GUIOwl).
+        del all_hidden_states
+        del target_t
+        gc.collect()
+        torch.cuda.empty_cache()
 
     return results
 
@@ -578,7 +614,8 @@ def sample_records(
             rng.shuffle(shuffled)
             sampled.extend(shuffled[:per_group])
         # Top up if needed
-        remaining = [r for r in records if r not in set(sampled)]
+        sampled_ids = {id(r) for r in sampled}
+        remaining = [r for r in records if id(r) not in sampled_ids]
         rng.shuffle(remaining)
         sampled.extend(remaining[:max(0, n - len(sampled))])
         return sampled[:n]

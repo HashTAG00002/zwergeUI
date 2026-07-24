@@ -1,0 +1,160 @@
+你说得对：**剩下 7 天不能只做“论证兜底”，必须双轨推进，而且刷点应当占据主线资源。** 我之前把 OPD 过度限定成了自回归文本 token 蒸馏；更准确地说，OPD 的核心是让学生在其当前策略所访问的分布上，接受具有额外信息的教师分布监督。你的 patch posterior 本身就是视觉 token 上的 categorical policy，因此可以做**空间后验版 OPSD/在线蒸馏**。Dense prediction 里也早已有把空间激活归一化成概率图、再以 KL 蒸馏的先例。([arXiv][1])
+
+我已经把完整战略写成了一份 14 页的执行文档：
+
+[下载《ZWERGE-UI 7 天实验救援与论文重构方案》](sandbox:/mnt/data/ZWERGE_UI_7day_rescue_strategy.docx)
+
+## 我现在的核心判断
+
+上传稿中的问题确实不能只靠话术解决：Qwen3 两个模型在 ScreenSpot-Pro 都下降，在 ScreenSpot-v2 也都下降，UI-Venus 在 MMBench-GUI 还下降；而正文又把主要问题表述为“retrofit 是否能持续改进”，所以审稿人把它视为方法有效性的根本问题是合理的。
+
+同时，你的直觉已经有直接相关工作的支持：
+
+* **GUI-SD** 就是在 GUI grounding 上做 OPSD：教师看到 target bounding box 和 Gaussian soft mask，学生在自己的 rollout 上学习教师的稠密信号；论文称其在六个 GUI benchmark 上优于朴素 OPSD 和 GRPO 路线。([arXiv][2])
+* **GUI-RD/QASD** 进一步发现朴素 OPSD 的教师信号会因学生当前错误状态而失真，所以必须结合 correctness-aware gating 和 teacher-probability scaling；单独使用其中一个甚至不一定有效。([arXiv][3])
+* Vision-OPD、VA-OPD、V-Zero 和 Region-to-Image Distillation 都说明了同一件事：想让蒸馏真正改善细粒度视觉能力，教师必须获得 crop、区域证据或其他 privileged visual context，而不是仅仅重复普通输入上的输出。([arXiv][4])
+
+## 7 天内最值得押注的刷点顺序
+
+### 1. Soft-Oracle Layer Distillation：第一优先级
+
+这应该是明天第一个做的实验，不是 OPD。
+
+你目前已经有每个样本的多个 layer posterior。训练时根据 GT 计算每层 loss，构造一个 soft oracle：
+
+[
+w_\ell^*=\mathrm{softmax}(-\mathrm{CE}(y,p_\ell)/\tau),\qquad
+q_{\mathrm{oracle}}=\sum_\ell w_\ell^*,\mathrm{stopgrad}(p_\ell)
+]
+
+然后让 fusion 同时拟合 GT 和 (q_{\mathrm{oracle}})。
+
+这条路线最对症，因为你稿件附录声称 fusion 几乎总超过最佳单层，但实际图中该结论并不成立；这表明 fusion 本身仍有明确的可回收 headroom。
+
+优点是：
+
+* 不需要大教师；
+* 不需要重新跑 backbone；
+* 不需要 rollout；
+* 只改 Stage 2 loss；
+* 24 小时内能获得明确的 go/no-go 信号。
+
+### 2. Baseline Residual Mixture / Safety Gate：最快消除 Qwen3 负优化
+
+不要再强制用 ZWERGE 完全替换强 Qwen3 的原生 coordinate decoder。把原生 click 映射为一个 patch Gaussian (p_{\text{base}})，然后学习：
+
+[
+p_{\text{mix}}=g(x)p_{\text{ZWERGE}}+(1-g(x))p_{\text{base}}
+]
+
+其中 gate 使用 posterior entropy、top1-top2 margin、层间 disagreement、fusion 权重、原生 coordinate likelihood 等特征。
+
+这条线的价值不只是刷点，而是直接改写方法故事：
+
+> 中间层 posterior 不是无条件替换原生 serializer，而是在置信度充分时纠正它。
+
+先别训练 gate，第一步直接在 held-out validation 上扫固定混合系数 (\lambda)。如果简单的固定 mixture 已经能消除负优化，再训练 sample-adaptive gate。这样最快能确认“互补信息是否真的存在”。
+
+### 3. Privileged Spatial Posterior Distillation：你提出的空间版 OPSD
+
+学生看到原图，教师看到：
+
+* Gaussian soft mask；
+* bbox outline；
+* 2×/4× target crop；
+* target crop 与同尺寸 hard-negative crop；
+* 或 privileged 输入上的 best-layer/EMA posterior。
+
+教师和学生都输出原始 patch grid 上的 posterior，使用质量门控蒸馏：
+
+[
+q_t=\rho y_{\text{GT}}+(1-\rho)p_{\text{teacher}}(x_{\text{priv}})
+]
+
+[
+L=L_{\text{GT}}+\beta_i,\mathrm{KL}(q_t\Vert p_s)
+]
+
+其中 (\beta_i) 由教师在 GT 区域内的 probability mass、entropy，以及当前学生 patch 是否仍与 GT 相交决定。
+
+这里最重要的一点是：**不要只把当前 GT Gaussian 换一个名字再蒸馏一次。** 教师必须提供 GT 标签之外的多峰结构、不确定性、目标附近 hard negative 或 crop 后更准确的 posterior，否则损失与现有 KL 基本等价。
+
+GUI-SD 的 privileged visual context 和 GUI-RD 的质量门控可以迁移，但“坐标数字位重要性”和“错误坐标前缀是否还能完成到 GT box”不能原样迁移，要替换成 patch 几何可完成性和 teacher mass。([arXiv][2])
+
+### 4. Sub-Patch Offset Head：hit@1 真正应该押注的路线
+
+稿件目前明确采用 patch-level overlap@1，并把原生坐标也转换成 patch 后比较；这个指标设计本身会掩盖 patch 内量化问题。
+
+因此，继续改 posterior loss 很可能只让 overlap 涨，而 hit 不明显变化。要涨 hit，应直接增加一个轻量 offset head：
+
+[
+\hat c=c_{\text{patch}}+
+\frac{1}{2}[w_{\text{patch}},h_{\text{patch}}]\odot\tanh(\Delta x,\Delta y)
+]
+
+只在 GT-overlap patch 上训练 patch 内偏移，使用 Huber loss。它可以保持中间层 coordinate-free posterior 作为核心，同时恢复 sub-patch precision。
+
+我认为它是**hit 路线里成功概率最高**的改动，比试图用 RL 强迫粗 patch 的 BFS centroid 变准更合理。
+
+### 5. Exact Expected Spatial Reward：先用 RL 的 reward，不要先用 RL 算法
+
+GUI-G² 证明 Gaussian point reward、coverage reward 和 target-size-adaptive variance 能为 GUI grounding 提供比二元 hit reward 更连续的信号。([arXiv][5])
+
+但你的模型与自回归坐标模型不同：你已经拥有所有 patch 的完整概率 (p(i))，每个 patch 的几何 reward (R_i) 也能直接计算。因此可直接优化：
+
+[
+L_{\mathrm{ER}}=-\sum_i p(i)R_i
+]
+
+这是我的推论：在你这个设置中，它相当于精确计算期望 reward，通常比 REINFORCE/GRPO 多次采样具有更低方差，也更适合 7 天窗口。可以把 reward 设计为：
+
+* patch center 是否在 box 内；
+* patch 与 box 的 overlap；
+* 到 GT centroid 的 Gaussian 距离；
+* GT-overlap patches 的总 probability mass。
+
+### 6. 完整 GRPO/RL：只作为最后备选
+
+完整 RL 不是完全不能做，但只有在以下条件满足时才值得：
+
+* 你已经有能稳定运行的 GRPO infrastructure；
+* 非可微 BFS/连通域 decode 是主要瓶颈；
+* Day 3 之前前面的低风险实验已经出现正向信号；
+* rollout 成本不会挤掉全量评测和论文修改时间。
+
+GUI-RC 等工作显示多样本一致性和 test-time RL 的确可能带来约 2–3% 的收益，但它们依赖多次采样；你的单次完整 posterior 更适合先做直接的概率融合与期望奖励。([arXiv][6])
+
+## 最值得“拼一把”的组合
+
+我建议最终目标不是单独押 OPD，而是：
+
+> **Soft-oracle fusion distillation
+>
+> * baseline safety gate
+> * sub-patch offset**
+
+这三项分别解决三个独立根因：
+
+1. fusion 没有学到训练时可见的最佳层；
+2. 强 Qwen3 被一个较弱的 retrofit 无条件替换；
+3. hit 被 patch 量化上限卡住。
+
+Privileged spatial posterior distillation 是第二梯队，一旦前两项出现正向信号就接上。完整 RL 放最后。
+
+另外，策略 1 仍然必须同步做。稿件当前 Stage 2 一方面写 probes frozen，另一方面又声称作用于各 (p_\ell) 的 auxiliary KL 能保持 probe calibration；若 probes 真冻结，该项对可训练 fusion 参数确实没有梯度，必须立即根据真实代码修正。 
+
+文档中已经包含：
+
+* 三位审稿人的完整问题矩阵，没有遗漏；
+* 六条刷点路线的损失公式和伪代码；
+* 最小实验矩阵；
+* 每天的 go/no-go 标准；
+* 失败、部分成功、全面成功三种情况下如何改论文；
+* 应下载到本地的 OPSD、视觉蒸馏和 GUI RL 论文/代码清单。
+
+[1]: https://arxiv.org/abs/2011.13256 "https://arxiv.org/abs/2011.13256"
+[2]: https://arxiv.org/abs/2605.00642 "https://arxiv.org/abs/2605.00642"
+[3]: https://arxiv.org/abs/2606.18101 "https://arxiv.org/abs/2606.18101"
+[4]: https://arxiv.org/abs/2606.25319 "https://arxiv.org/abs/2606.25319"
+[5]: https://arxiv.org/abs/2507.15846 "https://arxiv.org/abs/2507.15846"
+[6]: https://arxiv.org/abs/2508.05615 "https://arxiv.org/abs/2508.05615"

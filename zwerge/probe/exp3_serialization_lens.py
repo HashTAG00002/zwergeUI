@@ -11,6 +11,7 @@ Output JSONL per sample with per-layer spatial and serialization metrics.
 import argparse
 import os
 import sys
+import gc
 import warnings
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from tqdm import tqdm
 
 # ── sys.path: probe_utils shares the same setup ────────────────────────────────
 _PROBE_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT  = os.path.abspath(os.path.join(_PROBE_DIR, "../../.."))
+_REPO_ROOT  = os.path.abspath(os.path.join(_PROBE_DIR, "../.."))
 _EVAL_DIR   = os.path.join(_REPO_ROOT, "zwerge", "eval")
 _SRC_DIR    = os.path.join(_REPO_ROOT, "zwerge", "src")
 for _d in [_PROBE_DIR, _EVAL_DIR, _SRC_DIR]:
@@ -164,9 +165,16 @@ def run_exp3(
         except Exception as e:
             warnings.warn(f"[exp3] predict_layerwise failed for {sample_id}: {e}")
             n_err += 1
+            torch.cuda.empty_cache()
             continue
 
         spatial_metrics = compute_spatial_metrics_from_pred(pred, gt_bbox_norm)
+        # Immediately release all GPU tensors held by pred (per_layer_probs are
+        # already .cpu() from predict_layerwise, but del the dict to drop any
+        # remaining references and allow the GC to free CUDA memory promptly)
+        del pred
+        gc.collect()
+        torch.cuda.empty_cache()
 
         # ── Pass 2: Logit-lens (native-format forward) ─────────────────────────
         gt_bbox  = rec.get("gt_bbox") or rec.get("bbox")
@@ -210,6 +218,9 @@ def run_exp3(
         except Exception as e:
             warnings.warn(f"[exp3] logit_lens_nll_hooks (coord) failed for {sample_id}: {e}")
             n_err += 1
+            del native_inputs
+            gc.collect()
+            torch.cuda.empty_cache()
             continue
 
         # Protocol tokens (optional — skip gracefully if empty)
@@ -222,6 +233,10 @@ def run_exp3(
                 )
             except Exception:
                 pass
+
+        del native_inputs
+        gc.collect()
+        torch.cuda.empty_cache()
 
         # ── Save result ────────────────────────────────────────────────────────
         result = {
@@ -245,6 +260,8 @@ def run_exp3(
         append_jsonl(output_path, result)
         done_ids.add(sample_id)
         n_ok += 1
+        gc.collect()
+        torch.cuda.empty_cache()
 
     print(
         f"[exp3] Done. ok={n_ok}, skip_img={n_skip_img}, "

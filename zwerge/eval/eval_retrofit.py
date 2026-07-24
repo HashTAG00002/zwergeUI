@@ -44,7 +44,7 @@ if _SRC_DIR not in sys.path:
 from inference_base import (
     BENCH_CONFIGS, MAIN_BENCH_KEYS,
     scores_to_point_and_topk, point_in_bbox, do_boxes_overlap,
-    _get_group_key, _print_layerwise_summary,
+    _get_group_key, _get_domain_key, _print_layerwise_summary,
 )
 
 
@@ -121,6 +121,8 @@ def _worker(
     group_field = cfg.get("group_field") if group_stats else None
     eval_json_path = os.path.join(eval_root, cfg["eval_dir"], cfg["eval_json"])
     img_root   = os.path.join(eval_root, cfg["eval_dir"])
+    # Always pre-load OSWorld clf (if applicable) in main worker process to avoid redundant I/O
+    _domain_cfg_active = cfg.get("domain_field") is not None
 
     with open(eval_json_path) as f:
         shard = json.load(f)[start:end]
@@ -141,6 +143,7 @@ def _worker(
                     for _ in range(n_probes)]
     fusion_stats = {"hit1": 0, "hitk": 0, "overlap1": 0, "overlapk": 0, "total": 0}
     fusion_group_stats: Dict[str, Dict] = {}
+    domain_group_stats: Dict[str, Dict] = {}   # domain-level stats (separate from ui_type groups)
     results    = []
     skip_total = 0
 
@@ -279,6 +282,18 @@ def _worker(
             fusion_group_stats[grp]["overlapk"] += fovk
             fusion_group_stats[grp]["total"]    += 1
 
+        # Domain-level stats (always collected when domain_field is configured)
+        if _domain_cfg_active:
+            dom = _get_domain_key(example, cfg, eval_root)
+            if dom is not None:
+                if dom not in domain_group_stats:
+                    domain_group_stats[dom] = {"hit1": 0, "hitk": 0, "overlap1": 0, "overlapk": 0, "total": 0}
+                domain_group_stats[dom]["hit1"]     += fhit1
+                domain_group_stats[dom]["overlap1"] += fov1
+                domain_group_stats[dom]["hitk"]     += fhitk
+                domain_group_stats[dom]["overlapk"] += fovk
+                domain_group_stats[dom]["total"]    += 1
+
         # Visualization (skipped when --skip_vis)
         if not skip_vis and success_dir:
             meta = {"bench": bench_name}
@@ -316,10 +331,13 @@ def _worker(
             "fusion_hitk": fhitk, "fusion_overlapk": fovk,
         }
         for extra in ["id", "ui_type", "group", "platform", "application",
-                      "data_type", "split", "grounding_type", "task_type",
+                      "data_type", "data_source", "split", "grounding_type", "task_type",
                       "GUI_types", "category", "element_type"]:
             if extra in example:
                 rec[extra] = example[extra]
+        # Attach resolved domain label for easy downstream analysis
+        if _domain_cfg_active:
+            rec["domain"] = _get_domain_key(example, cfg, eval_root)
         results.append(rec)
 
         valid_so_far = idx + 1 - skip_total
@@ -329,12 +347,11 @@ def _worker(
                 "skip": skip_total,
             })
 
-    # Save shard files
-    if not skip_vis:
-        details_dir = os.path.join(output_dir, "details", bench_key)
-        os.makedirs(details_dir, exist_ok=True)
-        with open(os.path.join(details_dir, f"results_{start}-{end}.json"), "w") as f:
-            json.dump(results, f, ensure_ascii=False)
+    # Save per-sample results shard — always (enables domain analysis regardless of skip_vis)
+    details_dir = os.path.join(output_dir, "details", bench_key)
+    os.makedirs(details_dir, exist_ok=True)
+    with open(os.path.join(details_dir, f"results_{start}-{end}.json"), "w") as f:
+        json.dump(results, f, ensure_ascii=False)
 
     valid_total = len(shard) - skip_total
     layer_accs = []
@@ -368,6 +385,18 @@ def _worker(
                 "total":        st["total"],
             }
 
+    # Domain-level group accs (always collected when domain_field is configured)
+    domain_accs: Dict[str, Dict] = {}
+    for dom, st in sorted(domain_group_stats.items()):
+        dn = st["total"] if st["total"] > 0 else 1
+        domain_accs[dom] = {
+            "hit_top1":     round(st["hit1"]     / dn * 100, 2),
+            "overlap_top1": round(st["overlap1"] / dn * 100, 2),
+            "hit_topk":     round(st["hitk"]     / dn * 100, 2),
+            "overlap_topk": round(st["overlapk"] / dn * 100, 2),
+            "total":        st["total"],
+        }
+
     shard_summary = {
         "bench": bench_name, "bench_key": bench_key,
         "total": len(shard), "valid": valid_total, "skipped": skip_total,
@@ -375,6 +404,7 @@ def _worker(
         "active_probe_layers": active_probe_layers,
         "layer_accs": layer_accs, "fusion_acc": fusion_acc,
         "fusion_group_accs": fusion_group_accs,
+        "domain_accs": domain_accs,
     }
     with open(os.path.join(output_dir, f"{bench_key}_layerwise_summary_{start}-{end}.json"), "w") as f:
         json.dump(shard_summary, f, ensure_ascii=False)
@@ -401,6 +431,7 @@ def _aggregate_shards(output_dir: str, bench_key: str, topk: int, skip_vis: bool
                      for _ in range(n_probes)]
     merged_fusion = {"hit1": 0, "hitk": 0, "overlap1": 0, "overlapk": 0, "total": 0}
     merged_groups: Dict[str, Dict] = {}
+    merged_domains: Dict[str, Dict] = {}
 
     for sm in summaries:
         for li, la in enumerate(sm["layer_accs"]):
@@ -426,6 +457,15 @@ def _aggregate_shards(output_dir: str, bench_key: str, topk: int, skip_vis: bool
             merged_groups[grp]["hitk"]     += round(gst["hit_topk"]     / 100 * gn)
             merged_groups[grp]["overlapk"] += round(gst["overlap_topk"] / 100 * gn)
             merged_groups[grp]["total"]    += gn
+        for dom, dst in sm.get("domain_accs", {}).items():
+            dn = dst["total"]
+            if dom not in merged_domains:
+                merged_domains[dom] = {"hit1": 0, "hitk": 0, "overlap1": 0, "overlapk": 0, "total": 0}
+            merged_domains[dom]["hit1"]     += round(dst["hit_top1"]     / 100 * dn)
+            merged_domains[dom]["overlap1"] += round(dst["overlap_top1"] / 100 * dn)
+            merged_domains[dom]["hitk"]     += round(dst["hit_topk"]     / 100 * dn)
+            merged_domains[dom]["overlapk"] += round(dst["overlap_topk"] / 100 * dn)
+            merged_domains[dom]["total"]    += dn
 
     total   = sum(sm["total"]   for sm in summaries)
     valid   = sum(sm["valid"]   for sm in summaries)
@@ -462,6 +502,16 @@ def _aggregate_shards(output_dir: str, bench_key: str, topk: int, skip_vis: bool
             "overlap_topk": round(mg["overlapk"] / gn * 100, 2),
             "total":        mg["total"],
         }
+    domain_accs: Dict[str, Dict] = {}
+    for dom, md in sorted(merged_domains.items()):
+        dn = md["total"] if md["total"] > 0 else 1
+        domain_accs[dom] = {
+            "hit_top1":     round(md["hit1"]     / dn * 100, 2),
+            "overlap_top1": round(md["overlap1"] / dn * 100, 2),
+            "hit_topk":     round(md["hitk"]     / dn * 100, 2),
+            "overlap_topk": round(md["overlapk"] / dn * 100, 2),
+            "total":        md["total"],
+        }
 
     summary = {
         "bench": bench_name, "bench_key": bench_key,
@@ -470,27 +520,27 @@ def _aggregate_shards(output_dir: str, bench_key: str, topk: int, skip_vis: bool
         "active_probe_layers": active_probe_layers,
         "layer_accs": layer_accs, "layer_accs_sorted": layer_accs_sorted,
         "fusion_acc": fusion_acc, "fusion_group_accs": fusion_group_accs,
+        "domain_accs": domain_accs,
     }
     with open(os.path.join(output_dir, f"{bench_key}_layerwise_summary.json"), "w") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    # Merge per-sample results (only if vis mode — details/ exists)
-    if not skip_vis:
-        details_dir   = os.path.join(output_dir, "details", bench_key)
-        result_shards = sorted(glob.glob(os.path.join(details_dir, "results_*.json")))
-        if result_shards:
-            all_results = []
-            for fp in result_shards:
-                with open(fp) as f:
-                    all_results.extend(json.load(f))
-            all_results.sort(key=lambda x: x["idx"])
-            with open(os.path.join(details_dir, "results.json"), "w") as f:
-                json.dump(all_results, f, indent=2, ensure_ascii=False)
-            for fp in result_shards:
-                try:
-                    os.remove(fp)
-                except OSError:
-                    pass
+    # Merge per-sample results — always (written by workers regardless of skip_vis)
+    details_dir   = os.path.join(output_dir, "details", bench_key)
+    result_shards = sorted(glob.glob(os.path.join(details_dir, "results_*.json")))
+    if result_shards:
+        all_results = []
+        for fp in result_shards:
+            with open(fp) as f:
+                all_results.extend(json.load(f))
+        all_results.sort(key=lambda x: x["idx"])
+        with open(os.path.join(details_dir, "results.json"), "w") as f:
+            json.dump(all_results, f, indent=2, ensure_ascii=False)
+        for fp in result_shards:
+            try:
+                os.remove(fp)
+            except OSError:
+                pass
 
     for fp in shard_files:
         try:

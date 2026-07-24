@@ -19,7 +19,7 @@
 #   conda 环境：qwen3
 # ============================================================
 
-experiment_name: "uivenus_A8_cosmeta_ctx_exp001"
+experiment_name: "uivenus_A8_cosmeta_ctx_exp003"
 
 # ── 训练配置 ──────────────────────────────────────────────────────────────────
 train:

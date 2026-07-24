@@ -1,0 +1,28 @@
+\begin{figure*}[t]
+\begin{tcolorbox}[colback=white, width=\linewidth, breakable, enhanced, 
+                  title=Prompt for the UI-Venus-1.5 Retrofit Model, fonttitle=\bfseries, label=prompt:uivenus-retrofit]
+
+\lstset{
+basicstyle=\scriptsize\ttfamily,
+    columns=fullflexible,
+    breaklines=true,
+    breakatwhitespace=false,
+    showstringspaces=false,
+    lineskip=-1pt
+}
+
+\begin{lstlisting}
+[User]
+<image>
+Output the center point of the position corresponding to the following instruction:
+{instruction}.
+
+The output should just be the coordinates of a point, in the format
+[<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>].
+
+[Assistant]
+[<|ground|><|pointer_start|><|pointer_pad|><|pointer_end|>]
+\end{lstlisting}
+
+\end{tcolorbox}
+\end{figure*}

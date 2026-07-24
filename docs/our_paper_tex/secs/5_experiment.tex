@@ -1,0 +1,279 @@
+% ==============================================================================
+% Section 5: Experiments
+% ==============================================================================
+
+\section{Experiments}
+\label{sec:experiments}
+
+\begin{table*}[!t]
+\centering
+\caption{
+  \textbf{ScreenSpot-Pro} (overlap@1, \%).
+  Each backbone pair shows the original model (baseline) and its \textsc{ZwerGe-UI} retrofit (\textbf{+ ZwerGe}).
+  Overall is the macro-average across six domains.
+}
+\label{tab:main_sspro}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l *{6}{r} >{\columncolor{blue!8}}r}
+\toprule
+\textbf{Backbone} & \textbf{System} &
+  \textbf{Dev.} & \textbf{Creative} & \textbf{CAD} & \textbf{Scientific} & \textbf{Office} & \textbf{OS} &
+  \textbf{Overall} \\
+\midrule
+\multirow{2}{*}{GUI-Owl-7B}
+  & Baseline              & 49.50 & 44.28 & 50.96 & 60.63 & 66.96 & 42.86 & 52.12 \\
+  & \textbf{+ ZwerGe}     & 62.21 & 52.49 & 54.02 & 64.96 & 72.61 & 57.14 & 60.09 \\
+\midrule
+\multirow{2}{*}{UI-TARS-1.5-7B}
+  & Baseline              & 48.16 & 45.16 & 45.59 & 55.91 & 71.74 & 42.86 & 51.11 \\
+  & \textbf{+ ZwerGe}     & 48.49 & 47.21 & 44.06 & 60.24 & 74.78 & 42.35 & 52.44 \\
+\midrule
+\multirow{2}{*}{GUI-Owl-1.5-8B}
+  & Baseline              & 76.92 & 69.21 & 71.26 & 76.38 & 88.26 & 68.37 & 74.83 \\
+  & \textbf{+ ZwerGe}     & 76.25 & 58.65 & 59.39 & 75.20 & 82.61 & 62.24 & 68.69 \\
+\midrule
+\multirow{2}{*}{UI-Venus-1.5-8B}
+  & Baseline              & 70.90 & 60.12 & 67.82 & 71.26 & 87.83 & 69.90 & 70.46 \\
+  & \textbf{+ ZwerGe}     & 70.23 & 58.36 & 61.69 & 68.11 & 86.09 & 69.90 & 68.18 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\begin{table}[!t]
+\centering
+\caption{
+  \textbf{ScreenSpot-v2} (overlap@1, \%).
+}
+\label{tab:main_ssv2}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l l r r r >{\columncolor{blue!8}}r}
+\toprule
+\textbf{Backbone} & \textbf{Sys.} &
+  \textbf{Mob.} & \textbf{Desk.} & \textbf{Web} & \textbf{Ovr.} \\
+\midrule
+\multirow{2}{*}{GUI-Owl-7B}
+  & Base      & 92.65 & 88.52 & 87.81 & 89.69 \\
+  & \textbf{+ZwerGe} & 94.65 & 93.11 & 86.46 & 90.95 \\
+\midrule
+\multirow{2}{*}{UI-TARS-7B}
+  & Base      & 91.31 & 92.79 & 88.97 & 90.72 \\
+  & \textbf{+ZwerGe} & 92.20 & 92.13 & 88.39 & 90.64 \\
+\midrule
+\multirow{2}{*}{Owl-1.5-8B}
+  & Base      & 95.77 & 94.10 & 92.84 & 94.18 \\
+  & \textbf{+ZwerGe} & 93.99 & 93.11 & 90.72 & 92.45 \\
+\midrule
+\multirow{2}{*}{UI-Venus-8B}
+  & Base      & 97.33 & 98.03 & 95.74 & 96.85 \\
+  & \textbf{+ZwerGe} & 96.44 & 97.38 & 92.26 & 94.96 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!t]
+\centering
+\caption{
+  \textbf{OSWorld-G} (overlap@1, \%, refusal samples excluded).
+}
+\label{tab:main_osworld}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l l r r r r >{\columncolor{blue!8}}r}
+\toprule
+\textbf{Backbone} & \textbf{System} &
+  \textbf{Text} & \textbf{Elem.} & \textbf{Layout} & \textbf{Fine-gr.} & \textbf{Overall} \\
+\midrule
+\multirow{2}{*}{GUI-Owl-7B}
+  & Baseline          & 63.16 & 69.40 & 68.89 & 56.82 & 65.69 \\
+  & \textbf{+ ZwerGe} & 68.42 & 84.33 & 80.44 & 64.39 & 76.86 \\
+\midrule
+\multirow{2}{*}{UI-TARS-1.5-7B}
+  & Baseline          & 57.89 & 70.90 & 77.33 & 62.88 & 71.18 \\
+  & \textbf{+ ZwerGe} & 68.42 & 76.87 & 78.22 & 65.91 & 74.31 \\
+\midrule
+\multirow{2}{*}{GUI-Owl-1.5-8B}
+  & Baseline          & 78.95 & 80.60 & 80.89 & 81.82 & 80.98 \\
+  & \textbf{+ ZwerGe} & 68.42 & 87.31 & 85.33 & 73.48 & 82.16 \\
+\midrule
+\multirow{2}{*}{UI-Venus-1.5-8B}
+  & Baseline          & 68.42 & 86.57 & 86.22 & 86.36 & 85.69 \\
+  & \textbf{+ ZwerGe} & 68.42 & 89.55 & 86.67 & 87.12 & 86.27 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+% ------------------------------------------------------------------------------
+\subsection{Experimental Setup}
+\label{sec:experiments:setup}
+% ------------------------------------------------------------------------------
+
+\paragraph{Benchmarks.}
+We evaluate on five GUI grounding benchmarks spanning desktop, web, and mobile platforms.
+\textbf{ScreenSpot-Pro}~\citep{screenspotpro} is a high-resolution desktop grounding benchmark with fine-grained domain categories (Development, Creative, CAD, Scientific, Office, OS); it is the primary benchmark for our analysis (\S\ref{sec:analysis}) and main results.
+\textbf{ScreenSpot-v2}~\citep{Os-atlas} covers mobile, desktop, and web screenshots at moderate resolution.
+\textbf{OSWorld-G}~\citep{xie2025scaling} provides GUI grounding samples drawn from real computer task executions, categorized by task type (Text Matching, Element Recognition, Layout Understanding, Fine-grained Manipulation). We remove refusal samples from the evaluation set and report results on the remaining non-refusal subset.
+\textbf{MMBench-GUI}~\citep{mmbench} is a multi-platform benchmark covering Windows, macOS, Linux, iOS, Android, and Web.
+\textbf{UI-Vision}~\citep{ui-vision} evaluates grounding across Basic, Functional, Spatial, and Layout task types; we report the weighted average (Avg) over all 5{,}790 samples.
+
+
+
+\paragraph{Metric.}
+We report \textbf{overlap@1} throughout, computed at patch granularity for both baseline and retrofitted systems.
+For autoregressive baselines, the predicted coordinate is treated as a patch center and the resulting patch is checked for overlap with the ground-truth bounding box.
+Therefore, this is a more forgiving performance metric for these baselines, designed for evaluation fairness compared with our \textsc{ZwerGe-UI} variants.
+This normalization ensures that, neither system is penalized for sub-patch offsets that are imperceptible to a human user, and both operate at the same effective localization granularity.
+
+\paragraph{Baselines.}
+We retrofit \textsc{ZwerGe-UI} onto four GUI agents: \textbf{GUI-Owl-7B}~\citep{ye2025guiowl} and \textbf{UI-TARS-1.5-7B}~\citep{qin2025uitars} (Qwen2.5-VL backbone, 28 layers) and \textbf{GUI-Owl-1.5-8B}~\citep{xu2026mobile} and \textbf{UI-Venus-1.5-8B}~\citep{team2026ui} (Qwen3-VL backbone, 36 layers). Each backbone is kept completely frozen throughout both training stages; only the probe and fusion heads are updated.
+
+\paragraph{Implementation.}
+Stage 1 (A7, \S\ref{sec:method:stage1}) trains 14–18 independent CrossAttn probes per model on 200k grounding samples for 1 epoch. Stage 2 (A8, \S\ref{sec:method:stage2}) loads the Stage 1 checkpoint and trains only the Cross-Layer Fusion head (12 active layers, fusion\_lora\_rank=128, context\_rank=64, $\lambda{=}0.2$) for 1 epoch on the same data. Inference uses the BFS centroid decode strategy with a $0.3{\times}\max$ threshold; no autoregressive decoding is performed.
+
+% ------------------------------------------------------------------------------
+\subsection{Main Results}
+\label{sec:experiments:main}
+% ------------------------------------------------------------------------------
+
+\begin{table*}[t]
+\centering
+\caption{
+  \textbf{MMBench-GUI} (overlap@1, \%).
+}
+\label{tab:main_mmbench}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l *{6}{r} >{\columncolor{blue!8}}r}
+\toprule
+\textbf{Backbone} & \textbf{System} &
+  \textbf{Windows} & \textbf{macOS} & \textbf{Linux} & \textbf{iOS} & \textbf{Android} & \textbf{Web} &
+  \textbf{Overall} \\
+\midrule
+\multirow{2}{*}{GUI-Owl-7B}
+  & Baseline              & 61.69 & 66.86 & 55.81 & 83.54 & 82.70 & 77.51 & 72.84 \\
+  & \textbf{+ ZwerGe}     & 75.32 & 79.88 & 69.51 & 86.34 & 88.61 & 81.07 & 81.16 \\
+\midrule
+\multirow{2}{*}{UI-TARS-1.5-7B}
+  & Baseline              & 64.64 & 71.20 & 61.24 & 84.01 & 85.94 & 80.74 & 75.99 \\
+  & \textbf{+ ZwerGe}     & 70.17 & 77.86 & 61.76 & 87.42 & 88.47 & 79.77 & 79.10 \\
+\midrule
+\multirow{2}{*}{GUI-Owl-1.5-8B}
+  & Baseline              & 79.37 & 82.92 & 66.67 & 89.60 & 88.47 & 86.25 & 83.50 \\
+  & \textbf{+ ZwerGe}     & 78.45 & 82.05 & 72.35 & 91.15 & 91.98 & 84.14 & 84.42 \\
+\midrule
+\multirow{2}{*}{UI-Venus-1.5-8B}
+  & Baseline              & 84.90 & 87.41 & 76.49 & 93.48 & 94.51 & 91.10 & 88.98 \\
+  & \textbf{+ ZwerGe}     & 81.95 & 86.98 & 78.04 & 90.22 & 93.67 & 88.35 & 87.40 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+% ── Table 5: UI-Vision (single-column) ────────────────────────────────────────
+
+\begin{table}[t]
+\centering
+\caption{
+  \textbf{UI-Vision} (overlap@1, \%).
+  Avg is the weighted average over all 5{,}790 samples (Basic 1772 + Functional 1772 + Spatial 1935 + Layout 311).
+}
+\label{tab:main_uivision}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l l r r r r >{\columncolor{blue!8}}r}
+\toprule
+\textbf{Backbone} & \textbf{System} &
+  \textbf{Basic} & \textbf{Functional} & \textbf{Spatial} & \textbf{Layout} & \textbf{Avg} \\
+\midrule
+\multirow{2}{*}{GUI-Owl-7B}
+  & Baseline          & 33.07 & 34.37 & 11.52 & 64.31 & 27.94 \\
+  & \textbf{+ ZwerGe} & 66.20 & 59.65 & 37.47 & 54.02 & 53.94 \\
+\midrule
+\multirow{2}{*}{UI-TARS-1.5-7B}
+  & Baseline          & 30.47 & 28.39 &  8.73 & 57.23 & 24.01 \\
+  & \textbf{+ ZwerGe} & 51.07 & 41.93 & 22.12 & 51.77 & 38.64 \\
+\midrule
+\multirow{2}{*}{GUI-Owl-1.5-8B}
+  & Baseline          & 48.53 & 44.92 & 33.23 & 65.92 & 43.25 \\
+  & \textbf{+ ZwerGe} & 59.42 & 52.14 & 37.36 & 52.09 & 49.43 \\
+\midrule
+\multirow{2}{*}{UI-Venus-1.5-8B}
+  & Baseline          & 59.82 & 55.81 & 40.41 & 64.31 & 52.35 \\
+  & \textbf{+ ZwerGe} & 58.69 & 53.44 & 39.12 & 64.63 & 52.75 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Tables~\ref{tab:main_sspro}–\ref{tab:main_uivision} report overlap@1 for all four backbone models as baselines alongside \textsc{ZwerGe-UI} retrofitted variants.
+Each backbone occupies two adjacent rows: the original model (baseline) followed by its \textsc{ZwerGe-UI} retrofitted version (\textbf{+ ZwerGe}).
+Since \textsc{ZwerGe-UI} is an incremental retrofit rather than a standalone agent, we do not include external leaderboard entries in the main comparison — the primary question is whether retrofitting a frozen backbone with our grounding heads provides a consistent improvement.
+
+\textbf{Qwen2.5-VL backbones benefit more than Qwen3-VL backbones.}
+On ScreenSpot-Pro, GUI-Owl-7B (Qwen2.5-VL) gains $+7.97$~pp overall while UI-TARS-1.5-7B gains $+1.33$~pp; GUI-Owl-1.5-8B (Qwen3-VL) and UI-Venus-1.5-8B show smaller or negative overall deltas.
+This pattern is consistent with the our hypothesis: Qwen3-VL models are trained on substantially more diverse grounding supervision, yielding stronger end-to-end coordinate serialization and a smaller gap between intermediate spatial quality and final-layer output.
+When the backbone already converts spatial intent to coordinates reliably, bypassing the final-layer decoder recovers less headroom.
+
+\textbf{High-resolution layouts remain a challenge for patch-level decoding.}
+ScreenSpot-Pro is the most demanding benchmark because targets are often single-pixel or sub-icon elements on $2{,}560{\times}1{,}440$ or larger screenshots.
+\textsc{ZwerGe-UI} replaces pixel-precise coordinate regression with a patch-level posterior over the visual token grid, so the minimum localization granularity is one patch rather than a single pixel.
+On ScreenSpot-Pro, several domain categories (CAD, Creative) show flat or negative deltas, whereas moderate-resolution benchmarks (ScreenSpot-v2, MMBench-GUI) are more uniformly positive.
+The patch granularity is an architectural trade-off: it enables frozen-backbone readout without any coordinate vocabulary but introduces a resolution ceiling that limits gains on the hardest high-resolution domains.
+
+\textbf{Spatial grounding tasks benefit most.}
+UI-Vision decomposes grounding into Basic, Functional, Spatial, and Layout subtypes.
+Baseline models are weakest on Spatial (8.73--40.41\%), and \textsc{ZwerGe-UI} provides the largest absolute improvements there: GUI-Owl-7B improves Spatial from 11.52 to 37.47\% ($+25.95$~pp) and UI-TARS-1.5-7B from 8.73 to 22.12\% ($+13.39$~pp).
+This is the task type most directly probing whether a model has formed a spatial posterior over the screen, which is precisely the signal read by our intermediate-layer probes.
+
+
+% ── Table 6: Ablation (single-column) ─────────────────────────────────────────
+
+\begin{table}[t]
+\centering
+\caption{
+  \textbf{Ablation} on UI-TARS-1.5-7B (overlap@1, \%, checkpoint-800).
+  Rows A0--A5 vary GT label type, fusion scorer, and probe layer range.
+  \textbf{GT}: Binary vs.\ Gaussian.
+  \textbf{Fusion}: Readiness-MLP vs.\ CosMeta.
+  \textbf{Layers}: probe layer range (all within L18--L27).
+}
+\label{tab:ablation}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{c l l l >{\columncolor{blue!8}}r r r}
+\toprule
+\textbf{ID} & \textbf{GT} & \textbf{Fusion} & \textbf{Layers} &
+  \textbf{SS-Pro} & \textbf{SS-v2} & \textbf{OSW-G} \\
+\midrule
+A0 & Binary   & Readiness & L18--27 & 46.4 & 89.3 & 72.0 \\
+A1 & Gaussian & Readiness & L18--27 & 47.1 & 90.0 & 57.6 \\
+A2 & Binary   & CosMeta   & L18--27 & 49.6 & 90.6 & 59.4 \\
+A3 & Gaussian & CosMeta   & L18--27 & 45.2 & 89.7 & 57.6 \\
+\midrule
+A4 & Gaussian & CosMeta   & L18--25 & \textbf{48.7} & \textbf{92.0} & 59.2 \\
+A5 & Gaussian & CosMeta   & L18--23 & 38.4 & 87.6 & 49.4 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+% ------------------------------------------------------------------------------
+\section{Ablations}
+\paragraph{Setup.}
+We ablate three design choices on UI-TARS-1.5-7B using a fast LoRA-probe variant, separate from the final CrossAttn probes in \S\ref{sec:experiments:main}.
+All variants are trained on 50k samples and evaluated at checkpoint~800.
+We vary:
+\textbf{(i) GT label type}, binary box labels vs.\ anisotropic Gaussian labels;
+\textbf{(ii) fusion scorer}, Readiness-MLP vs.\ CosMeta from \S\ref{sec:method:stage2};
+and \textbf{(iii) probe layer range}, varied within L18--L27.
+
+\paragraph{Results.}
+Table~\ref{tab:ablation} shows three trends.
+First, fusion matters most on SS-Pro: replacing Readiness-MLP with CosMeta improves Binary GT from A0 to A2 by $+3.2$~pp, indicating that sample-dependent cosine weighting is more effective than hand-crafted readiness features.
+Second, GT label type interacts with fusion: Gaussian labels slightly help under Readiness (A0$\to$A1) but lag behind Binary under CosMeta at this early checkpoint (A2 vs.\ A3), suggesting soft targets need longer convergence or different fusion calibration.
+Third, layer range is critical.
+Removing the deepest layers L26--L27 improves SS-Pro by $+3.5$~pp (A3$\to$A4), consistent with our finding that late layers are more serialization-oriented than spatially informative.
+Truncating further to L18--L23 sharply hurts performance (A4$\to$A5), identifying L18--L25 as the best trade-off band.
+
+

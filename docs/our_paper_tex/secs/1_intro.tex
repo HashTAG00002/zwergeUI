@@ -1,0 +1,44 @@
+% ==============================================================================
+% Section 1: Introduction
+% ==============================================================================
+
+\section{Introduction}
+\label{sec:intro}
+
+Visual GUI agents are typically trained to ground natural-language instructions by generating screen coordinates or action protocol tokens~\citep{qin2025uitars,wu2025atlas,ye2025guiowl,gu2025uivenus}.
+This end-to-end formulation conflates two computations: \emph{locating} the target widget in screen space and \emph{serializing} that location into a coordinate or action vocabulary.
+Since the final action is decoded from the last representation, GUI grounding is often analyzed only through the final generated coordinates, leaving unclear whether spatial localization and coordinate serialization emerge at the same depth inside the model.
+
+Prior work has exploited attention maps and prefill-stage signals to aid localization~\citep{xu2025attention,wu2025gui,lin2026happens}, while analyses of vision transformers show that final-layer representations may lose spatial fidelity~\citep{darcet2024registers,lan2024clearclip,chen2025rethinking}.
+However, these lines of work do not ask where \emph{within} the prefill computation spatial grounding is most accessible in autoregressive GUI agents.
+At the same time, GUI-agent training studies reveal a tension between chain-of-thought reasoning and precise localization~\citep{xu2026mobile,yang2026gui,zhou2025gui,zhang2025does}, motivating perception--reasoning decoupling~\citep{zhang2026omegause}.
+We operationalize this perspective by freezing the backbone and reading spatial beliefs directly from intermediate activations.
+
+We study this question by probing intermediate layers of representative GUI agents with lightweight frozen-backbone readouts.
+Our analysis reveals a consistent non-monotonic trajectory: spatial grounding improves through early and middle layers, peaks at intermediate depths, and then often degrades toward the final layer.
+In contrast, a complementary \emph{serialization lens}---teacher-forced coordinate-token likelihood without additional parameters---shows that coordinate tokens become most predictable in later layers.
+This mismatch suggests that GUI agents first form an internal spatial intent and only later translate it into output tokens.
+We call this phenomenon the \textbf{coordinate serialization bottleneck}.
+
+This bottleneck is not a generic saliency effect.
+In an instruction-switch counterfactual, changing only the instruction on the same screen shifts the mid-layer spatial posterior from one target to another, indicating that the posterior is instruction-conditioned.
+The effect is also most pronounced in high-resolution layouts with small targets, where precise screen-space localization is most critical.
+Together, these findings suggest that the final representation is not always the best place to decode GUI grounding: late layers increasingly specialize in expressing coordinates, while intermediate layers preserve more spatially discriminative information.
+
+Motivated by this observation, we introduce \textsc{ZwerGe-UI}, a frozen-backbone retrofit for existing GUI agents.
+\textsc{ZwerGe-UI} attaches lightweight cross-attention probes to intermediate layers to recover layerwise spatial posteriors, and optionally combines them with a small cross-layer fusion head.
+The probes serve a dual role: they provide the analytical lens used to reveal the bottleneck, and they form the grounding component used at inference.
+Importantly, \textsc{ZwerGe-UI} does not modify the agent backbone or its reasoning pathway.
+
+We evaluate \textsc{ZwerGe-UI} on four GUI agents spanning two backbone families, Qwen2.5-VL~\citep{qwen25vl} and Qwen3-VL~\citep{qwen3vl}, across five GUI grounding benchmarks: ScreenSpot-Pro~\citep{screenspotpro}, ScreenSpot-v2~\citep{Os-atlas}, OSWorld-G~\citep{xie2025scaling}, MMBench-GUI~\citep{mmbench}, and UI-Vision~\citep{ui-vision}.
+Across models and datasets, the strongest spatial readout consistently appears before the final layer.
+Moreover, models with sharper final-layer degradation benefit more from the intermediate-layer retrofit, linking the empirical gains of \textsc{ZwerGe-UI} to the severity of the coordinate serialization bottleneck.
+
+In summary, our contributions are as follows:
+\begin{itemize}
+  \item We identify the \textbf{coordinate serialization bottleneck} in GUI agents: intermediate layers encode more accurate instruction-conditioned spatial posteriors than final layers, while later layers better predict coordinate/action tokens.
+
+  \item We introduce two complementary diagnostic lenses---a frozen-backbone \emph{spatial lens} and a parameter-free \emph{serialization lens}---and use them to show a robust depth mismatch between spatial grounding and coordinate serialization across four GUI agents.
+
+  \item We present \textsc{ZwerGe-UI}, a lightweight frozen-backbone retrofit that recovers intermediate-layer spatial signals through cross-attention probes and improves GUI grounding across five benchmarks without modifying the underlying agent backbone.
+\end{itemize}

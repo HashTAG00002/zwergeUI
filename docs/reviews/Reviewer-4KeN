@@ -1,0 +1,43 @@
+Official Review of Submission2403 by Reviewer 4KeN
+Official Reviewby Reviewer 4KeN09 Jul 2026, 15:34 (modified: 12 Jul 2026, 23:16)Program Chairs, Senior Area Chairs, Area Chairs, Reviewers Submitted, Authors, Reviewer 4KeNRevisions
+Paper Summary:
+This paper studies how autoregressive GUI agents internally represent screen grounding. The authors argue that current GUI agents conflate two computations: locating the target UI element on the screen and serializing that location into coordinate/action tokens. They hypothesize a “coordinate serialization bottleneck,” where spatial grounding is more accessible in intermediate layers while later layers specialize in producing coordinate tokens. To test this, they probe different model layers for spatial information, measure how well each layer predicts coordinate tokens, and swap instructions on the same screenshot to check whether the heatmaps follow the instruction rather than just salient visual elements.
+
+Motivated by this analysis, the paper proposes ZWERGE-UI, a frozen-backbone retrofit that attaches cross-attention probes to intermediate layers and fuses their spatial heatmaps to make coordinate-free grounding predictions. The method is evaluated by retrofitting several Qwen2.5-VL- and Qwen3-VL-based GUI agents across ScreenSpot-Pro, ScreenSpot-v2, OSWorld-G, MMBench-GUI, and UI-Vision. They find that middle-layer probes often locate targets better than final-layer probes, while later layers are better at predicting coordinate tokens. ZWERGE-UI improves some models and benchmarks, especially weaker backbones, but its gains are mixed for stronger models.
+
+Summary Of Strengths:
+The paper is well motivated and offers a useful new way to think about GUI-agent grounding: separating target identification from coordinate serialization. I also liked that the authors do more than just report final accuracy. They try to understand the proposed bottleneck using layerwise probes, coordinate-token likelihood, and instruction-switch tests. The analysis is fairly thorough for the factors they study, and the instruction-switch experiment is a good attempt to rule out simple visual saliency. The paper also tests several GUI agents, backbone families, and benchmarks, which broadens the study. However, as discussed in the weaknesses, some important controls are still missing, especially regarding probe capacity, adapter baselines, and patch-level evaluation.
+
+Summary Of Weaknesses:
+The main evidence comes from large supervised cross-attention probes, not directly from the original GUI agents. This shows that target locations are decodable from intermediate layers, but it does not fully prove that the model naturally knows where to click.
+
+The probes are expressive, so the middle-layer advantage may partly reflect where this probe design learns best. The claim that late layers are "coordinate serializers, not spatial refiners” is too strong; late layers may still encode spatial/action information in a different form.
+
+ZWERGE-UI adds supervised adapter-like parameters, but it is mainly compared against the base model. The paper should compare against other ways of adding similar supervised capacity trained on the same data, such as final-layer probes, simple MLP/linear probes, LoRA adapters, or supervised coordinate heads.
+
+The method improves some weaker models and benchmarks, but gains are small or negative on several stronger backbones. This weakens the claim that the method generally solves a coordinate-serialization bottleneck.
+
+Figure 2 supports instruction sensitivity, but for some models the strongest effects appear in later layers, not clearly middle layers. The high-resolution/small-target claim is also based on dataset-level comparisons, without controlling for target size, resolution, UI density, or error type.
+
+Since the method predicts patches and uses overlap@1, the paper should clearly report patch size, box-to-patch mapping, and target-size effects. Metrics beyond top-1 overlap, such as target-region probability mass or top-k coverage, would also help.
+
+Comments Suggestions And Typos:
+No comments.
+
+Confidence: 4 = Quite sure. I tried to check the important points carefully. It's unlikely, though conceivable, that I missed something that should affect my ratings.
+Soundness: 2.5
+Excitement: 2.5
+Overall Assessment: 3 = Findings: I think this paper could be accepted to the Findings of the ACL.
+Ethical Concerns:
+There are no concerns with this submission
+
+Needs Ethics Review: No
+Reproducibility: 3 = They could reproduce the results with some difficulty. The settings of parameters are underspecified or subjectively determined, and/or the training/evaluation data are not widely available.
+Datasets: 1 = No usable datasets submitted.
+Software: 1 = No usable software released.
+Knowledge Of Or Educated Guess At Author Identity: No
+Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Knowledge Of Paper Source: N/A, I do not know anything about the paper from outside sources
+Impact Of Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Reviewer Certification: I certify that the review I entered accurately reflects my assessment of the work. If you used any type of automated tool to help you craft your review, I hereby certify that its use was restricted to improving grammar and style, and the substance of the review is either my own work or the work of an acknowledged secondary reviewer.
+Publication Ethics Policy Compliance: I did not use any generative AI tools for this review

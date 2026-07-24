@@ -1,0 +1,227 @@
+% ==============================================================================
+% Section 6: Conclusion
+% ==============================================================================
+
+\section{Limitations}
+
+\textsc{ZwerGe-UI} operates at patch granularity, which introduces a localization ceiling on very high-resolution benchmarks (e.g., ScreenSpot-Pro) where targets may be smaller than a single patch.
+The patch granularity is a fundamental trade-off of the read-out approach: it avoids modifying the backbone vocabulary or training the language model head, but cannot achieve sub-patch precision without a second-stage zoom step.
+Additionally, our ablations cover only the LoRA-probe architecture; the CrossAttn probe configuration space (number of heads, active layers, rank) was not exhaustively searched.
+
+% ==============================================================================
+% Appendix: Per-Layer Grounding Accuracy Curves (A7 CrossAttn Probe)
+% ==============================================================================
+
+\section{Per-Layer Grounding Accuracy: Full Curves}
+\label{app:perlayer_curves}
+
+Figure~\ref{fig:app_perlayer_combined} shows the per-layer overlap@1 of every A7 CrossAttn probe evaluated independently (no fusion), plotted against the transformer layer index, for all four backbone models and all five benchmarks.
+Two training checkpoints are compared: \textbf{ckpt-800} (dashed blue, early training) and the \textbf{last checkpoint} (solid red, ckpt-3129 for Qwen2.5-VL models and ckpt-3130 for Qwen3-VL models).
+Horizontal dotted lines mark the corresponding fusion head accuracy.
+
+\paragraph{Setup.}
+Each probe is a CrossAttn grounding head attached to a single transformer layer; all probes are trained simultaneously with independent per-layer KL losses (\S\ref{sec:method:stage1}).
+At evaluation, each probe predicts independently — the fusion head (dotted line) combines all active probes and serves as the reference ceiling.
+Backbone parameters are completely frozen throughout.
+
+\paragraph{Observations.}
+
+\begin{itemize}
+
+  \item \textbf{Inverted-U spatial profile.}
+  All four models exhibit a consistent inverted-U shape: per-layer accuracy rises from the first probed layer, peaks around the middle of the probed range (L20--L22 for 28-layer models; L22--L25 for 36-layer models), then declines toward the final layers.
+  This is direct evidence for the coordinate serialization bottleneck described in \S\ref{sec:analysis}: the deepest layers progressively encode coordinate formatting rather than spatial content.
+
+  \item \textbf{Training improves mid-layer probes more than shallow or deep ones.}
+  Comparing ckpt-800 (blue) to the last checkpoint (red), the largest absolute gains appear in the middle of the probed range.
+  Shallow probes improve less because spatial features at early layers are coarser; deep probes improve less because the layers are increasingly occupied by serialization signal that the probe cannot redirect.
+
+  \item \textbf{Fusion consistently outperforms the best single layer.}
+  The fusion dotted line lies above the peak of the per-layer curve in nearly all panels.
+  This confirms that the learned cross-layer aggregation in \textsc{ContextLoRACosMetaFusion} recovers information not captured by any individual probe.
+
+  \item \textbf{Qwen3-VL probes cover a wider band.}
+  GUI-Owl-1.5-8B and UI-Venus-1.5-8B (36-layer Qwen3-VL, probes at L18--L35) show a broader and flatter peak compared to the 28-layer models (probes at L14--L27).
+  The wider effective range suggests that the spatial-to-serialization transition is more gradual in deeper networks.
+
+\end{itemize}
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width=\textwidth,
+        height=0.80\textheight,]{figs/a7_layerwise_plots/a7_layerwise_combined.pdf}
+  \caption{
+    \textbf{Per-layer overlap@1 of A7 CrossAttn probes across all four backbone models and five benchmarks.}
+    Each cell shows overlap@1 for a single probe layer evaluated independently (no cross-layer fusion).
+    \textbf{Rows}: ScreenSpot-Pro (SS-Pro), ScreenSpot-v2 (SS-v2), OSWorld-G, MMBench-GUI, UI-Vision.
+    \textbf{Columns}: UI-TARS-1.5-7B, GUI-Owl-7B, GUI-Owl-1.5-8B, UI-Venus-1.5-8B.
+    \textbf{Blue dashed}: ckpt-800 (early training); \textbf{red solid}: last checkpoint (ckpt-3129 / ckpt-3130).
+    \textbf{Horizontal dotted lines}: corresponding fusion head accuracy (the final \textsc{ZwerGe-UI} output).
+    All four models exhibit an inverted-U spatial profile: accuracy peaks at intermediate layers and declines at the deepest layers, consistent with the coordinate serialization bottleneck (\S\ref{sec:analysis}).
+    The fusion head (dotted) consistently exceeds the best single-layer probe, confirming the benefit of learned cross-layer aggregation.
+  }
+  \label{fig:app_perlayer_combined}
+\end{figure*}
+
+% ── Per-benchmark individual figures ─────────────────────────────────────────
+
+Figures~\ref{fig:app_perlayer_sspro}--\ref{fig:app_perlayer_uivision} show the same data broken out by benchmark, at a larger scale for readability.
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf}
+  \caption{
+    \textbf{Per-layer overlap@1 on ScreenSpot-Pro.}
+    ScreenSpot-Pro is the most demanding benchmark (fine-grained targets on high-resolution desktop screenshots).
+    The inverted-U profile is the sharpest here, with the deepest layers showing the steepest decline,
+    reflecting that high-resolution targets require the most precise spatial encoding and are most sensitive to the serialization shift in deep layers.
+    Note that the vertical scales differ across panels to emphasize the shape of the curve within each model.
+  }
+  \label{fig:app_perlayer_sspro}
+\end{figure*}
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf}
+  \caption{
+    \textbf{Per-layer overlap@1 on ScreenSpot-v2.}
+    ScreenSpot-v2 is a moderate-resolution benchmark (mobile, desktop, web) where overall accuracy is already high ($>$87\% at ckpt-800).
+    The inverted-U is shallower and the peak is broader compared to ScreenSpot-Pro,
+    indicating that moderate-resolution grounding is less sensitive to which specific layer is read.
+  }
+  \label{fig:app_perlayer_ssv2}
+\end{figure*}
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf}
+  \caption{
+    \textbf{Per-layer overlap@1 on OSWorld-G.}
+    OSWorld-G provides real computer-task GUI samples with diverse task types (Text Matching, Element Recognition, Layout Understanding, Fine-grained Manipulation).
+    The per-layer profile shows a similar inverted-U shape but with a plateau over a wider middle range ($\sim$L18--L24 for 28-layer models),
+    suggesting that layout-level spatial reasoning is distributed more broadly across intermediate layers than fine-grained element targeting.
+  }
+  \label{fig:app_perlayer_osworld}
+\end{figure*}
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf}
+  \caption{
+    \textbf{Per-layer overlap@1 on MMBench-GUI.}
+    MMBench-GUI covers six platforms (Windows, macOS, Linux, iOS, Android, Web).
+    The per-layer curves are notably high even at ckpt-800 (blue dashed) for Qwen3-VL models (GUI-Owl-1.5-8B and UI-Venus-1.5-8B),
+    reflecting that these models have strong cross-platform generalization already encoded in their intermediate representations.
+    The gap between ckpt-800 and last checkpoint is smaller on MMBench-GUI than on ScreenSpot-Pro,
+    suggesting that the per-layer signal saturates earlier on this benchmark.
+  }
+  \label{fig:app_perlayer_mmbench}
+\end{figure*}
+
+\begin{figure*}[p]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf}
+  \caption{
+    \textbf{Per-layer overlap@1 on UI-Vision.}
+    UI-Vision decomposes grounding into Basic, Functional, Spatial, and Layout subtypes; accuracy here represents the weighted average over all 5{,}790 samples.
+    Per-layer accuracy is substantially lower on UI-Vision than on other benchmarks,
+    particularly for Qwen2.5-VL models at early training (ckpt-800 for UI-TARS-1.5-7B peaks below 30\%),
+    indicating that UI-Vision's diverse task composition is harder for intermediate probes to solve with limited training.
+    The inverted-U is still present but shallower and shifted earlier (peak around L18--L20),
+    possibly because UI-Vision includes layout-level tasks that require higher-level semantic understanding.
+  }
+  \label{fig:app_perlayer_uivision}
+\end{figure*}
+
+
+\label{sec:prompt}
+
+\input{prompt/uitars}
+\input{prompt/guiowl}
+\input{prompt/guiowl15}
+\input{prompt/ui_venus15}
+
+\input{prompt/uitars_ours}
+\input{prompt/guiowl_ours}
+\input{prompt/ui_venus15_ours}
+
+
+
+\label{sec:vis1}
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}{0.75\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uitars/idx00021.png}
+    \end{subfigure}
+
+    \vspace{0.6em}
+
+    \begin{subfigure}{0.75\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uitars/idx00440.png}
+    \end{subfigure}
+
+    \caption{Successful cases of UI-TARS-1.5-7B on ScreenSpot-Pro}
+    \label{fig:uitars15_screenspotpro_success}
+\end{figure*}
+
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}{0.75\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uitars/idx00114.png}
+    \end{subfigure}
+
+    \vspace{0.6em}
+
+    \begin{subfigure}{0.75\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uitars/idx00329.png}
+    \end{subfigure}
+
+    \caption{Failure cases of UI-TARS-1.5-7B on ScreenSpot-Pro}
+    \label{fig:uitars15_screenspotpro_success}
+\end{figure*}
+
+
+\label{sec:vis}
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}{0.65\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uivenus/idx00015.png}
+    \end{subfigure}
+
+    \vspace{0.6em}
+
+    \begin{subfigure}{0.65\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uivenus/idx02155.png}
+    \end{subfigure}
+
+    \caption{Successful cases of UI-Venus-1.5-8B on MMBench-GUI-L2}
+    \label{fig:uitars15_screenspotpro_success}
+\end{figure*}
+
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}{0.65\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uivenus/idx00405.png}
+    \end{subfigure}
+
+    \vspace{0.6em}
+
+    \begin{subfigure}{0.65\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figs/append/uivenus/idx00493.png}
+    \end{subfigure}
+
+    \caption{Failure cases of UI-Venus-1.5-8B on MMBench-GUI-L2}
+    \label{fig:uitars15_screenspotpro_success}
+\end{figure*}

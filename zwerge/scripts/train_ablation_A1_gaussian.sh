@@ -67,8 +67,8 @@ else
     FLASH_ATTN=True
 fi
 
-export http_proxy=http://10.70.11.143:8412
-export https_proxy=http://10.70.11.143:8412
+export http_proxy=http://10.70.16.106:3128
+export https_proxy=http://10.70.16.106:3128
 export WANDB_API_KEY="${WANDB_API_KEY:-your_wandb_api_key_here}"
 export WANDB_PROJECT=zwerge
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

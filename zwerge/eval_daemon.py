@@ -56,7 +56,7 @@ _BASE_CKPT_DIR = (
 # ── 网络代理 ─────────────────────────────────────────────────────────────────
 # CodeLab 容器需要通过内网代理访问外网（WandB、hope CLI 等）。
 # 如果环境变量已设，不覆盖；否则注入默认值。
-_PROXY = "http://10.70.11.143:8412"
+_PROXY = "http://10.70.16.106:3128"
 os.environ.setdefault("http_proxy",  _PROXY)
 os.environ.setdefault("https_proxy", _PROXY)
 # WandB 在 Python 中读取 WANDB_API_KEY 和 WANDB_PROJECT 环境变量

@@ -67,11 +67,18 @@ elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_grounding50k_A3-gaussian_cos_meta_20260522_031059/checkpoint-2193}"
     CONDA_ENV="qwen3"
     MAX_PIXELS=16777216
-else
-    MODEL_TYPE="uitars"
+elif [[ "${MODEL_TYPE}" == "guiowl7b" ]]; then
+    # GUI-Owl-7B (Qwen2.5-VL, 与 uitars 相同架构): qwen25 env, patch_size=14
+    CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl7b_A7_exp001/checkpoint-2800}"
+    CONDA_ENV="qwen25"
+    MAX_PIXELS=12845056
+elif [[ "${MODEL_TYPE}" == "uitars" ]]; then
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_A4-gaussian_cos_meta_L18-25_20260520_042031/checkpoint-2193}"
     CONDA_ENV="qwen25"
     MAX_PIXELS=12845056
+else
+    echo "[zoom_eval] ERROR: unknown MODEL_TYPE='${MODEL_TYPE}'. Valid: uitars/guiowl/uivenus/guiowl7b"
+    exit 1
 fi
 
 # ── 解码策略（可通过 DECODE_STRATEGY 环境变量覆盖）─────────────

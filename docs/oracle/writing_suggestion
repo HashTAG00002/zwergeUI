@@ -1,0 +1,775 @@
+记得。现在这版目标是：
+
+**把 ZwerGe-UI 包装成一篇观察分析型 ACL ARR / EMNLP 风格论文，核心不是 “prefill determines grounding”，而是 “coordinate serialization bottleneck”：GUI Agent 的中间层已经形成空间 posterior，最后层更偏向把该空间意图序列化成坐标/action protocol，因此最后层反而不一定适合 spatial decoding。**
+
+这版组织必须主动避开 Re-Prefill。Re-Prefill 的标题和主张就是 “What Happens Before Decoding? Prefill Determines GUI Grounding in VLMs”，它强调 prefill 阶段决定候选 UI 元素，decoding 阶段只是细化坐标，并提出 attention-guided second prefill。([arXiv][1]) 所以我们的论文不要再主打 “before decoding”，而要主打：
+
+> **Within the prefill computation, spatial grounding peaks before coordinate serialization.**
+
+---
+
+# 1. 非 GUI 分析型论文调研：我们应该借鉴哪些写法
+
+下面这些都不是 GUI 论文。我按“能借鉴的写法”筛选，而不是简单堆 related work。
+
+## 1.1 最像我们的写法模板
+
+| 论文                                                                     | Venue / 地位                      | 链接                            | 我们应借鉴的写法                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------- | ------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Vision Transformers Need Registers**                                 | ICLR 2024 oral                  | arXiv:2309.16588 ([arXiv][2]) | 先发现异常现象：ViT feature map 中低信息背景区域出现 high-norm artifact tokens；再解释它们被模型复用作 internal computation；最后给一个简单 remedy：register tokens。我们的对应写法是：先发现 mid-layer spatial posterior，解释 final-layer spatial collapse 是 coordinate serialization 造成，再提出 layerwise spatial probe / zoom。 |
+| **BERT Rediscovers the Classical NLP Pipeline**                        | ACL 2019                        | arXiv:1905.05950 ([arXiv][3]) | 它的核心不是新 SOTA，而是“信息在层中按顺序出现”：POS、syntax、NER、SRL、coreference 分布在不同层。我们的对应是：GUI spatial localization、coordinate/action serialization 也在不同层承担不同功能。                                                                                                                          |
+| **Eliciting Latent Predictions from Transformers with the Tuned Lens** | 高影响 interpretability 方法         | arXiv:2303.08112 ([arXiv][4]) | 它把每层 hidden state 解码成 vocabulary distribution，研究 prediction 如何逐层 refinement。我们的写法可以叫 **spatial lens**：不是解码 vocabulary，而是解码 GUI target posterior。                                                                                                                        |
+| **Language Models Represent Space and Time**                           | ICLR 2024                       | arXiv:2310.02207 ([arXiv][5]) | 它证明 LLM 内部有可线性读出的空间/时间表征，甚至有 space/time neurons。我们的对应是：GUI-VLM 内部有可 probe 的 screen-space target posterior。                                                                                                                                                              |
+| **Emergent World Representations**                                     | ICLR 2023 oral / notable top 5% | arXiv:2210.13382 ([arXiv][6]) | 它用一个受控环境说明 sequence model 学到了 latent board state，而不是只会 next-token pattern。我们的对应是：GUI agent 不是在生成坐标 token 时才“找位置”，而是中间层已有 latent screen state。                                                                                                                           |
+
+这五篇是最建议在 introduction / analysis framing 中学习的。
+
+---
+
+## 1.2 可以补充借鉴的分析型论文
+
+| 论文                                                          | Venue / 地位      | 链接                             | 可借鉴点                                                                                                                                                       |
+| ----------------------------------------------------------- | --------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Transformer Feed-Forward Layers Are Key-Value Memories**  | EMNLP 2021      | arXiv:2012.14913 ([arXiv][7])  | 经典的“模块功能解释”论文：FFN 不是黑盒，而像 key-value memory。我们可借鉴它的写法，把 late layers 解释为 coordinate/action protocol 的 serialization module。                                  |
+| **Are Sixteen Heads Really Better than One?**               | NeurIPS 2019    | arXiv:1905.10650 ([arXiv][8])  | 经典的“不是所有结构单元都有同等贡献”论文。我们对应：不是所有层都适合 grounding；简单 all-layer fusion/attention aggregation 可能掩盖最优层。                                                           |
+| **Visualizing and Understanding Convolutional Networks**    | ECCV 2014，高引用经典 | arXiv:1311.2901 ([arXiv][9])   | 经典结构：visualization → diagnosis → ablation → architecture insight。我们对应：layer heatmap → bottleneck diagnosis → layer mask / lens comparison → ZwerGe design。 |
+| **What do Vision Transformers Learn? A Visual Exploration** | ViT 分析论文        | arXiv:2212.06727 ([arXiv][10]) | 关键论点很贴近我们：ViT 在最后层外保留空间信息，而最后层更像 learned global pooling，会丢空间信息。我们可以用它支持“final layer 不一定 spatially best”。                                                   |
+| **Patchscopes**                                             | ICML 2024       | arXiv:2401.06102 ([arXiv][11]) | 它把 hidden representation inspection 统一为可解释的 patching/lens 框架。我们的 spatial lens 可以被描述成 GUI-specific hidden-state inspection。                                 |
+
+这些论文共同的写作套路是：
+
+> **Observation → Controlled probes → Alternative explanation ruled out → General pattern across models → Method motivated by the pattern。**
+
+这正是 ZwerGe-UI 应该采用的结构。
+
+---
+
+# 2. 我们的论文主叙事：不要写成 “prefill paper”，要写成 “layerwise bottleneck paper”
+
+你现在的代码和 `.mrules` 本身已经支持这个叙事。`.mrules` 把 ZwerGe-UI 的核心分成三层：Layer 1 是读取中间层 hidden states 或 sparse anchor-attention slice 得到每层 patch posterior，并统计 accuracy / entropy / margin / JS divergence；Layer 2 是用 internal uncertainty features 做 STOP / ZOOM controller；Layer 3 是 local refiner。([GitHub][12]) 这说明你的论文天然不是“再做一次 prefill”，而是 **layer-wise internal posterior modeling**。
+
+`layer_probe.py` 也正好是分析型论文的基础设施：它有 `probe` 模式，逐层统计 grounding ACC / DIST / ENTROPY；也有 `eval` 模式，支持 `--layer_mask last / first_half / not_last / 指定层` 等层选择评测；并且它用 `output_hidden_states=True` 和 QK 重算提取每层 attention map，避免保存完整 `S×S` attention matrix。([GitHub][13]) 这给论文一个很重要的工程可信度：**我们的 analysis 不是事后画图，而是代码中已有的核心研究工具。**
+
+因此论文 title 和 abstract 都建议避开：
+
+> Grounding Emerges Before Decoding
+
+改成：
+
+> **Spatial Grounding Peaks Before Coordinate Serialization in GUI Agents**
+
+或者更完整：
+
+> **ZwerGe-UI: Probing Coordinate Serialization Bottlenecks in GUI Agents**
+
+---
+
+# 3. 推荐论文标题
+
+我建议优先选第 1 个。
+
+## Title 1，最稳
+
+**Spatial Grounding Peaks Before Coordinate Serialization in GUI Agents**
+
+优点：直接避开 Re-Prefill 的 “Before Decoding”，同时把核心现象说清楚。
+
+## Title 2，更像方法论文
+
+**ZwerGe-UI: Layerwise Spatial Probing Reveals Coordinate Serialization Bottlenecks in GUI Agents**
+
+优点：带方法名，适合如果你要强调 A7 / A8 框架。
+
+## Title 3，更有记忆点
+
+**Where to Click Before How to Say It: Probing Coordinate Serialization in GUI Agents**
+
+优点：非常抓人，缺点是略口语。
+
+---
+
+# 4. 论文组织结构，精确到小节
+
+下面是我建议的主文结构。它的核心是：**先讲现象，再讲方法**。这样最像 `Vision Transformers Need Registers` / `BERT Rediscovers...` / `Tuned Lens` 这类分析型论文。
+
+---
+
+## Abstract
+
+结构建议：
+
+1. GUI agents 通常把 grounding 表述为坐标/action token 生成。
+2. 这个视角默认 spatial grounding 发生在 decoding 或 final representation 附近。
+3. 我们发现相反现象：中间层更适合解码目标区域，最后层会显著退化。
+4. 提出 **coordinate serialization bottleneck**：中间层编码 where，后层编码 how to serialize。
+5. 基于此提出 ZwerGe-UI：layerwise spatial probe + uncertainty / fusion / optional zoom。
+6. 在 SS-Pro、OSWorld-G、MMBench-GUI、UI-Vision、SS-v2 上验证。
+
+不要在 abstract 里主打 “before decoding”。最多写：
+
+> before full autoregressive coordinate generation
+
+但不要把它放在第一句和标题里。
+
+---
+
+## 1 Introduction
+
+### 1.1 GUI grounding is often treated as coordinate generation
+
+讲现有 GUI agent 通常最终输出坐标或 action protocol。这里可以简要提 GUI 相关工作，但不要展开成 Re-Prefill 对比。重点是引出问题：
+
+> If the model outputs coordinates, where is the coordinate actually computed?
+
+### 1.2 A hidden mismatch: spatial localization vs coordinate serialization
+
+核心段落：
+
+> We argue that coordinate generation conflates two distinct computations: locating the target in screen space, and serializing that target into a coordinate/action vocabulary.
+
+这句话是全文总纲。
+
+### 1.3 Our observation: middle layers know where to click
+
+用你现有结果写：
+
+* Qwen2.5-VL 系模型：SS-Pro 峰值在 L20–L21，之后下降。
+* Qwen3-VL 系模型：峰值在 L22–L26，平台更宽。
+* 最后层不一定最好，甚至灾难式下降。
+* fusion 普遍弱于 best single layer，说明 all-layer aggregation 不是最优解释。
+
+### 1.4 Contributions
+
+建议写 4 点：
+
+1. We identify the **coordinate serialization bottleneck** in GUI agents.
+2. We introduce a **spatial lens** to decode layerwise GUI grounding posteriors from intermediate activations.
+3. We show that spatial localization peaks before coordinate/action serialization, and that final layers can degrade for spatial decoding.
+4. We build ZwerGe-UI, a layerwise posterior framework for grounding and zoom/refinement.
+
+---
+
+## 2 Background and Setup
+
+这一节要短，不要像方法。
+
+### 2.1 GUI grounding as coordinate/action protocol
+
+定义输入截图 `I`、指令 `q`、输出坐标/action `y`。说明评估 hit@1 / overlap@1。
+
+### 2.2 Spatial posterior over visual patches
+
+定义每层 posterior：
+
+```text
+p_l(v | I, q)
+```
+
+其中 `v` 是视觉 patch。说明这是我们的 spatial lens。
+
+### 2.3 Coordinate serialization bottleneck
+
+正式定义：
+
+> A coordinate serialization bottleneck occurs when the representation best aligned with screen-space target localization appears earlier than the representation best aligned with coordinate/action token prediction.
+
+可以写成两个 lens：
+
+```text
+Spatial lens:      h_l -> p_l(v | I, q)
+Serialization lens: h_l -> p_l(y_coord | I, q)
+```
+
+如果两者峰值错位：
+
+```text
+argmax_l SpatialScore(l) < argmax_l SerializationScore(l)
+```
+
+就是核心证据。
+
+---
+
+## 3 The Coordinate Serialization Bottleneck
+
+这是全文最关键的 analysis section，要放在 method 前。建议 5 个小节，对应 4 个主图 + 1 个表。
+
+---
+
+### 3.1 Spatial grounding is layerwise, not uniformly prefill-level
+
+**主张**
+同一个 prefill computation 内部，不同层的 spatial grounding 能力差异很大。
+
+**对应图：Figure 2**
+
+**Figure 2: Layerwise spatial lens fingerprint.**
+图内容：
+
+* x 轴：layer / normalized depth。
+* y 轴：hit@1、target mass、entropy、adjacent-layer JS。
+* 四条模型曲线：`uitars`, `guiowl7b`, `guiowl`, `uivenus`。
+* 背景 shaded regions：
+
+  * early visual parsing
+  * spatial emergence
+  * serialization / collapse
+
+**简要图注：**
+
+> Layerwise spatial probing reveals a non-monotonic grounding trajectory. Across Qwen2.5-VL and Qwen3-VL based GUI agents, target localization peaks in middle layers rather than final layers, indicating that GUI grounding is not a homogeneous prefill-stage signal.
+
+**对应表：Table 2**
+
+**Table 2: Spatial grounding peaks before final layers.**
+列：
+
+| Model | Backbone | Dataset | Peak layer | Relative depth | Peak hit | Final-layer hit | Collapse gap | Peak overlap | Final overlap |
+
+用你现有数据可以先填 SS-Pro 和 OSWorld-G。重点是 collapse gap。
+
+---
+
+### 3.2 Final layers are better viewed as serializers than localizers
+
+**主张**
+最后几层 spatial decoding 下降，不代表模型“不知道目标”，而是表示功能从 screen-space localization 转向 output protocol serialization。
+
+**对应图：Figure 3**
+
+**Figure 3: Spatial lens vs. serialization lens.**
+图内容：
+
+* 横轴 layer。
+* 左轴 spatial score：hit@1 / target mass。
+* 右轴 serialization score：`-NLL` of coordinate/action protocol tokens。
+* 画出两条峰值错位曲线：
+
+  * spatial peak 在中间层；
+  * coordinate/action token lens 在更后层更强。
+
+**简要图注：**
+
+> Spatial localization and coordinate/action serialization peak at different depths. The layers that best decode the target region are earlier than the layers that best predict the output protocol, supporting the coordinate serialization bottleneck hypothesis.
+
+这个图是全文最重要的“差异化图”。它和 Re-Prefill 完全不是一个问题。
+
+---
+
+### 3.3 Layer aggregation hides the best grounding layer
+
+**主张**
+把所有层 attention / posterior 平均掉，会掩盖最强的空间层。这一点直接和 Re-Prefill 的 “跨层高 attention token” 区分开。
+
+**对应图：Figure 4**
+
+**Figure 4: Layer-specific spatial posterior vs. all-layer aggregation.**
+图内容：
+
+左边定量：
+
+| Signal                     | hit@1 | overlap@1 | target mass | entropy |
+| -------------------------- | ----: | --------: | ----------: | ------: |
+| all-layer query attention  |       |           |             |         |
+| best-layer query attention |       |           |             |         |
+| final-layer probe          |       |           |             |         |
+| cos-meta fusion            |       |           |             |         |
+| best-layer spatial probe   |       |           |             |         |
+
+右边 qualitative：
+
+```text
+Screenshot | all-layer query attention | mid-layer spatial probe | final-layer probe
+```
+
+**简要图注：**
+
+> Aggregating layers into a single prefill attention map produces diffuse candidate regions, while the best intermediate spatial probe yields a sharper target posterior. This shows that the relevant object is not merely “prefill attention”, but the layer at which spatial grounding becomes decodable.
+
+**对应表：Table 3**
+
+**Table 3: Layer-specific probes outperform prefill-level aggregation.**
+列：
+
+| Model | Dataset | All-layer query attention | Best attention layer | Best spatial probe | Final spatial probe | Δ best probe − all-layer attn |
+
+这张表是“防撞车表”。不需要复现 Re-Prefill 方法，只比较它那类核心信号：query-position attention aggregation。
+
+---
+
+### 3.4 The mid-layer posterior is instruction-conditioned, not UI saliency
+
+**主张**
+中间层 posterior 不是 generic UI saliency map，而是随 instruction 改变的 target-conditioned posterior。
+
+**对应图：Figure 5**
+
+**Figure 5: Same-screen target switch.**
+图内容：
+
+左边 qualitative storyboard：
+
+```text
+same screenshot
+instruction A -> heatmap on target A
+instruction B -> heatmap on target B
+```
+
+右边曲线：
+
+* `SwitchScore_l`
+* `OldTargetSuppression_l`
+
+**简要图注：**
+
+> On the same screenshot, changing only the instruction shifts the intermediate spatial posterior from one target to another. This rules out the explanation that the probe merely detects visually salient UI elements.
+
+如果 same-screen pairs 不够，就退化为 hard negative instruction shuffle，但主文最好写 same-screen target switch。
+
+---
+
+### 3.5 High-resolution and small targets amplify the bottleneck
+
+**主张**
+这个现象在高分辨率、小控件、多控件布局中最明显，因此它是 GUI-specific 的。
+
+**对应图：Figure 6**
+
+**Figure 6: Bottleneck strength by target size and layout complexity.**
+图内容：
+
+* 按 bbox area quartile 分桶。
+* 每桶报告：
+
+  * best-mid hit
+  * final-layer hit
+  * collapse gap
+  * overlap-hit gap
+
+**简要图注：**
+
+> The mid-layer advantage becomes larger for smaller targets and harder high-resolution layouts. The large overlap-hit gap suggests that the model often identifies the right region but loses precision through patch/grid quantization and coordinate serialization.
+
+这张图能把你已有发现 ④ “overlap@1 显著高于 hit@1” 包装成方法动机。
+
+---
+
+## 4 ZwerGe-UI
+
+analysis 完再讲方法，这样很自然。
+
+### 4.1 Layerwise spatial probe
+
+讲 A7：CrossAttn Probe + independent layers + Gaussian GT。
+
+公式：
+
+```text
+p_l = Probe_l(h_l, q, V)
+```
+
+说明 probe 不是为了证明模型经过逐层监督训练，而是为了读出已有表征。
+
+### 4.2 Gaussian target posterior
+
+讲 binary vs Gaussian GT 小实验。
+
+这里建议写成：
+
+> Since GUI targets occupy small regions and patch grids are coarse, binary labels over-penalize near-miss patches. Gaussian supervision provides a smoother spatial readout objective.
+
+对应 appendix 或 ablation table。
+
+### 4.3 Layer selection and fusion
+
+结合你现在发现：
+
+* best single layer 往往强于 cos_meta fusion；
+* Qwen2.5-VL active band：L20–L22；
+* Qwen3-VL active band：L22–L26 或更宽；
+* A8 可以用 ContextLoRA / learned fusion 改进。
+
+### 4.4 Optional zoom / local refinement
+
+这里不要写成另一个 “adaptive zoom-in paper”。建议说：
+
+> The analysis shows a large overlap-hit gap; therefore, once the internal posterior identifies the approximate region, a local refiner can resolve grid-level quantization.
+
+也就是 zoom 是坐标瓶颈的自然后果，不是核心 novelty。
+
+---
+
+## 5 Experiments
+
+### 5.1 Models and checkpoints
+
+用你现有表：
+
+| Model key | Experiment dir | Ckpt | Backbone | Layers | Probe range |
+| --------- | -------------- | ---- | -------- | ------ | ----------- |
+
+这就是主文 **Table 1**。
+
+**Table 1: Evaluated GUI agents and layer probe ranges.**
+
+简要图注：
+
+> We evaluate four GUI agents built on Qwen2.5-VL and Qwen3-VL backbones. Probes are trained independently for intermediate-to-late layers without adding native layerwise supervision to the backbone.
+
+### 5.2 Benchmarks and metrics
+
+列 SS-Pro、SS-v2、OSWorld-G、MMBench-GUI、UI-Vision。
+
+强调：
+
+* SS-Pro：高分辨率/小目标，主分析集。
+* OSWorld-G：复杂真实 GUI，第二分析集。
+* SS-v2：趋于饱和，sanity check。
+* UI-Vision：低分但 overlap gap 可支持局部化瓶颈。
+
+### 5.3 Main grounding results
+
+**对应表：Table 4**
+
+用你给的 fusion result 表。
+
+**Table 4: Fusion hit@1 / overlap@1 across five GUI grounding benchmarks.**
+
+图注：
+
+> ZwerGe-UI obtains consistent grounding performance across GUI agents and benchmarks. However, the main message is not leaderboard dominance: overlap@1 is substantially higher than hit@1, indicating that coarse spatial localization often precedes precise coordinate recovery.
+
+### 5.4 Best single layer vs fusion
+
+**对应表：Table 5**
+
+用你已有 Best Single Layer 表。
+
+**Table 5: Best single layer across datasets.**
+
+图注：
+
+> The best grounding layer is consistently an intermediate layer rather than the final layer. Simple equal-weight fusion can underperform the best layer, suggesting that layer identity matters and should not be collapsed away.
+
+### 5.5 Layerwise collapse on SS-Pro and OSWorld-G
+
+**对应图：Figure 7**
+
+把你已有逐层 hit@1 表画成 fancy curve：
+
+* SS-Pro 一张。
+* OSWorld-G 一张。
+* Qwen2.5-VL 和 Qwen3-VL 分面。
+
+**Figure 7: Layerwise hit@1 on SS-Pro and OSWorld-G.**
+
+图注：
+
+> Qwen2.5-VL based agents peak around L20–L22 and then degrade sharply, while Qwen3-VL based agents exhibit a wider spatial plateau. The non-monotonic pattern supports a layerwise rather than final-layer view of GUI grounding.
+
+### 5.6 Ablations
+
+**对应表：Table 6**
+
+列：
+
+| Ablation          | SS-Pro hit | OSWorld-G hit | Notes |
+| ----------------- | ---------: | ------------: | ----- |
+| Binary GT         |            |               |       |
+| Gaussian GT       |            |               |       |
+| final layer only  |            |               |       |
+| best single layer |            |               |       |
+| all-layer fusion  |            |               |       |
+| no late layers    |            |               |       |
+| active band only  |            |               |       |
+
+图注：
+
+> Ablations show that smoother spatial supervision and layer-aware selection are more important than simply using more layers.
+
+---
+
+## 6 Discussion
+
+### 6.1 Coordinate serialization bottleneck vs prefill bottleneck
+
+这里明确和 Re-Prefill 切开，但不要攻击。建议写：
+
+> Concurrent work studies the stage-level asymmetry between prefill and decoding. Our work studies the layer-level asymmetry within the prefill computation: spatial grounding peaks in middle layers, while late layers become more aligned with coordinate/action serialization.
+
+### 6.2 Why final layers can be bad spatial decoders
+
+引用非 GUI 证据时可以轻轻带上：ViT 分析发现最后层可能丢空间信息并表现得像 global pooling。([arXiv][10]) 但不要过度说成因果。我们自己的证据是 spatial lens vs serialization lens crossing。
+
+### 6.3 Limitations
+
+诚实写：
+
+* probe 是 readout，不等于完整因果证明；
+* best layer 与 backbone/训练数据有关；
+* current fusion 仍弱于 best single layer；
+* local refinement 依赖 ROI 选择质量；
+* 没有声称替代所有 decode-time uncertainty 方法。
+
+---
+
+## 7 Conclusion
+
+一句话收束：
+
+> GUI agents often know where to click before they know how to say the coordinate.
+
+---
+
+# 5. 主文图表总览
+
+建议主文控制在 **7 张图 + 6 张表**，其中分析部分 5 张图、2 张表。
+
+## 主文 Figures
+
+| Figure | 所在节   | 标题                                                | 作用                                           |
+| ------ | ----- | ------------------------------------------------- | -------------------------------------------- |
+| Fig. 1 | Intro | Teaser: middle layers know where to click         | 一张 screenshot，多层 heatmap，展示中间层命中、最后层偏移       |
+| Fig. 2 | §3.1  | Layerwise spatial lens fingerprint                | 证明 grounding 是 layerwise phenomenon          |
+| Fig. 3 | §3.2  | Spatial lens vs serialization lens                | 全文核心：where 与 how-to-say 峰值错位                 |
+| Fig. 4 | §3.3  | Layer-specific posterior vs all-layer aggregation | 正面避开 Re-Prefill：不是 prefill-level aggregation |
+| Fig. 5 | §3.4  | Same-screen target switch                         | 证明不是 saliency，而是 instruction-conditioned     |
+| Fig. 6 | §3.5  | Bottleneck by target size / layout complexity     | 说明高分辨率、小控件放大瓶颈                               |
+| Fig. 7 | §5.5  | Layerwise hit curves on SS-Pro / OSWorld-G        | 用已有结果支撑跨模型规律                                 |
+
+## 主文 Tables
+
+| Table   | 所在节  | 标题                                                 | 作用                                                |
+| ------- | ---- | -------------------------------------------------- | ------------------------------------------------- |
+| Table 1 | §5.1 | Evaluated models and probe ranges                  | 说明四个模型、ckpt、backbone、probe 层范围                    |
+| Table 2 | §3.1 | Spatial grounding peaks before final layers        | peak layer、final layer、collapse gap               |
+| Table 3 | §3.3 | Layer-specific probes vs prefill-level aggregation | 和 Re-Prefill 式 all-layer attention 区分             |
+| Table 4 | §5.3 | Fusion hit@1 / overlap@1 across benchmarks         | 主结果表，用你已有表1                                       |
+| Table 5 | §5.4 | Best single layer across datasets                  | 用你已有表2                                            |
+| Table 6 | §5.6 | Ablations: Gaussian GT, fusion, layer masks        | 放 binary vs Gaussian、final-only、best-layer、fusion |
+
+---
+
+# 6. Figure 1 到 Figure 7 的图注草案
+
+## Figure 1
+
+**Teaser: GUI agents know where to click before coordinate serialization.**
+Intermediate layers produce a sharp spatial posterior around the target widget, while final layers may become less spatially localized. We hypothesize that late layers focus on serializing the spatial intent into coordinate/action tokens rather than preserving a clean screen-space posterior.
+
+## Figure 2
+
+**Layerwise spatial lens fingerprint.**
+Grounding quality is highly non-monotonic across depth. Qwen2.5-VL based agents peak around L20–L22, while Qwen3-VL based agents peak later and exhibit a wider spatial plateau. Final layers are not consistently the best spatial decoders.
+
+## Figure 3
+
+**Spatial localization peaks before coordinate/action serialization.**
+The spatial lens decodes target regions most accurately from intermediate layers, whereas the serialization lens predicts coordinate/action protocol tokens better in later layers. This peak mismatch supports the coordinate serialization bottleneck hypothesis.
+
+## Figure 4
+
+**Layer aggregation hides the best grounding layer.**
+All-layer query attention produces diffuse candidate regions, while the best intermediate spatial probe gives a sharper target posterior. The relevant signal is not merely prefill attention, but the specific layer where spatial grounding becomes decodable.
+
+## Figure 5
+
+**The spatial posterior follows the instruction.**
+On the same screenshot, changing only the instruction shifts the mid-layer posterior from one UI element to another. This suggests that the probe captures instruction-conditioned grounding rather than generic UI saliency.
+
+## Figure 6
+
+**High-resolution small targets amplify the bottleneck.**
+The gap between best intermediate layers and final layers grows for smaller targets and harder layouts. The large overlap-hit gap indicates that models often identify the right region but lose precision during patch-to-coordinate serialization.
+
+## Figure 7
+
+**Layerwise hit@1 across SS-Pro and OSWorld-G.**
+Across four GUI agents, hit@1 peaks before the final layer. The effect is strongest on SS-Pro, where high-resolution and dense layouts make coordinate serialization especially brittle.
+
+---
+
+# 7. Introduction 的推荐写法骨架
+
+可以按这个逻辑写，不要偏离。
+
+### Paragraph 1：问题
+
+GUI agents are commonly trained and evaluated through coordinate/action generation. This formulation is convenient, but it conflates two computations: identifying the target region and serializing that region into a coordinate protocol.
+
+### Paragraph 2：观察
+
+We find that these two computations are not aligned in depth. Intermediate layers often decode the target region better than final layers, even though final layers are closer to the output tokens.
+
+### Paragraph 3：假说
+
+We call this discrepancy the coordinate serialization bottleneck. The model first forms a spatial intent in screen space; later layers transform this intent into vocabulary-level action coordinates.
+
+### Paragraph 4：证据
+
+Across GUI-Owl, UI-TARS, and UI-Venus variants, best single layers consistently appear before final layers. On SS-Pro, Qwen2.5-VL agents peak around L20–L21 and degrade sharply afterwards; Qwen3-VL agents peak around L22–L26 with a wider plateau.
+
+### Paragraph 5：方法
+
+Based on this observation, we introduce ZwerGe-UI, a layerwise spatial posterior framework that reads intermediate representations and uses them for grounding and optional local refinement.
+
+---
+
+# 8. Related Work 组织方式
+
+不要把 Re-Prefill 放太长。Related Work 建议这样写：
+
+## 8.1 Coordinate generation and action protocols in GUI agents
+
+简短讲 GUI grounding 输出坐标/action protocol。不要在这里展开方法细节。
+
+## 8.2 Layerwise probing and latent representations
+
+重点引用：
+
+* BERT Rediscovers the Classical NLP Pipeline：层中信息按 NLP pipeline 顺序出现。([arXiv][3])
+* Tuned Lens：逐层 decoding latent prediction。([arXiv][4])
+* Language Models Represent Space and Time：空间/时间信息可线性读出。([arXiv][5])
+* Patchscopes：inspection hidden representations 的统一框架。([Proceedings of Machine Learning Research][14])
+
+## 8.3 Spatial representations in vision transformers
+
+重点引用：
+
+* Vision Transformers Need Registers：high-norm artifacts / internal computation。([arXiv][2])
+* What do ViTs Learn：最后层可能丢 spatial information。([arXiv][10])
+* Visualizing ConvNets：intermediate layer visualization 经典写法。([arXiv][9])
+
+## 8.4 Boundary to concurrent prefill-stage GUI work
+
+只写一段：
+
+> Concurrent work studies prefill-vs-decoding asymmetry and proposes a training-free second prefill. We instead study layer-level specialization within the prefill computation and show that spatial localization and coordinate serialization peak at different depths.
+
+这里引用 Re-Prefill 即可。([arXiv][1])
+
+---
+
+# 9. 你现有结果在论文里的包装方式
+
+你现在的结果不要写成“我们比谁高”。要写成三条 finding。
+
+## Finding 1：Best layer is not final layer
+
+SS-Pro 上：
+
+* `uitars`: L20 = 41.62，L27 = 30.93，drop 10.69 pp。
+* `guiowl7b`: L21 = 48.26，L27 = 36.69，drop 11.57 pp。
+* `guiowl`: L24 = 51.55，L35 降到 33–41 范围。
+* `uivenus`: L23 = 51.23，L35 降到 30–39 范围。
+
+写法：
+
+> Spatial decoding accuracy does not monotonically improve with depth. In several models, late layers are catastrophically worse than the best intermediate layer.
+
+## Finding 2：Fusion weaker than best single layer
+
+你的表里 fusion 对 SS-Pro / OSWorld-G 的 gap 普遍是负的，`uivenus` SS-Pro gap 达到 −3.80pp。
+
+写法：
+
+> Naive layer fusion can dilute the most spatially informative layer, suggesting that grounding is localized in depth rather than uniformly distributed.
+
+## Finding 3：Overlap-hit gap means “region known, coordinate imprecise”
+
+overlap@1 比 hit@1 高 15–18pp。
+
+写法：
+
+> The model often identifies the correct region but fails to produce a precise coordinate, exactly the failure mode predicted by the coordinate serialization bottleneck.
+
+---
+
+# 10. 最终推荐论文大纲
+
+下面这版可以直接作为 LaTeX skeleton。
+
+```text
+Title:
+Spatial Grounding Peaks Before Coordinate Serialization in GUI Agents
+
+Abstract
+
+1 Introduction
+  1.1 GUI grounding as coordinate/action generation
+  1.2 The mismatch between spatial localization and coordinate serialization
+  1.3 Our observation: middle layers know where to click
+  1.4 Contributions
+
+2 Background and Setup
+  2.1 GUI grounding and evaluation
+  2.2 Layerwise spatial posterior
+  2.3 Coordinate serialization bottleneck
+
+3 The Coordinate Serialization Bottleneck
+  3.1 Spatial grounding is layerwise, not uniformly prefill-level
+      Fig. 2, Table 2
+  3.2 Final layers act more like serializers than localizers
+      Fig. 3
+  3.3 Layer aggregation hides the best grounding layer
+      Fig. 4, Table 3
+  3.4 The mid-layer posterior is instruction-conditioned
+      Fig. 5
+  3.5 High-resolution small targets amplify the bottleneck
+      Fig. 6
+
+4 ZwerGe-UI
+  4.1 Layerwise spatial probe
+  4.2 Gaussian target posterior
+  4.3 Layer selection and fusion
+  4.4 Local refinement from overlap-hit gap
+
+5 Experiments
+  5.1 Models and checkpoints
+      Table 1
+  5.2 Benchmarks and metrics
+  5.3 Main grounding results
+      Table 4
+  5.4 Best single layer vs fusion
+      Table 5
+  5.5 Layerwise collapse across SS-Pro and OSWorld-G
+      Fig. 7
+  5.6 Ablations
+      Table 6
+
+6 Discussion
+  6.1 Difference from prefill-stage bottleneck work
+  6.2 Why final layers may lose spatial decodability
+  6.3 Limitations
+
+7 Conclusion
+```
+
+---
+
+# 11. 一句话总结包装策略
+
+这篇论文不要说：
+
+> We show grounding happens before decoding.
+
+要说：
+
+> **We show that screen-space grounding and coordinate serialization are separated across layers: middle layers know where to click, while final layers learn how to say the click.**
+
+这个句子就是你的主线。
+
+[1]: https://arxiv.org/abs/2605.12549?utm_source=chatgpt.com "What Happens Before Decoding? Prefill Determines GUI Grounding in VLMs"
+[2]: https://arxiv.org/abs/2309.16588?utm_source=chatgpt.com "[2309.16588] Vision Transformers Need Registers - arXiv.org"
+[3]: https://arxiv.org/abs/1905.05950?utm_source=chatgpt.com "BERT Rediscovers the Classical NLP Pipeline"
+[4]: https://arxiv.org/abs/2303.08112?utm_source=chatgpt.com "Eliciting Latent Predictions from Transformers with the Tuned Lens"
+[5]: https://arxiv.org/abs/2310.02207?utm_source=chatgpt.com "Language Models Represent Space and Time"
+[6]: https://arxiv.org/abs/2210.13382?utm_source=chatgpt.com "[2210.13382] Emergent World Representations: Exploring a Sequence Model ..."
+[7]: https://arxiv.org/abs/2012.14913?utm_source=chatgpt.com "Transformer Feed-Forward Layers Are Key-Value Memories"
+[8]: https://arxiv.org/abs/1905.10650?utm_source=chatgpt.com "Are Sixteen Heads Really Better than One?"
+[9]: https://arxiv.org/abs/1311.2901?utm_source=chatgpt.com "Visualizing and Understanding Convolutional Networks"
+[10]: https://arxiv.org/abs/2212.06727?utm_source=chatgpt.com "What do Vision Transformers Learn? A Visual Exploration"
+[11]: https://arxiv.org/abs/2401.06102?utm_source=chatgpt.com "Patchscopes: A Unifying Framework for Inspecting Hidden Representations of Language Models"
+[12]: https://raw.githubusercontent.com/HashTAG00002/zwergeUI/master/.mrules "raw.githubusercontent.com"
+[13]: https://raw.githubusercontent.com/HashTAG00002/zwergeUI/master/GUI-AIMA/eval/layer_probe.py "raw.githubusercontent.com"
+[14]: https://proceedings.mlr.press/v235/ghandeharioun24a.html?utm_source=chatgpt.com "Patchscopes: A Unifying Framework for Inspecting Hidden Representations ..."

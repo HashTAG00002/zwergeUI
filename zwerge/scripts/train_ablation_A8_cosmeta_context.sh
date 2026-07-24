@@ -93,8 +93,8 @@ else
     FLASH_ATTN=True
 fi
 
-export http_proxy=http://10.70.11.143:8412
-export https_proxy=http://10.70.11.143:8412
+export http_proxy=http://10.70.16.106:3128
+export https_proxy=http://10.70.16.106:3128
 export WANDB_API_KEY=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
 export WANDB_PROJECT=zwerge
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

@@ -28,6 +28,7 @@ Secondary (exact_image pairs or appendix only):
 """
 
 import argparse
+import gc
 import os
 import sys
 import warnings
@@ -39,7 +40,7 @@ from tqdm import tqdm
 
 # ── sys.path setup ─────────────────────────────────────────────────────────────
 _PROBE_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT  = os.path.abspath(os.path.join(_PROBE_DIR, "../../.."))
+_REPO_ROOT  = os.path.abspath(os.path.join(_PROBE_DIR, "../.."))
 _EVAL_DIR   = os.path.join(_REPO_ROOT, "zwerge", "eval")
 _SRC_DIR    = os.path.join(_REPO_ROOT, "zwerge", "src")
 for _d in [_PROBE_DIR, _EVAL_DIR, _SRC_DIR]:
@@ -199,6 +200,8 @@ def run_exp4(
         except Exception as e:
             warnings.warn(f"[exp4] predict_layerwise AA failed for pair {pair_id}: {e}")
             n_err += 1
+            gc.collect()
+            torch.cuda.empty_cache()
             continue
 
         # ── Pass 2: img_A + instruction_B (counterfactual) ────────────────────
@@ -208,6 +211,9 @@ def run_exp4(
         except Exception as e:
             warnings.warn(f"[exp4] predict_layerwise AB failed for pair {pair_id}: {e}")
             n_err += 1
+            del pred_AA
+            gc.collect()
+            torch.cuda.empty_cache()
             continue
 
         n_w = pred_AA["n_width"]
@@ -216,6 +222,9 @@ def run_exp4(
         if pred_AB["n_width"] != n_w or pred_AB["n_height"] != n_h:
             warnings.warn(f"[exp4] Grid size mismatch for pair {pair_id}, skipping.")
             n_skip += 1
+            del pred_AA, pred_AB
+            gc.collect()
+            torch.cuda.empty_cache()
             continue
 
         # ── Compute per-layer metrics ──────────────────────────────────────────
@@ -243,6 +252,10 @@ def run_exp4(
             old_target_supp.append(mAA - mAB)
             switch_score.append(mBB - mAB)
             posterior_js.append(_js_divergence(p_AA, p_AB))
+
+        del pred_AA, pred_AB
+        gc.collect()
+        torch.cuda.empty_cache()
 
         result = {
             "pair_id":          pair_id,
