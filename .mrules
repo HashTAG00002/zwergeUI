@@ -2577,3 +2577,85 @@
     - bottleneck plot 的 P2P overlay 只画了 ss_pro/ss_v2（其余 3 bench 未跑 native-gate）。
 
 
+
+  - [2026-07-28] 【ZWERGE-P2P + p2p_zoom：training-free posterior-to-point + 视觉token剪枝zoom】
+    ─── 背景 ──────────────────────────────────────────────────────────────────
+    P2P (consensus + local-mode + native-gate) 在 strict overlap@1 下把 Qwen3 负优化从
+    −6.08 收敛到 −2.03 (guiowl SS-Pro)、−4.17→+0.51 (uivenus SS-Pro)，但仍未稳定超过
+    native baseline。用户要求用 ZwerGe top-k 区域做视觉 token 剪枝（类 FocusUI
+    arXiv:2601.03928），让 AR backbone 在剪枝后的局部 crop 上 grounding，即旧 zoom_backbone
+    策略结合 P2P 区域选择，目标：在 guiowl-1.5-8b 上 SS-Pro/OSWorld-G/UI-Vision 的
+    overlap@1 超过 native baseline。
+
+    ─── 实现：p2p_zoom decode_strategy ────────────────────────────────────────
+    新增 inference_base.py:get_zoom_crop_box_p2p()：
+      - 用 decode_p2p (Level1 mass/√area + Level2 cross-layer consensus) 选最佳 region
+        （而非 legacy get_zoom_crop_box 的 single max-score patch）
+      - 取该 region patch 的 pixel bounding box + padding_cells 上下文
+      - min_crop_frac=0.15 floor：crop 短边不少于原图 15%，保证 backbone 有足够上下文
+    predict_zoom_backbone() 新增 region_selector='max'|'p2p' 参数（p2p 走 consensus 选区）
+    eval_retrofit.py 新增 --decode_strategy p2p_zoom：
+      - Stage1 ZwerGe prefill → p_final/per_layer_probs/omega → P2P consensus 选 region → crop box
+      - Stage2 backbone.generate(crop) → parse native coordinate → remap 回原图
+      - fusion 指标走 zoom_point（单点，strict overlap@1，与 baseline 同协议）
+
+    ─── 与 FocusUI 的区分（related work）─────────────────────────────────────
+    FocusUI：in-prefill token pruning，需要训练 query-guided saliency scorer + PosPad
+              位置标记，单次 prefill 但需训练。
+    ZwerGe p2p_zoom：training-free，用已有 layerwise probe posterior 选 region，crop+
+              re-prefill（第二次 prefill 在小 crop 上，视觉 token 远少于全图）。无需训练。
+    两者都是"剪枝视觉token让AR更便宜"，ZwerGe 的剪枝信号来自 single-pass 内部 posterior
+    （Grounding Emerges Before Decoding 的核心 claim），FocusUI 来自额外训练的 scorer。
+
+    ─── 公平性叙事（论文用）──────────────────────────────────────────────────
+    p2p_zoom vs native baseline：均单 (x,y) 坐标、均 strict overlap@1、同协议，直接可比。
+    成本：p2p_zoom = 1 次全图 prefill（ZwerGe 共用，无 decode）+ 1 次小 crop prefill +
+          短 AR decode（crop 视觉 token 少）；native = 1 次全图 prefill + 长 AR decode
+          （全视觉 token）。ZwerGe 的 AR 侧更便宜，且全图 prefill 共享。此为公平比较战胜
+    baseline 的着力点。
+
+    ─── 刷榜任务（hope 提交）──────────────────────────────────────────────────
+    submit_p2p_jobs.py --only zoom --zoom_compare：
+      guiowl-1.5-8b (A8 checkpoint-2800) × {ss_pro, osworld_g, ui_vision}
+      × {p2p_zoom (consensus region), zoom_backbone (legacy max region 对照)}
+    输出：.../data/results/p2p_p2p_zoom/guiowl_<bench>/ + .../p2p_zoom_backbone/...
+    目标：p2p_zoom overlap@1 > native baseline overlap@1（SS-Pro 74.83 / OSW-G 80.98 /
+          UI-Vis 43.25），直到超过为止再停。
+    迭代旋钮：P2P_FLAGS="--p2p_region_scorer X --p2p_consensus_dilate Y" +
+              ZOOM_PADDING_CELLS + min_crop_frac（代码内）。
+
+  - [2026-07-28] 【新增分析性 probe 实验交接文档（与刷点 agent 并行）】
+
+    背景：三份审稿意见（4KeN/eKpD/4sok）对 3_analysis.tex 四个 Finding 的分析严谨性
+    提出大量具体质疑（probe capacity、logit-lens confound、random/OOD controls、
+    appendix fusion claim、样本量与置信区间等），用户要求发挥想象力设计新 probe
+    实验，使论文即使方法部分不刷点，也能作为一篇完备的分析性工作独立成立。
+    参考模板：Vision Transformers Need Registers（docs/references/2309.16588/）
+    的"观察→定量刻画→机制探测(线性探针)→假设→因果干预→消融→定性分析"五步范式。
+
+    交接文档：docs/oracle/handoff_probe_analysis_agent.md（新建）
+    内容：
+      §1 论文当前分析章节现状（3_analysis.tex 四个 Finding + 对应代码
+          zwerge/probe/exp3_serialization_lens.py / exp4_counterfactual.py /
+          probe_utils.py / GUI-AIMA/eval/layer_probe.py）
+      §2 三份审稿意见中所有分析类质疑的逐条提炼（4KeN-W1~W5 / eKpD-W2/W3/W6/W7/W8
+          / 4sok-Q1~Q5，均标注原文出处）
+      §3 具体新增实验清单，按优先级分 P0/P1/P2：
+          P0：probe-capacity sweep（线性/共享 probe 对照全秩 CrossAttn）、
+              serialization lens 的 logit-lens confound 控制（非坐标token/随机坐标/
+              tuned-lens 三项对照）、random-label & random-instruction 控制、
+              OOD held-out UI layout 泛化（复用现有 5-bench 逐层数据，零训练成本）
+          P1：无参数原生 attention baseline（复用 GUI-AIMA layer_probe.py Signal A）、
+              bootstrap 置信区间+多seed稳定性、Finding 4 单数据集内受控回归、
+              CrossAttn 消融直接化（final-layer-only/intermediate-only/static-avg）
+          P2：高norm token/attention-sink 现象普查（直接呼应 Registers 论文，
+              与4sok-Q4强关联，可能产出全新 Finding）、逐层表示 CKA 相似度、
+              训练目标(Gaussian KL)与解码几何(BFS-centroid)的失配定量分析
+      §4 Registers 论文范式到 ZwerGe 各实验的具体映射（逐条对应）
+      §5 可直接复用的代码资产清单（probe_utils.py 各函数、inference_base.py
+          decode 工具、checkpoint 路径、评测数据集路径）
+      §6 与刷点 agent 的协作边界（不碰 P2P 代码/4_method.tex p2p 小节/主表数字，
+          appendix fusion claim 那几行不要动）
+      §7 执行优先级建议（先做零成本的 P0-4 OOD 分析，再做 P0-1/P0-2 核心控制实验）
+
+    未开始实际实现，纯交接文档产出；后续由该分析 agent 自行执行并在此追加进展。

@@ -673,6 +673,69 @@ def get_zoom_crop_box(
     return x_min, y_min, x_max, y_max
 
 
+def get_zoom_crop_box_p2p(
+    p_final: torch.Tensor,
+    per_layer_probs: List[torch.Tensor],
+    active_probe_indices: List[int],
+    omega: torch.Tensor,
+    n_width: int,
+    n_height: int,
+    image_w: int,
+    image_h: int,
+    token_cell_px: int,
+    activation_threshold: float = 0.3,
+    padding_cells: int = 3,
+    region_scorer: str = "mass_sqrt_area",
+    use_consensus: bool = True,
+    min_crop_frac: float = 0.15,
+) -> Tuple[int, int, int, int]:
+    """
+    P2P-enhanced zoom crop box.
+
+    Like get_zoom_crop_box but the winning region is chosen by cross-layer
+    posterior consensus (decode_p2p Level 1+2) instead of the single max-score
+    patch, so the backbone's close-up is centred on the region that the *fused,
+    cross-layer-verified* posterior endorses — the same signal the P2P decoder
+    trusts. Falls back to get_zoom_crop_box when P2P finds no region.
+
+    min_crop_frac: floor on the crop's shorter side as a fraction of the image,
+    so a tiny region still gives the backbone enough context to localise.
+    """
+    _, _, _, meta = decode_p2p(
+        p_final=p_final, n_width=n_width, n_height=n_height,
+        activation_threshold=activation_threshold, topk=1,
+        region_scorer=region_scorer,
+        per_layer_probs=per_layer_probs,
+        active_probe_indices=active_probe_indices, omega=omega,
+        use_consensus=use_consensus, use_local_mode=False,
+    )
+    regions = meta.get("regions") or []
+    if not regions:
+        return get_zoom_crop_box(
+            p_final, n_width, n_height, image_w, image_h, token_cell_px,
+            activation_threshold=activation_threshold, padding_cells=padding_cells,
+        )
+    idxs = regions[0]["patch_idxs"]
+    rows = [i // n_width for i in idxs]
+    cols = [i % n_width for i in idxs]
+    min_col, max_col = min(cols), max(cols)
+    min_row, max_row = min(rows), max(rows)
+    x_min = max(0,        (min_col - padding_cells) * token_cell_px)
+    y_min = max(0,        (min_row - padding_cells) * token_cell_px)
+    x_max = min(image_w,  (max_col + 1 + padding_cells) * token_cell_px)
+    y_max = min(image_h,  (max_row + 1 + padding_cells) * token_cell_px)
+    # enforce a minimum crop size so the backbone always has enough context
+    min_w = max(1, int(image_w * min_crop_frac))
+    min_h = max(1, int(image_h * min_crop_frac))
+    if (x_max - x_min) < min_w:
+        cx = (x_min + x_max) // 2
+        x_min = max(0, cx - min_w // 2); x_max = min(image_w, x_min + min_w)
+    if (y_max - y_min) < min_h:
+        cy = (y_min + y_max) // 2
+        y_min = max(0, cy - min_h // 2); y_max = min(image_h, y_min + min_h)
+    return x_min, y_min, x_max, y_max
+
+
 def grid_thw_to_nwh(image_grid_thw: torch.Tensor, merge_size: int = 2) -> Tuple[int, int]:
     """image_grid_thw [T,H,W] → (n_width, n_height)。"""
     if image_grid_thw.dim() == 2:
@@ -1418,12 +1481,21 @@ class RetrofitInference(BaseZwergeInference):
         peak_shift_alpha: float = 0.5,
         temperature: float = 0.5,
         full_image: bool = False,
+        region_selector: str = "max",
+        p2p_region_scorer: str = "mass_sqrt_area",
+        p2p_use_consensus: bool = True,
+        min_crop_frac: float = 0.15,
     ) -> dict:
         """
         Two-stage decode strategy:
           Stage 1 — ZwerGe prefill → patch posteriors → select best region
           Stage 2 — Crop around best region → backbone generate → parse coordinate
                     → remap to original image
+
+        region_selector: 'max' (legacy single-peak region, = GUI-AIMA) or 'p2p'
+          (cross-layer consensus region from decode_p2p Level 1+2). The 'p2p'
+          mode is the P2P-enhanced zoom: the backbone's close-up is centred on
+          the region the fused, cross-layer-verified posterior endorses.
 
         Returns the same schema as predict_layerwise(), plus:
           'zoom_point':    (x_norm, y_norm) refined by backbone (falls back to ZwerGe centroid)
@@ -1450,6 +1522,24 @@ class RetrofitInference(BaseZwergeInference):
             # Coordinate mapping degenerates to identity: (0 + bx*W)/W = bx
             crop_box = (0, 0, W, H)
             crop_img = image
+        elif region_selector == "p2p":
+            # P2P-enhanced zoom: cross-layer consensus picks the region.
+            _head = self.model.layerwise_grounding_head
+            crop_box = get_zoom_crop_box_p2p(
+                p_final=pred["p_final"],
+                per_layer_probs=pred["per_layer_probs"],
+                active_probe_indices=list(_head.active_probe_indices),
+                omega=pred["omega"],
+                n_width=n_w, n_height=n_h,
+                image_w=W, image_h=H,
+                token_cell_px=token_cell_px,
+                activation_threshold=activation_threshold,
+                padding_cells=padding_cells,
+                region_scorer=p2p_region_scorer,
+                use_consensus=p2p_use_consensus,
+                min_crop_frac=min_crop_frac,
+            )
+            crop_img = image.crop(crop_box)
         else:
             crop_box = get_zoom_crop_box(
                 p_final=pred["p_final"],

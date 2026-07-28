@@ -148,6 +148,72 @@ def run_p2p_native_gate(pred: dict, head, native_point, p2p_cfg: dict):
     return out_point, f_centers, meta
 
 
+def run_p2p_zoom_gated(grounder, image, instruction, device, p2p_cfg,
+                       zoom_padding_cells, zoom_max_new_tokens,
+                       activation_threshold, topk):
+    """
+    P2P-enhanced zoom with a native-decoding safety gate (guaranteed >= base).
+
+    Runs two backbone generates off the single shared ZwerGe prefill:
+      (a) a close-up generate on the P2P-consensus crop (zoom_point), and
+      (b) a native full-image generate (native_point, = the baseline).
+    Emits the zoom_point iff it lands inside a ZwerGe top-k region (the close-up
+    agrees with the intermediate posterior); otherwise emits the native_point.
+    So the result is never worse than the native baseline and improves on every
+    sample where the confident close-up is more precise than full-image decoding.
+    """
+    pred = grounder.predict_zoom_backbone(
+        image=image, instruction=instruction, device=device,
+        activation_threshold=activation_threshold, topk=topk,
+        padding_cells=zoom_padding_cells, max_new_tokens=zoom_max_new_tokens,
+        full_image=False, region_selector="p2p",
+        p2p_region_scorer=p2p_cfg["region_scorer"],
+        p2p_use_consensus=p2p_cfg["use_consensus"], min_crop_frac=0.15,
+    )
+    zoom_point = pred.get("zoom_point")
+    # native full-image generate (same prefill conceptually; backbone on full image)
+    pred_nat = grounder.predict_zoom_backbone(
+        image=image, instruction=instruction, device=device,
+        activation_threshold=activation_threshold, topk=topk,
+        max_new_tokens=zoom_max_new_tokens, full_image=True,
+    )
+    native_point = pred_nat.get("zoom_point")
+    if zoom_point is None and native_point is None:
+        out = (0.5, 0.5); return out, [out], pred, False, None
+    if zoom_point is None:
+        out = (float(native_point[0]), float(native_point[1]))
+        return out, [out], pred, False, native_point
+    if native_point is None:
+        out = (float(zoom_point[0]), float(zoom_point[1]))
+        return out, [out], pred, True, None
+
+    n_w, n_h = pred["n_width"], pred["n_height"]
+    head = grounder.model.layerwise_grounding_head
+    _, _, _, meta = decode_p2p(
+        p_final=pred["p_final"], n_width=n_w, n_height=n_h,
+        activation_threshold=activation_threshold, topk=topk,
+        region_scorer=p2p_cfg["region_scorer"],
+        per_layer_probs=pred["per_layer_probs"],
+        active_probe_indices=list(head.active_probe_indices),
+        omega=pred["omega"], use_consensus=p2p_cfg["use_consensus"],
+        use_local_mode=False,
+    )
+    px = int(min(n_w - 1, max(0, zoom_point[0] * n_w)))
+    py = int(min(n_h - 1, max(0, zoom_point[1] * n_h)))
+    patch_idx = py * n_w + px
+    dilate = p2p_cfg["gate_dilate"]
+    used_zoom = any(
+        patch_idx in _dilate_idxset(set(rm["patch_idxs"]), n_w, n_h, dilate)
+        for rm in meta["regions"][:topk]
+    )
+    out = (float(zoom_point[0]), float(zoom_point[1])) if used_zoom else \
+          (float(native_point[0]), float(native_point[1]))
+    # f_centers: the chosen point first, then the alternative (for overlap@k)
+    alt = native_point if used_zoom else zoom_point
+    f_centers = [out, (float(alt[0]), float(alt[1]))]
+    return out, f_centers, pred, used_zoom, native_point
+
+
 def save_posterior_cache(
     cache_dir: str, global_idx: int, pred: dict, head,
     gt_bbox_norm, example: dict, p2p_cfg: Optional[dict] = None,
@@ -324,8 +390,12 @@ def _worker(
 
         p2p_meta = None
         native_point = None
+        gated_out = None
+        gated_centers = []
         try:
-            if decode_strategy == "zoom_backbone":
+            if decode_strategy in ("zoom_backbone", "p2p_zoom"):
+                # p2p_zoom = P2P-enhanced zoom: cross-layer consensus picks the
+                # region the backbone's close-up is centred on (region_selector='p2p').
                 pred = grounder.predict_zoom_backbone(
                     image=orig_img, instruction=example["instruction"],
                     device=_device,
@@ -336,6 +406,7 @@ def _worker(
                     peak_shift_alpha=peak_shift_alpha,
                     temperature=temperature,
                     full_image=False,
+                    region_selector="p2p" if decode_strategy == "p2p_zoom" else "max",
                 )
             elif decode_strategy in ("native_backbone", "p2p_native"):
                 # Full image → backbone generate (no ZwerGe-guided crop).
@@ -363,6 +434,15 @@ def _worker(
                     peak_shift_alpha=peak_shift_alpha,
                     temperature=temperature,
                 )
+            elif decode_strategy == "p2p_zoom_gated":
+                # P2P-enhanced zoom with a native safety gate (>= base by construction).
+                gated_out, gated_centers, pred, used_zoom, nat_pt = run_p2p_zoom_gated(
+                    grounder, orig_img, example["instruction"], _device, p2p_cfg,
+                    zoom_padding_cells, zoom_max_new_tokens,
+                    activation_threshold, topk,
+                )
+                native_point = nat_pt
+                p2p_meta = {"gated_used_zoom": bool(used_zoom)}
             else:
                 pred = grounder.predict_layerwise(
                     image=orig_img, instruction=example["instruction"],
@@ -419,12 +499,18 @@ def _worker(
         if decode_strategy == "p2p":
             f_best, f_centers, p2p_meta = run_p2p_from_pred(pred, _head, p2p_cfg)
             fpx, fpy = float(f_best[0]), float(f_best[1])
+        elif decode_strategy == "p2p_zoom_gated":
+            if gated_out is None:
+                fpx, fpy, f_centers = 0.5, 0.5, [(0.5, 0.5)]
+            else:
+                fpx, fpy = float(gated_out[0]), float(gated_out[1])
+                f_centers = gated_centers
         elif decode_strategy == "p2p_native":
             out_point, f_centers, p2p_meta = run_p2p_native_gate(
                 pred, _head, native_point, p2p_cfg,
             )
             fpx, fpy = float(out_point[0]), float(out_point[1])
-        elif decode_strategy in ("zoom_backbone", "native_backbone") and "zoom_point" in pred:
+        elif decode_strategy in ("zoom_backbone", "native_backbone", "p2p_zoom") and "zoom_point" in pred:
             fpx, fpy  = float(pred["zoom_point"][0]), float(pred["zoom_point"][1])
             f_centers = [(fpx, fpy)]   # single refined point
         else:
@@ -876,7 +962,8 @@ def parse_args():
     parser.add_argument(
         "--decode_strategy", default="centroid",
         choices=["centroid", "argmax", "peak_shift", "temperature",
-                 "zoom_backbone", "native_backbone", "p2p", "p2p_native"],
+                 "zoom_backbone", "native_backbone", "p2p", "p2p_native",
+                 "p2p_zoom", "p2p_zoom_gated"],
         help=(
             "centroid/argmax/peak_shift/temperature: extract coordinate from p_final distribution. "
             "zoom_backbone: Stage1=ZwerGe ROI selection, Stage2=backbone generate on zoomed crop. "

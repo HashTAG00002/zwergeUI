@@ -49,6 +49,12 @@ TEMPLATE = {
     "uivenus":  "scripts/eval/eval_zwerge_qwen3.hope",
 }
 BENCHES = ["ss_pro", "ss_v2"]
+ZOOM_BENCHES = ["ss_pro", "osworld_g", "ui_vision"]
+# Two elastic queues available — distribute jobs across both to avoid blocking.
+QUEUES = [
+    "root.zw05_training_cluster.hadoop-vision.elastic_job",
+    "root.zw05_training_cluster.hadoop-aipnlp.elastic",
+]
 
 
 def _tmp_dir() -> pathlib.Path:
@@ -58,16 +64,19 @@ def _tmp_dir() -> pathlib.Path:
 
 
 def _done_already(out_final, bench):
-    """Skip if the summary JSON exists (job finished) or posteriors are present (running)."""
+    """Skip if a job already created this output dir (finished, running, or cached)."""
+    if not os.path.isdir(out_final):
+        return False
     if os.path.exists(os.path.join(out_final, f"{bench}_layerwise_summary.json")):
         return True
-    pdir = os.path.join(out_final, "details", bench, "posteriors")
-    if os.path.isdir(pdir) and len(glob.glob(os.path.join(pdir, "idx*.pt"))) > 0:
-        return True
-    return False
+    det = os.path.join(out_final, "details", bench)
+    if os.path.isdir(det):
+        return True   # details/ exists → job is running or finished
+    # output dir exists but no details yet (job just started) → still skip to avoid duplicates
+    return True
 
 
-def _make_job(model, bench, decode, cache, logger):
+def _make_job(model, bench, decode, cache, logger, queue=None):
     import glob
     env = {
         "MODEL_TYPE": model,
@@ -84,7 +93,7 @@ def _make_job(model, bench, decode, cache, logger):
     out_hope = _tmp_dir() / f"p2p_{tag}_{model}_{bench}.hope"
     worker_script = ed.generate_hope_file(
         template_path=template, output_path=str(out_hope),
-        env_vars=env, positional_args=bench,
+        env_vars=env, positional_args=bench, queue=queue,
     )
     return out_hope, env, worker_script, out_final, bench
 
@@ -93,23 +102,49 @@ def main():
     import glob
     p = argparse.ArgumentParser(description="Submit ZWERGE-P2P eval/cache hope jobs")
     p.add_argument("--dry_run", action="store_true", help="print generated hope files, do not submit")
-    p.add_argument("--only", choices=["cache", "native", "both"], default="both",
-                   help="cache = centroid+cache_posteriors (all 4 models); native = p2p_native (Qwen3 only)")
+    p.add_argument("--only", choices=["cache", "native", "zoom", "both"], default="both",
+                   help="cache = centroid+cache_posteriors (all 4 models); native = p2p_native (Qwen3 only); "
+                        "zoom = p2p_zoom (guiowl on SS-Pro/OSWorld-G/UI-Vision, beat-base sweep)")
+    p.add_argument("--zoom_compare", action="store_true",
+                   help="with --only zoom, also submit legacy zoom_backbone (max-region) for comparison")
+    p.add_argument("--zoom_gated", action="store_true",
+                   help="with --only zoom, also submit p2p_zoom_gated (native-fallback, guaranteed >= base)")
+    p.add_argument("--zoom_model", default="guiowl", choices=list(CKPTS.keys()),
+                   help="backbone for the zoom sweep (default guiowl = GUI-Owl-1.5-8B)")
     p.add_argument("--skip_existing", action="store_true", default=True,
                    help="skip jobs whose output dir already has results/posteriors (default on)")
     p.add_argument("--no_skip_existing", dest="skip_existing", action="store_false")
+    p.add_argument("--queue", default="auto",
+                   help="queue override: 'auto' (default) alternates across the two elastic queues, "
+                        "or a full queue name, or 'none' to use the template default")
     args = p.parse_args()
 
     logger = ed.setup_logger()
+
+    def _q(i):
+        if args.queue == "none":
+            return None
+        if args.queue == "auto":
+            return QUEUES[i % len(QUEUES)]
+        return args.queue
+
     jobs = []
+    _qi = 0
     if args.only in ("cache", "both"):
         for m in ["guiowl7b", "uitars", "guiowl", "uivenus"]:
             for b in BENCHES:
-                jobs.append(_make_job(m, b, "centroid", cache=True, logger=logger))
+                jobs.append(_make_job(m, b, "centroid", cache=True, logger=logger, queue=_q(_qi))); _qi += 1
     if args.only in ("native", "both"):
         for m in ["guiowl", "uivenus"]:           # native gate only for Qwen3
             for b in BENCHES:
-                jobs.append(_make_job(m, b, "p2p_native", cache=True, logger=logger))
+                jobs.append(_make_job(m, b, "p2p_native", cache=True, logger=logger, queue=_q(_qi))); _qi += 1
+    if args.only in ("zoom", "both"):
+        for b in ZOOM_BENCHES:
+            jobs.append(_make_job(args.zoom_model, b, "p2p_zoom", cache=False, logger=logger, queue=_q(_qi))); _qi += 1
+            if args.zoom_compare:
+                jobs.append(_make_job(args.zoom_model, b, "zoom_backbone", cache=False, logger=logger, queue=_q(_qi))); _qi += 1
+            if args.zoom_gated:
+                jobs.append(_make_job(args.zoom_model, b, "p2p_zoom_gated", cache=False, logger=logger, queue=_q(_qi))); _qi += 1
 
     # Submit jobs that aren't already done/running.
     to_submit = []
