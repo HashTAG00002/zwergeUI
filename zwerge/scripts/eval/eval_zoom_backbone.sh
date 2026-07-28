@@ -62,16 +62,16 @@ MODEL_TYPE="${MODEL_TYPE:-uitars}"
 if [[ "${MODEL_TYPE}" == "guiowl" ]]; then
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl_grounding50k_A3-gaussian_cos_meta_20260522_034634/checkpoint-1600}"
     CONDA_ENV="qwen3"
-    MAX_PIXELS=16777216
+    MAX_PIXELS="${MAX_PIXELS:-16777216}"
 elif [[ "${MODEL_TYPE}" == "uivenus" ]]; then
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_grounding50k_A3-gaussian_cos_meta_20260522_031059/checkpoint-2193}"
     CONDA_ENV="qwen3"
-    MAX_PIXELS=16777216
+    MAX_PIXELS="${MAX_PIXELS:-16777216}"
 elif [[ "${MODEL_TYPE}" == "guiowl7b" ]]; then
     # GUI-Owl-7B (Qwen2.5-VL, 与 uitars 相同架构): qwen25 env, patch_size=14
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/guiowl7b_A7_exp001/checkpoint-2800}"
     CONDA_ENV="qwen25"
-    MAX_PIXELS=12845056
+    MAX_PIXELS="${MAX_PIXELS:-12845056}"
 elif [[ "${MODEL_TYPE}" == "uitars" ]]; then
     CKPT="${CKPT:-/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uitars7b_grounding50k_A4-gaussian_cos_meta_L18-25_20260520_042031/checkpoint-2193}"
     CONDA_ENV="qwen25"

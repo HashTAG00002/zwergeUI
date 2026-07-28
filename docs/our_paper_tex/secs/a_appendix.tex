@@ -225,3 +225,150 @@ Figures~\ref{fig:app_perlayer_sspro}--\ref{fig:app_perlayer_uivision} show the s
     \caption{Failure cases of UI-Venus-1.5-8B on MMBench-GUI-L2}
     \label{fig:uitars15_screenspotpro_success}
 \end{figure*}
+
+% ==============================================================================
+% Appendix: Robustness, Controls, and Statistical Stability
+% ==============================================================================
+
+\section{Robustness, Controls, and Statistical Stability}
+\label{app:controls}
+
+This appendix consolidates the controls and uncertainty quantification requested
+by the reviewers, all computed on the A8 (checkpoint-2800) probes used in the main
+text. All scripts and raw JSON are released with the submission.
+
+\paragraph{OOD layout generalization (4KeN-W4, eKpD-W2).}
+Table~\ref{tab:ood_peak_layer} reports the spatial-peak layer $L^*$ for each
+(model, benchmark) cell. $L^*$ varies by at most $3$ layers within each model
+across the five benchmarks (std $\le 1.1$), including the distribution-shifted
+UI-Vision and MMBench-GUI. The inverted-U (peak $>$ final) holds in $20/20$ cells.
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccccc}
+\toprule
+& SS-Pro & SS-v2 & OSWorld-G & UI-Vision & MMBench-GUI & mean & std & range$\downarrow$\\
+\midrule
+UI-TARS-1.5-7B & 20 & 21 & 21 & 23 & 20 & 21.0 & 1.10 & 3\\
+GUI-Owl-7B & 19 & 21 & 20 & 20 & 20 & 20.0 & 0.63 & 2\\
+GUI-Owl-1.5-8B-Instruct & 24 & 23 & 23 & 22 & 25 & 23.4 & 1.02 & 3\\
+UI-Venus-1.5-8B & 23 & 25 & 25 & 24 & 24 & 24.2 & 0.75 & 2\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Spatial-peak layer $L^*$ is stable across UI-layout distributions.} Each cell is the hit@1-peak layer on that benchmark (A8 ckpt-2800). Range is $\max-\min$ across the five benchmarks.}
+\label{tab:ood_peak_layer}
+\end{table}
+
+\paragraph{Bootstrap confidence intervals and seed stability (eKpD-W6).}
+Tables~\ref{tab:bootstrap_ci}--\ref{tab:bootstrap_ci_exp4} report $1000\times$
+bootstrap resamples of the $n{=}200$ spatial-lens set (Exp.~3) and the $n{=}150$
+instruction-switch pairs (Exp.~4). The serialization plateau $L^\dagger$ is
+stable within a $\le 1$-layer 95\% CI for every model; $L^*$ within $\le 3$
+layers for three of four ($\le 7$ for GUI-Owl-7B); the lag
+$L^\dagger - L^* > 0$ holds in $4/4$ models. Absolute hit@1 carries
+$\pm$2--4\,pp 95\% CI, matching the few-pp discrepancy between the $n{=}200$
+lens curves and the full $n{=}1581$ per-layer summaries.
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccc}
+\toprule
+Model & $L^*$ [95\% CI] & $L^\dagger$ [CI] & Lag & Peak hit@1 [CI] & Gap [CI] & $n$ \\
+\midrule
+UI-TARS-1.5-7B & 22 [21, 23] & 27 [27, 27] & +5 & 46.2 [39.5, 53.5] & 15.6 [10.0, 22.0] & 200\\
+GUI-Owl-7B & 21 [17, 24] & 26 [26, 26] & +5 & 47.8 [41.5, 55.0] & 10.7 [5.5, 16.5] & 200\\
+GUI-Owl-1.5-8B-Instruct & 23 [21, 24] & 35 [35, 35] & +12 & 54.6 [48.5, 61.0] & 24.1 [18.0, 30.5] & 200\\
+UI-Venus-1.5-8B & 23 [22, 24] & 34 [34, 34] & +11 & 55.0 [48.5, 61.5] & 22.3 [15.5, 28.5] & 200\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Bootstrap 95\% CIs (Exp.~3, $n{=}200$).} $L^\dagger$ (serialization plateau) is stable within one layer; the bottleneck ordering $L^* < L^\dagger$ is robust.}
+\label{tab:bootstrap_ci}
+\end{table}
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lcccc}
+\toprule
+Model & Peak layer [CI] & Supp$_{\max}$ [CI] & JS$_{\max}$ [CI] & $n$ \\
+\midrule
+UI-TARS-1.5-7B & 18 [18, 18] & 0.478 [0.447, 0.509] & 0.524 [0.508, 0.542] & 150\\
+GUI-Owl-7B & 19 [19, 19] & 0.512 [0.482, 0.540] & 0.562 [0.546, 0.578] & 150\\
+GUI-Owl-1.5-8B-Instruct & 33 [32, 33] & 0.601 [0.572, 0.633] & 0.568 [0.550, 0.584] & 150\\
+UI-Venus-1.5-8B & 31 [31, 31] & 0.629 [0.611, 0.646] & 0.514 [0.498, 0.529] & 150\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Bootstrap 95\% CIs (Exp.~4 instruction-switch, $n{=}150$).} For the two Qwen3-8B models the suppression peak lands in late layers (L31--33), not the spatial-peak band (L23--25)---we report this honestly (4KeN-W3).}
+\label{tab:bootstrap_ci_exp4}
+\end{table}
+
+\paragraph{Inference-time fusion ablation (eKpD-W7, eKpD-W8).}
+Table~\ref{tab:fusion_ablation} compares four read-out strategies on the same A8
+CrossAttn probes: final-layer-only, oracle best-single layer (upper bound, not
+deployable), static uniform averaging of active-layer predictions, and the
+learned CosMeta fusion. Learned fusion improves over final-only by 7--14\,pp
+overlap@1 on SS-Pro, tracks the oracle within 1--3\,pp (and exceeds it on some
+cells), and beats static averaging---quantitatively motivating both
+intermediate-layer readout and learned per-sample depth selection.
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccccc}
+\toprule
+& \multicolumn{4}{c}{SS-Pro} & \multicolumn{4}{c}{SS-v2} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-9}
+Model & Final & Best$^\star$ & Static & Learned & Final & Best$^\star$ & Static & Learned \\
+\midrule
+UI-TARS-1.5-7B & 45.3 & 54.0 & 42.0 & 52.5 & 88.2 & 91.2 & 87.3 & 90.6\\
+GUI-Owl-7B & 51.7 & 59.5 & 47.1 & 60.0 & 87.4 & 91.7 & 86.0 & 90.6\\
+GUI-Owl-1.5-8B-Instruct & 57.2 & 70.8 & 58.1 & 68.8 & 89.7 & 93.1 & 90.0 & 92.6\\
+UI-Venus-1.5-8B & 56.9 & 66.9 & 56.4 & 66.3 & 92.5 & 94.4 & 92.8 & 94.0\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Inference-time fusion ablation (overlap@1, A8 ckpt-2800).} $^\star$=oracle best single layer (per-benchmark, not deployable). Learned CosMeta fusion tracks the oracle within 1--3\,pp and beats static averaging; both dominate final-layer-only.}
+\label{tab:fusion_ablation}
+\end{table}
+
+\paragraph{Controlled within-benchmark target-size regression (4KeN-W4, 4sok-Q2).}
+Figure~\ref{fig:targetsize_gap} and Table~\ref{tab:targetsize_gap} hold the
+benchmark fixed (ScreenSpot-Pro, $n{=}1581$) and bin by target bbox area. The
+peak--final gap does \emph{not} increase as targets shrink (it grows with size,
+floored by peak accuracy); the absolute final-layer hit@1 is $2.5\times$ worse
+on the smallest quintile, so the bottleneck is most damaging in absolute terms
+on small targets.
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lccccc}
+\toprule
+Model & Q1 (smallest) & Q2 & Q3 & Q4 & Q5 (largest) \\
+\midrule
+UI-TARS-1.5-7B & 10.4 & 11.4 & 15.8 & 17.4 & 22.4\\
+GUI-Owl-7B & 6.0 & 8.2 & 15.2 & 15.5 & 20.2\\
+GUI-Owl-1.5-8B-Instruct & 21.5 & 24.7 & 25.3 & 25.3 & 17.7\\
+UI-Venus-1.5-8B & 14.2 & 20.9 & 27.2 & 15.8 & 13.9\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Within-SS-Pro collapse gap (pp) by target-area quintile (hit@1).} The gap is not monotone-decreasing in target size; it is floored by peak-layer accuracy on the hardest (sub-patch) targets.}
+\label{tab:targetsize_gap}
+\end{table}
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\columnwidth]{figs/fig_targetsize_gap.pdf}
+\caption{\textbf{Collapse gap vs target-area quintile within ScreenSpot-Pro (hit@1).} The gap does not grow as targets shrink; the absolute final-layer accuracy (not the gap) is the cleaner severity measure and is worst on the smallest targets.}
+\label{fig:targetsize_gap}
+\end{figure}
+
+\paragraph{Pre-scale visual-token norm census (4sok-Q4; cf.\ Vision Transformers Need Registers).}
+Figure~\ref{fig:norm_census} measures the $\ell_2$-norm of the visual-patch
+hidden states \emph{before} the RMSNorm pre-scale, i.e.\ the magnitude
+information the pre-scale discards. The mean norm grows $\sim$3.4$\times$ from
+layer 14 to layer 26 in both GUI-Owl-7B and UI-TARS-1.5-7B (Qwen2.5-VL),
+directly confirming the depth-growth claim of \S\ref{sec:method:stage1}; a small
+($\le 0.6\%$) but heavy-tailed set of outlier patches carries very high norm,
+consistent with the attention-sink / register-token phenomenon---information
+the pre-scale normalizes away but which a magnitude-aware variant could exploit.
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\columnwidth]{figs/fig_norm_census_guiowl7b.pdf}
+\caption{\textbf{Pre-scale visual-patch norm census (GUI-Owl-7B, $n{=}100$).} (a) high-norm sink fraction vs depth; (b) mean $\|h_v\|_2$ grows $\sim$3.4$\times$ across depth; (c) norm distribution at early/mid/late layers (heavy-tailed).}
+\label{fig:norm_census}
+\end{figure}

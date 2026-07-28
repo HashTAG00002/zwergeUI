@@ -1485,6 +1485,7 @@ class RetrofitInference(BaseZwergeInference):
         p2p_region_scorer: str = "mass_sqrt_area",
         p2p_use_consensus: bool = True,
         min_crop_frac: float = 0.15,
+        zoom_upscale_target: int = 0,
     ) -> dict:
         """
         Two-stage decode strategy:
@@ -1553,6 +1554,19 @@ class RetrofitInference(BaseZwergeInference):
         x_min, y_min, x_max, y_max = crop_box
         crop_w = max(1, x_max - x_min)
         crop_h = max(1, y_max - y_min)
+
+        # ── Optional upscale: resize the crop so the backbone sees the target
+        # at higher effective resolution (finer patch grid on the target). This
+        # is the "zoom-in then enlarge" refinement: the crop is upscaled toward
+        # `zoom_upscale_target` pixels (keeping aspect ratio), so a sub-patch
+        # target in the original image spans many patches in the upscaled crop.
+        if zoom_upscale_target and not full_image:
+            cur_px = crop_w * crop_h
+            if cur_px > 0 and cur_px < zoom_upscale_target:
+                scale = (zoom_upscale_target / cur_px) ** 0.5
+                new_w = max(1, int(crop_w * scale))
+                new_h = max(1, int(crop_h * scale))
+                crop_img = crop_img.resize((new_w, new_h), Image.LANCZOS)
 
         # ── Stage 2: backbone generate ────────────────────────────────────────
         gen_inputs = self._build_generation_inputs(crop_img, instruction)

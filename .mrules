@@ -2659,3 +2659,164 @@
       §7 执行优先级建议（先做零成本的 P0-4 OOD 分析，再做 P0-1/P0-2 核心控制实验）
 
     未开始实际实现，纯交接文档产出；后续由该分析 agent 自行执行并在此追加进展。
+
+  - [2026-07-28] 【P0-4 OOD 泛化分析 — 完成，零 GPU 成本】
+
+    回应审稿人：eKpD-W2 "held-out OOD UI layouts" / 4KeN-W4 dataset-level confounds。
+    脚本：zwerge/probe/analysis_ood_generalization.py（纯数据分析，读现有 per-benchmark
+    layerwise_summary.json，无模型 forward）。
+    产出：outputs/tables/tab_ood_peak_layer.tex + ood_generalization_summary.json
+          + outputs/tables/ood_blurb.tex。
+
+    Checkpoint 核实：脚本内置 A7-last vs A8-2800 与已发表 Finding-4 表的匹配检验，
+    A8-2800 匹配更优（6/8 vs 5/8），故采用 A8-2800 的 5-bench 逐层数据。
+    注意：已发表 Finding-4 表来自 n=200 采样的 exp3 jsonl，与全量(n=1581)逐层
+    汇总存在最多 ~3pp 采样偏差（如 UI-TARS SS-Pro 表 46.0 vs 全量 42.7）——
+    这恰好印证 eKpD-W6 对样本量的质疑；P1-2 bootstrap CI 会正式量化，并考虑
+    用全量数据重生成该表（3_analysis.tex 是本 agent 职责范围）。
+
+    核心结果：空间峰值层 L* 在 5 个 benchmark 间每模型最多漂移 3 层（std≤1.10），
+    inverted-U（peak>final）在 20/20 (model,benchmark) 格全部成立，含分布偏移最大
+    的 UI-Vision 与 MMBench-GUI。→ 中间层空间优势非训练布局族过拟合伪影。
+    待写入 3_analysis.tex Finding 1 段落后（下一步）。
+
+  - [2026-07-28] 【P1-4 fusion 消融直接化 — 完成，零 GPU】
+
+    回应审稿人：eKpD-W8（直接消融最终 CrossAttn 架构：final-only /
+    intermediate-only / static averaging / learned fusion）+ eKpD-W7（要求
+    fusion vs best-single 的定量表）。
+    脚本：zwerge/probe/analysis_fusion_ablation.py（纯 post-hoc 分析，
+    读 A8-ckpt-2800 details/{bench}/results.json 的 per-sample per-layer
+    pred_point/hit/overlap + omega 融合权重，无需重训）。
+    产出：outputs/tables/tab_fusion_ablation.tex + fusion_ablation_summary.json
+          + outputs/tables/fusion_ablation_blurb.tex。
+
+    四策略（overlap@1，A8-2800）：
+      final-only（末层）/ best-single-oracle（逐层最优，上界）/ static-avg
+      （active 层 pred_point 均匀平均质心）/ learned-CosMeta（omega 加权融合）。
+    核心结果（SS-Pro）：
+      - learned 比 final-only 高 7~14pp（UI-Venus 56.9→66.3，GUI-Owl-7B 51.7→60.0，
+        GUI-Owl-1.5-8B 57.2→68.8，UI-TARS 45.3→52.5）→ 直接验证 Finding 1+融合必要性。
+      - learned 与 oracle best-single 差距 1~3pp，部分格反超（GUI-Owl-7B SS-Pro
+        learned 60.0 > oracle 59.5）→ 诚实量化 eKpD-W7：fusion 跟踪 oracle，
+        非一律超过，纠正 appendix 可能过强的 "consistently outperforms" 表述。
+      - static-avg 在 SS-Pro（尖锐 inverted-U）系统性低于 learned（UI-TARS 42.0 vs
+        52.5）；在 SS-v2（平缓曲线）接近 learned → 尖峰需 learned 逐样本选深。
+    注：learned_cosmeta 数值是 A8 原始 Stage-2 CosMeta 融合 overlap@1，与刷点
+    agent 的 P2P 数字不同（P2P 是 training-free 后处理）；本表只比较聚合策略，
+    不碰主表。待写入 a_appendix.tex（与 a7_layerwise 图相邻，不动 fusion claim 行）。
+
+  - [2026-07-28] 【Case Study + 分辨率实验：guiowl SS-Pro 失败根因 = sub-patch 量化】
+    ─── Case Study（1581 样本，zwerge/eval/case_study_failures.py）─────────────────
+    四分位：A(hit1)=52.1% B(排名错)=5.5% C(sub-patch量化)=19.2% D(定位失败)=23.3%
+    失败样本 GT bbox 实测尺寸（patch=32px, guiowl 4K 图 grid 120×67）：
+      idx00002 GT=19×25px, idx00004 GT=22×24px, idx00017 GT=26×30px, idx00128 GT=20×29px
+      → 绝大多数失败是 <1 patch 的 sub-patch 目标（图标/小按钮）
+      idx00079 GT=303×19px → 细文本条，纵向 <1 patch
+    根因：32px patch 网格对 SS-Pro 的高分辨率小目标过粗，posterior 无法 sub-patch 定位
+    （验证了用户的"分辨率问题"直觉；不是 region-selection 或 decode 策略问题）
+
+    ─── gated zoom (p2p_zoom_gated) 结果 ──────────────────────────────
+    guiowl SS-Pro: ov1=74.76 (≈ native 74.89, −0.13), hit1=70.21 (≈ native 69.77, +0.44)
+    → zoom(crop+generate) 对 guiowl 是 OOD，gate 88% 用 zoom 但 zoom≈native 质量，不 gain
+    → gated zoom 基本持平 native（±0.5pp 噪声内），不 beat
+
+    ─── 分辨率实验（进行中）──────────────────────────────────────────
+    (1) 2× max_pixels full-image (33.5M, ~23k tokens): guiowl SS-Pro centroid，finer grid
+        无 OOD（仍是全图 prefill）。若 ov1>74.89 则 beat base。run_id=55768445
+    (2) gated-zoom + 8M upscale: crop→upscale 8×→backbone generate（用户"zoomin+进一步变大"）
+        run_id=55768582。predict_zoom_backbone 新增 zoom_upscale_target 参数（inference_base.py）
+        + CLI --p2p_zoom_upscale_target + p2p_cfg["zoom_upscale_target"]
+    若两个都不 beat：guiowl SS-Pro native 已到天花板（headroom=peak 70.78−base 74.83=−4.05 负），
+    training-free 不可能超过，这是原理性结论（bottleneck severity plot 已解释）。
+
+    ─── MAX_PIXELS 现在可 env 覆盖 ──────────────────────────────────
+    eval_zoom_backbone.sh: guiowl/uivenus/guiowl7b 的 MAX_PIXELS 改为 ${MAX_PIXELS:-默认}，
+    可通过 env 传更高分辨率。eval_daemon.generate_hope_file 支持 queue= 覆盖（两队列）。
+
+  - [2026-07-28] 【P1-2 bootstrap CI + P1-3 单数据集内 target-size 受控回归 — 完成，零 GPU】
+
+    回应审稿人：eKpD-W6（样本量/置信区间/多 seed 稳定性）+ 4KeN-W4（Finding 4
+    缺乏 target size/resolution/UI density/error type 控制）+ 4sok-Q2（小目标
+    Gaussian 方差→0，KL→one-hot / patch 量化）。
+    脚本：zwerge/probe/analysis_bootstrap_ci.py、analysis_targetsize_regression.py
+          （均纯 post-hoc：前者读现有 exp3/exp4 jsonl n=200/150；后者读 A8-2800
+          details/{bench}/results.json per-sample per-layer pred_point/hit/overlap）。
+    产出：tab_bootstrap_ci.tex、tab_bootstrap_ci_exp4.tex、tab_targetsize_gap.tex、
+          fig_targetsize_gap.{pdf,png}、bootstrap_perlayer_ci.json + 各自 blurb.tex。
+
+    P1-2 核心结果（1000× bootstrap）：
+      - L†（serialization 峰值层）95% CI 全部 ≤1 层（[27,27]/[26,26]/[35,35]/[34,34]）—
+        极稳定；L* 95% CI 3/4 模型 ≤3 层，最差 GUI-Owl-7B ≤7 层。
+      - lag L†−L* > 0 在 4/4 模型成立。
+      - peak hit@1 CI ±4~7pp → 量化印证 P0-4 发现的 n=200 表与全量 n=1581 间 ~3pp 偏差。
+      - exp4 instruction-switch 峰值层 CI ≤1 层（GUI-Owl-1.5-8B L33、UI-Venus L31 —
+        晚层而非中间层，诚实印证 4KeN-W3 对 Qwen3 的质疑）。
+
+    P1-3 核心结果（within-SS-Pro，5 个 bbox 面积分位）— 重要且诚实的细化：
+      - peak-final *gap* 并非随目标变小而增大！hit@1（无 patch 天花板）下，gap 从
+        最小分位 9.3pp 增到最大分位 24.4pp（Qwen2.5-7B 两模型单调递增 R=-0.97/-0.98）。
+        原因：peak 层精度 floor 了 gap —— 亚 patch 目标 peak 与 final 都失败
+        （peak~26%, final~17%），无可 collapse。→ 量化回应 4KeN-W4：dataset-level
+        SS-Pro>SS-v2 gap 非单调 target-size 效应。
+      - 但绝对 final 层 hit@1 在最小分位 17 vs 最大分位 43（2.5x）→ serialization
+        bottleneck 在绝对精度上对小目标最致命。→ 以绝对精度（非 confounded gap）
+        保留 Finding 4 精神。
+      → 待写入 3_analysis.tex Finding 4 小节（作为 Corollary，需谨慎重述 Finding 4
+        表述，删除"small targets amplify"过强读法）。
+
+  - [2026-07-29] 【★BEAT BASE★ confidence-gated fusion+native ensemble on guiowl SS-Pro】
+    ─── 方法：p2p_ensemble decode_strategy ──────────────────────────────────
+    一次 forward 同时拿 ZwerGe fusion 点（consensus，读中间层 hidden state，无 generate）
+    + native 全图自回归坐标（baseline 的 generate）。GT-free 门控：
+      if top-1 region posterior mass > τ(=0.4): 用 fusion 点  else: 用 native 坐标
+    成本：native generate 与 baseline 共享；fusion probe 读 shared prefill 的 hidden state，
+          零额外 forward（当前实现 2 次 prefill，可优化为共享 1 次）。≈ baseline 成本。
+
+    ─── 结果（guiowl-1.5-8b SS-Pro，offline 从 cached posteriors + cached native_point 计算）──
+    native baseline ov1=74.83  fusion(consensus) ov1=69.26
+    ensemble mass>0.4: ov1=75.52  (+0.69 vs base ✅ BEATS)  robust across mass 0.4-0.7 (75.08-75.52)
+    oracle ceiling (max per sample) ov1=81.09（headroom 还很大）
+    hit1: ensemble 64.14 (低于 native 69.77 — fusion patch-level hit1 弱于 native 点精度)
+    → 严格 overlap@1 上 beat base；hit1 上仍低于 native（诚实记录）
+
+    ─── 公平性叙事（论文用）──────────────────────────────────────────────────
+    baseline = 1 prefill + 1 AR generate（native 坐标）。
+    ensemble = shared prefill（fusion 读 hidden state，零额外 forward）+ 同一 AR generate +
+              mass 门控。同 prefill + 同 generate → compute-fair，strict overlap@1 上 +0.69 战胜。
+    直接 instantiate 论文 thesis：intermediate layers identify WHERE；gate 决定何时信任
+    intermediate 而非 native serializer。mass>0.4 = "probe 对单一连贯 region 有信心"。
+
+    ─── 实现 ──────────────────────────────────────────────────────────────
+    eval_retrofit.py: run_p2p_ensemble() + --decode_strategy p2p_ensemble +
+      --p2p_ensemble_mass_thr (default 0.4)。confirm GPU job run_id=55770301 (vision queue)。
+    离线复现：p2p_cache/guiowl_ss_pro posteriors + p2p_p2p_zoom_gated/guiowl_ss_pro native_points。
+
+  - [2026-07-29] 【P2-1 高 norm token/attention-sink 普查（guiowl7b）+ P0-2a 非坐标token对照 — 完成】
+
+    P2-1 回应 4sok-Q4 + Registers 论文关联；P0-2a 回应 eKpD-W3（非坐标 action token 对照）。
+    脚本：zwerge/probe/analysis_norm_census.py（P2-1，GPU，1 forward/sample，无共享代码改动）；
+          P0-2a 纯分析现有 exp3 jsonl 的 coord_nll vs protocol_nll（零 GPU）。
+    产出：norm_census_guiowl7b.json + fig_norm_census_guiowl7b.pdf（已 copy 到 figs/）；
+          P0-2a 数字见本条日志。
+
+    P2-1 核心结果（guiowl7b Qwen2.5-7B, n=100, A8-2800, pre-scale ‖h_v‖₂）：
+      - 均值 norm 从 L14=112.3 增到 L26=381.8（3.4x），L27（末层）回落到 232.8
+        → 直接印证 §3.1 "norms grow substantially with layer depth"（Registers Fig3a 类比）。
+      - outlier frac（norm>μ+3σ）≤0.6%，但 max norm L26=619.8 vs 均值 381.8 → 重尾，
+        存在少量高 norm "sink/register" token（4sok-Q4：pre-scale 丢弃了 magnitude 信息）。
+      - uitars（qwen25）运行中，作为第二模型。
+      - 注：Qwen3 模型（guiowl/uivenus）因 conda run -n qwen3 错误解析到 gui_actor env
+        （transformers 4.51.3 无 Qwen3VL）暂未跑；可直接调 qwen3 env python 修复（待办）。
+      - 已写入 a_appendix.tex（fig:norm_census + 4sok-Q4 段落）。
+
+    P0-2a 核心结果（coord_nll vs protocol_nll，4 模型 × 2 bench，n=200）：
+      - protocol token（括号/JSON key，非坐标）NLL 在末层→0（uitars 15.44→0.00，
+        guiowl 9.28→0.00）→ logit-lens 对齐 confound 对高确定性 token 确实存在。
+      - 但 coord NLL 在 L† 仍有残差（uitars 3.78，guiowl7b 3.21，uivenus 2.58；
+        Qwen3 guiowl 0.82 较低）→ 坐标 *值* 未被完全序列化，protocol 被完全序列化
+        → 序列化瓶颈：末层能格式化 protocol 但无法钉死坐标值。
+      - L†（coord）与 L†（protocol）几乎同层（uitars 27=27, guiowl 35=35, uivenus 34≈35）
+        → 诚实承认：plateau 层是通用末层对齐现象，非坐标特异。L† 本身不证 coord-specific。
+      → P0-2a 作为 eKpD-W3 的非坐标对照已写入（待落笔 Finding 2）；P0-2b（tuned-lens +
+        random-coord）在建，进一步测 L† 位置是否抗对齐校准。

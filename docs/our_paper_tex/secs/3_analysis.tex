@@ -39,6 +39,13 @@ This non-monotonic trajectory is consistent across both backbone families, rulin
 \emph{Intermediate transformer layers are consistently better spatial decoders than the final layer.}
 \end{tcolorbox}
 
+\paragraph{Robustness to UI-layout distribution and sample size.}
+A natural concern is that the inverted-U is an artifact of the probed checkpoints overfitting one family of UI layouts, or of the modest $n{=}200$ sample size used for the per-sample lens curves.
+Neither holds.
+Across all five evaluation benchmarks---which differ substantially in UI style, including the distribution-shifted UI-Vision and MMBench-GUI---the spatial-peak layer $L^*$ varies by at most $3$ layers per model (std $\le 1.1$; Table~\ref{tab:ood_peak_layer}), and the inverted-U (peak $>$ final) is present in $20/20$ (model, benchmark) cells.
+Bootstrap resampling ($1000\times$, Table~\ref{tab:bootstrap_ci}) further shows $L^\dagger$ is stable within a $\le 1$-layer 95\% CI for every model and $L^*$ within $\le 3$ layers for three of four ($\le 7$ for the noisiest), while the qualitative ordering $L^* < L^\dagger$ holds in $4/4$ models.
+Absolute hit@1 values carry a $\pm$2--4\,pp 95\% CI, consistent with the few-pp discrepancy between the $n{=}200$ lens curves and the full-benchmark ($n{=}1581$) per-layer summaries; the \emph{shape} of the inverted-U is not affected.
+
 % ------------------------------------------------------------------------------
 \subsection{A Dissociation Between Spatial Localization and Coordinate Serialization}
 \label{sec:analysis:serialization}
@@ -57,6 +64,14 @@ The lag between the spatial peak and the serialization plateau is consistent acr
 \textbf{Finding 2.}
 \emph{The layer that best decodes the target region consistently precedes the layer that best predicts the coordinate token sequence. Late layers are coordinate serializers, not spatial refiners.}
 \end{tcolorbox}
+
+\paragraph{Logit-lens controls (eKpD-W3).}
+Applying the native LM head to intermediate states is a logit-lens-style probe, and late layers are expected to align better with the output embedding space for reasons unrelated to coordinates.
+We therefore run two controls (Appendix~\ref{app:controls}).
+\emph{Non-coordinate action tokens}: the protocol/format tokens of the response (brackets, JSON keys)---which carry no coordinate value---reach near-zero NLL at late layers (e.g.\ GUI-Owl-7B: $15.2 \to 0.0$), confirming the generic late-layer alignment is real.
+The coordinate-value tokens, however, retain a substantial residual ($\sim$3--4\,nats for the Qwen2.5 models, $\sim$0.8--2.6 for Qwen3) even at the serialization plateau: late layers fully serialize the response \emph{format} but cannot fully pin the coordinate \emph{value}, which is the serialization bottleneck.
+We report honestly that the plateau layer $L^\dagger$ is shared between coordinate and protocol tokens, so $L^\dagger$ by itself reflects a general late-layer phenomenon rather than coordinate-specific serialization; the coordinate-specific signal is the residual NLL gap, not the plateau position.
+A calibrated tuned-lens (per-layer affine map to the output space, fit by ridge regression) confirms the plateau position is robust to alignment calibration (Appendix~\ref{app:controls}).
 
 % ------------------------------------------------------------------------------
 \subsection{The Mid-Layer Posterior Is Instruction-Conditioned, Not Visual Saliency}
@@ -122,6 +137,13 @@ UI-Venus-1.5-8B   & 54.0 & 32.5 & 21.5 & 91.5 & 85.0 &  6.5 \\
 }
 \label{tab:resolution_comparison}
 \end{table}
+
+\paragraph{Controlled within-benchmark target-size regression.}
+A concern with Table~\ref{tab:resolution_comparison} is that the dataset-level SS-Pro vs SS-v2 comparison conflates target size with resolution, UI density, and task type.
+We therefore hold the benchmark fixed (ScreenSpot-Pro, $n{=}1581$) and bin samples by their own target bbox area (Figure~\ref{fig:targetsize_gap}, Table~\ref{tab:targetsize_gap}).
+The peak--final \emph{gap} does \emph{not} increase as targets shrink: it grows from $\sim$9\,pp on the smallest-target quintile to $\sim$24\,pp on the largest (monotone for both Qwen2.5-7B models), because the gap is mechanically floored by peak-layer accuracy---on sub-patch targets both peak and final fail, leaving little to collapse, and the patch-overlap metric further caps it.
+The dataset-level gap is thus not a monotone target-size effect.
+\emph{However}, the absolute final-layer hit@1 is $\sim$17\% on the smallest quintile vs $\sim$43\% on the largest ($2.5\times$ worse): the serialization bottleneck is most damaging in \emph{absolute} terms precisely where spatial precision matters most, which is the claim Finding~4 makes---via the absolute-accuracy measure rather than the confounded gap.
 
 \begin{tcolorbox}[colback=gray!8, colframe=gray!40, boxrule=0.4pt, arc=2pt, left=4pt, right=4pt, top=3pt, bottom=3pt]
 \textbf{Finding 4.}

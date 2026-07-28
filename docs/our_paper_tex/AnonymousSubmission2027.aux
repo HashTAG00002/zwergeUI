@@ -21,45 +21,49 @@
 \newlabel{sec:analysis:layerwise}{{}{2}}
 \newlabel{sec:analysis:serialization}{{}{2}}
 \newlabel{sec:analysis:counterfactual}{{}{2}}
-\newlabel{sec:analysis:resolution}{{}{2}}
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
 \newlabel{fig:serialization_lens}{{1}{3}}
 \newlabel{fig:counterfactual}{{2}{3}}
+\newlabel{sec:analysis:resolution}{{}{3}}
 \newlabel{tab:resolution_comparison}{{1}{3}}
-\newlabel{sec:method}{{}{3}}
-\newlabel{fig:zwerge_pipeline}{{3}{4}}
+\newlabel{sec:method}{{}{4}}
 \newlabel{sec:method:rationale}{{}{4}}
 \newlabel{sec:method:stage1}{{}{4}}
-\newlabel{eq:probe}{{2}{5}}
-\newlabel{eq:gaussian}{{3}{5}}
-\newlabel{eq:loss_s1}{{4}{5}}
+\newlabel{eq:probe}{{2}{4}}
+\newlabel{eq:gaussian}{{3}{4}}
+\newlabel{eq:loss_s1}{{4}{4}}
+\newlabel{fig:zwerge_pipeline}{{3}{5}}
 \newlabel{sec:method:stage2}{{}{5}}
 \newlabel{eq:fusion}{{5}{5}}
 \newlabel{eq:loss_s2}{{6}{5}}
 \newlabel{sec:method:p2p}{{}{5}}
+\citation{focusui}
 \citation{screenspotpro}
 \citation{Os-atlas}
 \citation{xie2025scaling}
 \citation{mmbench}
 \citation{ui-vision}
-\citation{ye2025guiowl}
-\citation{qin2025uitars}
-\citation{xu2026mobile}
-\citation{team2026ui}
+\newlabel{sec:method:p2p_zoom}{{}{6}}
 \newlabel{tab:main_ssv2}{{3}{6}}
 \newlabel{tab:main_osworld}{{4}{6}}
 \newlabel{sec:experiments}{{}{6}}
 \newlabel{sec:experiments:setup}{{}{6}}
-\newlabel{sec:experiments:main}{{}{6}}
+\citation{ye2025guiowl}
+\citation{qin2025uitars}
+\citation{xu2026mobile}
+\citation{team2026ui}
 \newlabel{tab:main_sspro}{{2}{7}}
-\newlabel{tab:main_mmbench}{{5}{7}}
 \newlabel{tab:main_uivision}{{6}{7}}
-\newlabel{tab:proposal_recall}{{7}{8}}
+\newlabel{sec:experiments:main}{{}{7}}
+\newlabel{tab:main_mmbench}{{5}{8}}
 \newlabel{sec:experiments:severity}{{}{8}}
-\newlabel{fig:bottleneck_severity}{{4}{8}}
 \newlabel{sec:experiments:p2p}{{}{8}}
-\newlabel{fig:error_quadrants}{{5}{9}}
+\newlabel{tab:proposal_recall}{{7}{9}}
+\newlabel{fig:bottleneck_severity}{{4}{9}}
 \newlabel{tab:ablation}{{9}{9}}
+\newlabel{tab:p2p_results}{{8}{10}}
+\newlabel{fig:sspro_gt_sizes}{{5}{10}}
+\newlabel{fig:error_quadrants}{{6}{10}}
 \bibdata{aaai2027}
 \bibcite{abnar2020attentionflow}{{1}{2020}{{Abnar and Zuidema}}{{}}}
 \bibcite{bai2023qwenvl}{{2}{2023}{{Bai et~al.}}{{Bai, Bai, Yang, Wang, Tan, Wang, Lin, Zhou, and Zhou}}}
@@ -81,7 +85,6 @@
 \bibcite{kang2025visualsink}{{18}{2025}{{Kang et~al.}}{{Kang, Kim, Kim, and Hwang}}}
 \bibcite{kim2021vilt}{{19}{2021}{{Kim, Son, and Kim}}{{}}}
 \bibcite{kirillov2023sam}{{20}{2023}{{Kirillov et~al.}}{{Kirillov, Mintun, Ravi, Mao, Rolland, Gustafson, Xiao, Whitehead, Berg, Lo et~al.}}}
-\newlabel{tab:p2p_results}{{8}{10}}
 \bibcite{lan2024clearclip}{{21}{2024}{{Lan et~al.}}{{Lan, Chen, Ke, Wang, Feng, and Zhang}}}
 \bibcite{screenspotpro}{{22}{2025}{{Li et~al.}}{{Li, Meng, Lin, Luo, Tian, Ma, Huang, and Chua}}}
 \bibcite{li2022glip}{{23}{2022}{{Li et~al.}}{{Li, Zhang, Zhang, Yang, Li, Zhong, Wang, Yuan, Zhang, Hwang et~al.}}}
@@ -167,19 +170,23 @@
 \citation{xiao2023streamingllm}
 \citation{darcet2024registers}
 \citation{kang2025visualsink}
-\newlabel{ssec: GUIG}{{}{12}}
-\newlabel{ssec: ViTG}{{}{12}}
-\newlabel{app:perlayer_curves}{{}{13}}
-\newlabel{sec:prompt}{{}{13}}
-\newlabel{sec:vis1}{{}{13}}
-\newlabel{sec:vis}{{}{13}}
-\newlabel{fig:app_perlayer_combined}{{6}{14}}
-\newlabel{fig:app_perlayer_sspro}{{7}{15}}
-\newlabel{fig:app_perlayer_ssv2}{{8}{16}}
-\newlabel{fig:app_perlayer_osworld}{{9}{17}}
-\newlabel{fig:app_perlayer_mmbench}{{10}{18}}
-\newlabel{fig:app_perlayer_uivision}{{11}{19}}
-\newlabel{fig:uitars15_screenspotpro_success}{{12}{24}}
-\newlabel{fig:uitars15_screenspotpro_success}{{13}{25}}
-\newlabel{fig:uitars15_screenspotpro_success}{{14}{26}}
-\newlabel{fig:uitars15_screenspotpro_success}{{15}{27}}
+\newlabel{ssec: GUIG}{{}{13}}
+\newlabel{ssec: ViTG}{{}{13}}
+\newlabel{app:perlayer_curves}{{}{14}}
+\newlabel{sec:prompt}{{}{14}}
+\newlabel{sec:vis1}{{}{14}}
+\newlabel{sec:vis}{{}{14}}
+\newlabel{app:controls}{{}{14}}
+\newlabel{tab:ood_peak_layer}{{10}{14}}
+\newlabel{tab:bootstrap_ci_exp4}{{12}{14}}
+\newlabel{fig:app_perlayer_combined}{{7}{15}}
+\newlabel{fig:app_perlayer_sspro}{{8}{16}}
+\newlabel{fig:app_perlayer_ssv2}{{9}{17}}
+\newlabel{fig:app_perlayer_osworld}{{10}{18}}
+\newlabel{fig:app_perlayer_mmbench}{{11}{19}}
+\newlabel{fig:app_perlayer_uivision}{{12}{20}}
+\newlabel{fig:norm_census}{{18}{21}}
+\newlabel{fig:uitars15_screenspotpro_success}{{13}{28}}
+\newlabel{fig:uitars15_screenspotpro_success}{{14}{29}}
+\newlabel{fig:uitars15_screenspotpro_success}{{15}{30}}
+\newlabel{fig:uitars15_screenspotpro_success}{{16}{31}}

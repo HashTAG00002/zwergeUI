@@ -1,6 +1,7 @@
-This is pdfTeX, Version 3.1415926-2.5-1.40.14 (TeX Live 2013) (format=pdflatex 2026.7.24)  28 JUL 2026 19:40
+This is pdfTeX, Version 3.1415926-2.5-1.40.14 (TeX Live 2013) (format=pdflatex 2026.7.24)  29 JUL 2026 00:16
 entering extended mode
  restricted \write18 enabled.
+ file:line:error style messages enabled.
  %&-line parsing enabled.
 **AnonymousSubmission2027.tex
 (./AnonymousSubmission2027.tex
@@ -586,17 +587,7 @@ Package: listings 2007/02/22 1.4 (Carsten Heinz)
 \@float@every@listing=\toks38
 \c@listing=\count143
 
-(./AnonymousSubmission2027.aux
-
-LaTeX Warning: Label `fig:uitars15_screenspotpro_success' multiply defined.
-
-
-LaTeX Warning: Label `fig:uitars15_screenspotpro_success' multiply defined.
-
-
-LaTeX Warning: Label `fig:uitars15_screenspotpro_success' multiply defined.
-
-)
+No file AnonymousSubmission2027.aux.
 \openout1 = `AnonymousSubmission2027.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 173.
@@ -613,7 +604,7 @@ LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 173.
 LaTeX Font Info:    ... okay on input line 173.
 LaTeX Font Info:    Try loading font information for T1+ntxrx on input line 173
 .
- (/usr/share/texlive/texmf-dist/tex/latex/newtx/t1ntxrx.fd
+(/usr/share/texlive/texmf-dist/tex/latex/newtx/t1ntxrx.fd
 File: t1ntxrx.fd 2012/12/25 v1.0
 )
 \c@mv@tabular=\count144
@@ -701,14 +692,98 @@ LaTeX Font Info:    Try loading font information for U+msb on input line 183.
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 ) (./secs/1_intro.tex
+
+Package natbib Warning: Citation `qin2025uitars' on page 1 undefined on input l
+ine 8.
+
+
+Package natbib Warning: Citation `wu2025atlas' on page 1 undefined on input lin
+e 8.
+
+
+Package natbib Warning: Citation `ye2025guiowl' on page 1 undefined on input li
+ne 8.
+
+
+Package natbib Warning: Citation `gu2025uivenus' on page 1 undefined on input l
+ine 8.
+
+
+Package natbib Warning: Citation `xu2025attention' on page 1 undefined on input
+ line 12.
+
+
+Package natbib Warning: Citation `wu2025gui' on page 1 undefined on input line 
+12.
+
+
+Package natbib Warning: Citation `lin2026happens' on page 1 undefined on input 
+line 12.
+
+
+Package natbib Warning: Citation `darcet2024registers' on page 1 undefined on i
+nput line 12.
+
+
+Package natbib Warning: Citation `lan2024clearclip' on page 1 undefined on inpu
+t line 12.
+
+
+Package natbib Warning: Citation `chen2025rethinking' on page 1 undefined on in
+put line 12.
+
+
+Package natbib Warning: Citation `xu2026mobile' on page 1 undefined on input li
+ne 14.
+
+
+Package natbib Warning: Citation `yang2026gui' on page 1 undefined on input lin
+e 14.
+
+
+Package natbib Warning: Citation `zhou2025gui' on page 1 undefined on input lin
+e 14.
+
+
+Package natbib Warning: Citation `zhang2025does' on page 1 undefined on input l
+ine 14.
+
+
+Package natbib Warning: Citation `zhang2026omegause' on page 1 undefined on inp
+ut line 14.
+
+
+Package natbib Warning: Citation `qwen25vl' on page 1 undefined on input line 3
+3.
+
+
+Package natbib Warning: Citation `qwen3vl' on page 1 undefined on input line 33
+.
+
+
+Package natbib Warning: Citation `screenspotpro' on page 1 undefined on input l
+ine 33.
+
+
+Package natbib Warning: Citation `Os-atlas' on page 1 undefined on input line 3
+3.
+
+
+Package natbib Warning: Citation `xie2025scaling' on page 1 undefined on input 
+line 33.
+
+
+Package natbib Warning: Citation `mmbench' on page 1 undefined on input line 33
+.
+
+
+Package natbib Warning: Citation `ui-vision' on page 1 undefined on input line 
+33.
+
+
 Underfull \hbox (badness 1603) in paragraph at lines 33--36
 []\T1/ntxrx/m/n/10 We eval-u-ate \T1/ntxrx/m/sc/10 ZwerGe-UI \T1/ntxrx/m/n/10 o
 n four GUI agents span-
- []
-
-
-Underfull \hbox (badness 1558) in paragraph at lines 33--36
-\T1/ntxrx/m/n/10 GUI ground-ing bench-marks: ScreenSpot-Pro (Li et al.
  []
 
 [1{/usr/share/texlive/texmf/fonts/map/pdftex/updmap/pdftex.map}
@@ -726,6 +801,10 @@ LaTeX Font Warning: Font shape `OMS/ntxrx/m/n' undefined
 (Font)              for symbol `textbullet' on input line 39.
 
 
+LaTeX Warning: Reference `sec:experiments:main' on page 2 undefined on input li
+ne 43.
+
+
 Underfull \hbox (badness 3138) in paragraph at lines 43--44
 \T1/ntxrx/m/n/10 retrofit that re-cov-ers intermediate-layer spa-tial sig-
  []
@@ -736,6 +815,26 @@ Underfull \hbox (badness 2503) in paragraph at lines 43--44
  []
 
 ) (./secs/3_analysis.tex
+
+Package natbib Warning: Citation `qwen25vl' on page 2 undefined on input line 1
+1.
+
+
+Package natbib Warning: Citation `qwen3vl' on page 2 undefined on input line 11
+.
+
+
+Package natbib Warning: Citation `screenspotpro' on page 2 undefined on input l
+ine 11.
+
+
+Package natbib Warning: Citation `Os-atlas' on page 2 undefined on input line 1
+1.
+
+
+LaTeX Warning: Reference `sec:method:stage1' on page 2 undefined on input line 
+12.
+
 <figs/fig3_serialization_lens.pdf, id=17, 926.84077pt x 265.08034pt>
 File: figs/fig3_serialization_lens.pdf Graphic file (type pdf)
 
@@ -744,50 +843,257 @@ Package pdftex.def Info: figs/fig3_serialization_lens.pdf used on input line 17
 .
 (pdftex.def)             Requested size: 505.89pt x 144.6904pt.
 
+
+LaTeX Warning: Reference `fig:serialization_lens' on page 2 undefined on input 
+line 34.
+
+
+LaTeX Warning: Reference `tab:ood_peak_layer' on page 2 undefined on input line
+ 45.
+
+
+LaTeX Warning: Reference `tab:bootstrap_ci' on page 2 undefined on input line 4
+6.
+
+
+LaTeX Warning: Reference `fig:serialization_lens' on page 2 undefined on input 
+line 58.
+
+
+LaTeX Warning: Reference `fig:counterfactual' on page 2 undefined on input line
+ 76.
+
 <figs/fig4_instruction_suppression.pdf, id=18, 918.57362pt x 265.08034pt>
 File: figs/fig4_instruction_suppression.pdf Graphic file (type pdf)
 
 <use figs/fig4_instruction_suppression.pdf>
 Package pdftex.def Info: figs/fig4_instruction_suppression.pdf used on input li
-ne 75.
+ne 82.
 (pdftex.def)             Requested size: 505.89pt x 145.98877pt.
- [2]) (./secs/4_method.tex
-<figs/pipeline.pdf, id=23, 615.29875pt x 378.41376pt>
-File: figs/pipeline.pdf Graphic file (type pdf)
- <use figs/pipeline.pdf>
-Package pdftex.def Info: figs/pipeline.pdf used on input line 7.
-(pdftex.def)             Requested size: 480.59395pt x 295.5715pt.
 
-Underfull \vbox (badness 10000) has occurred while \output is active []
+
+LaTeX Warning: Reference `fig:serialization_lens' on page 2 undefined on input 
+line 88.
+
+
+LaTeX Warning: Reference `fig:serialization_lens' on page 2 undefined on input 
+line 88.
+
+[2]
+
+LaTeX Warning: Reference `tab:resolution_comparison' on page 3 undefined on inp
+ut line 105.
+
+
+LaTeX Warning: Reference `tab:resolution_comparison' on page 3 undefined on inp
+ut line 134.
+
+
+LaTeX Warning: Reference `fig:targetsize_gap' on page 3 undefined on input line
+ 135.
+
+
+LaTeX Warning: Reference `tab:targetsize_gap' on page 3 undefined on input line
+ 135.
+
+
+Underfull \vbox (badness 1371) has occurred while \output is active []
 
  [3 <./figs/fig3_serialization_lens.pdf> <./figs/fig4_instruction_suppression.p
 df>]
-LaTeX Font Info:    Try loading font information for T1+pcr on input line 36.
 
+LaTeX Warning: Reference `sec:method' on page 4 undefined on input line 145.
+
+) (./secs/4_method.tex <figs/pipeline.pdf, id=153, 615.29875pt x 378.41376pt>
+File: figs/pipeline.pdf Graphic file (type pdf)
+
+<use figs/pipeline.pdf>
+Package pdftex.def Info: figs/pipeline.pdf used on input line 7.
+(pdftex.def)             Requested size: 480.59395pt x 295.5715pt.
+
+
+LaTeX Warning: Reference `sec:analysis' on page 4 undefined on input line 18.
+
+
+LaTeX Warning: Reference `sec:analysis' on page 4 undefined on input line 20.
+
+
+LaTeX Warning: Reference `fig:zwerge_pipeline' on page 4 undefined on input lin
+e 21.
+
+LaTeX Font Info:    Try loading font information for T1+pcr on input line 36.
 (/usr/share/texlive/texmf-dist/tex/latex/psnfss/t1pcr.fd
 File: t1pcr.fd 2001/06/04 font definitions for T1/pcr.
-) [4 <./figs/pipeline.pdf>]
+)
+
+LaTeX Warning: Reference `sec:analysis' on page 4 undefined on input line 48.
+
+
+LaTeX Warning: Reference `fig:zwerge_pipeline' on page 4 undefined on input lin
+e 59.
+
+
+LaTeX Warning: Reference `fig:zwerge_pipeline' on page 4 undefined on input lin
+e 102.
+
+[4]
+
+LaTeX Warning: Reference `sec:analysis:layerwise' on page 5 undefined on input 
+line 105.
+
+[5 <./figs/pipeline.pdf>]
 Underfull \hbox (badness 5711) in paragraph at lines 141--142
  \T1/ntxrx/bx/n/10 Level 1: re-gion re-ranking. \T1/ntxrx/m/n/10 Thresh-old-ing
  $\OML/cmm/m/it/10 p[]$ \T1/ntxrx/m/n/10 at
  []
 
-) (./secs/5_experiment.tex [5]
+
+LaTeX Warning: Reference `sec:analysis' on page 6 undefined on input line 154.
+
+
+Package natbib Warning: Citation `focusui' on page 6 undefined on input line 15
+4.
+
+) (./secs/5_experiment.tex
+
+LaTeX Warning: Reference `sec:experiments:setup' on page 6 undefined on input l
+ine 14.
+
+
+LaTeX Warning: Reference `sec:experiments:setup' on page 6 undefined on input l
+ine 14.
+
+
 Overfull \hbox (6.36252pt too wide) in paragraph at lines 51--73
  [][] 
  []
+
+
+Package natbib Warning: Citation `screenspotpro' on page 6 undefined on input l
+ine 115.
+
+
+LaTeX Warning: Reference `sec:analysis' on page 6 undefined on input line 115.
+
+
+Package natbib Warning: Citation `Os-atlas' on page 6 undefined on input line 1
+16.
+
+
+Package natbib Warning: Citation `xie2025scaling' on page 6 undefined on input 
+line 117.
+
+
+Package natbib Warning: Citation `mmbench' on page 6 undefined on input line 11
+8.
+
+
+Package natbib Warning: Citation `ui-vision' on page 6 undefined on input line 
+119.
 
 
 Underfull \hbox (badness 3009) in paragraph at lines 114--120
 \T1/ntxrx/m/n/10 marks span-ning desk-top, web, and mo-bile plat-forms.
  []
 
-[6]
-Underfull \vbox (badness 10000) has occurred while \output is active []
 
- [7]
+LaTeX Warning: Reference `sec:method:p2p' on page 6 undefined on input line 127
+.
+
+
+LaTeX Warning: Reference `tab:proposal_recall' on page 6 undefined on input lin
+e 129.
+
+[6]
+
+Package natbib Warning: Citation `ye2025guiowl' on page 7 undefined on input li
+ne 132.
+
+
+Package natbib Warning: Citation `qin2025uitars' on page 7 undefined on input l
+ine 132.
+
+
+Package natbib Warning: Citation `xu2026mobile' on page 7 undefined on input li
+ne 132.
+
+
+Package natbib Warning: Citation `team2026ui' on page 7 undefined on input line
+ 132.
+
+
+LaTeX Warning: Reference `sec:method:stage1' on page 7 undefined on input line 
+135.
+
+
+LaTeX Warning: Reference `sec:method:stage2' on page 7 undefined on input line 
+135.
+
+
+LaTeX Warning: Reference `tab:main_sspro' on page 7 undefined on input line 211
+.
+
+
+LaTeX Warning: Reference `tab:main_uivision' on page 7 undefined on input line 
+211.
+
+
+LaTeX Warning: Reference `sec:experiments:setup' on page 7 undefined on input l
+ine 211.
+
+
+LaTeX Warning: Reference `tab:proposal_recall' on page 7 undefined on input lin
+e 217.
+
+
+LaTeX Warning: Reference `sec:experiments:severity' on page 7 undefined on inpu
+t line 219.
+
+
+LaTeX Warning: Reference `fig:bottleneck_severity' on page 7 undefined on input
+ line 219.
+
+
+LaTeX Warning: Reference `sec:experiments:p2p' on page 7 undefined on input lin
+e 219.
+
+[7]
+
+LaTeX Warning: Reference `sec:experiments:severity' on page 8 undefined on inpu
+t line 243.
+
+
+LaTeX Warning: Reference `sec:method:p2p' on page 8 undefined on input line 243
+.
+
+
+LaTeX Warning: Reference `sec:experiments:severity' on page 8 undefined on inpu
+t line 243.
+
+
+LaTeX Warning: Reference `sec:method:p2p' on page 8 undefined on input line 243
+.
+
+
 Overfull \hbox (61.98239pt too wide) in paragraph at lines 247--280
  [][] 
+ []
+
+
+LaTeX Warning: Reference `tab:proposal_recall' on page 8 undefined on input lin
+e 288.
+
+
+LaTeX Warning: Reference `fig:bottleneck_severity' on page 8 undefined on input
+ line 292.
+
+
+LaTeX Warning: Reference `sec:method:p2p' on page 8 undefined on input line 295
+.
+
+
+Underfull \hbox (badness 2591) in paragraph at lines 292--296
+\T1/ntxrx/m/n/10 VL back-bones (blue) oc-cupy the positive-headroom /
  []
 
 <figs/bottleneck_severity.pdf, id=184, 368.23198pt x 278.51741pt>
@@ -796,24 +1102,76 @@ File: figs/bottleneck_severity.pdf Graphic file (type pdf)
 <use figs/bottleneck_severity.pdf>
 Package pdftex.def Info: figs/bottleneck_severity.pdf used on input line 299.
 (pdftex.def)             Requested size: 203.48668pt x 153.91176pt.
- [8 <./figs/bottleneck_severity.pdf>]
-Overfull \hbox (20.68399pt too wide) in paragraph at lines 331--352
+
+<figs/sspro_gt_sizes.pdf, id=185, 368.2558pt x 220.72739pt>
+File: figs/sspro_gt_sizes.pdf Graphic file (type pdf)
+
+<use figs/sspro_gt_sizes.pdf>
+Package pdftex.def Info: figs/sspro_gt_sizes.pdf used on input line 311.
+(pdftex.def)             Requested size: 220.24239pt x 132.0097pt.
+
+
+LaTeX Warning: Reference `sec:experiments:p2p' on page 8 undefined on input lin
+e 315.
+
+
+LaTeX Warning: Reference `sec:experiments:p2p' on page 8 undefined on input lin
+e 315.
+
+
+LaTeX Warning: Reference `tab:p2p_results' on page 8 undefined on input line 32
+5.
+
+
+LaTeX Warning: Reference `sec:method:p2p' on page 8 undefined on input line 325
+.
+
+[8]
+
+LaTeX Warning: Reference `sec:experiments:severity' on page 9 undefined on inpu
+t line 330.
+
+
+LaTeX Warning: Reference `tab:proposal_recall' on page 9 undefined on input lin
+e 340.
+
+
+LaTeX Warning: Reference `tab:proposal_recall' on page 9 undefined on input lin
+e 340.
+
+
+Overfull \hbox (20.68399pt too wide) in paragraph at lines 344--365
  [][] 
  []
 
-<figs/error_quadrants.pdf, id=241, 397.41191pt x 236.7131pt>
+<figs/error_quadrants.pdf, id=189, 397.41191pt x 236.7131pt>
 File: figs/error_quadrants.pdf Graphic file (type pdf)
 
 <use figs/error_quadrants.pdf>
-Package pdftex.def Info: figs/error_quadrants.pdf used on input line 357.
+Package pdftex.def Info: figs/error_quadrants.pdf used on input line 370.
 (pdftex.def)             Requested size: 227.42392pt x 135.46243pt.
-) (./secs/6_conclusion.tex) [9 <./figs/error_quadrants.pdf>] (./AnonymousSubmis
-sion2027.bbl
+
+
+LaTeX Warning: Reference `sec:experiments:main' on page 9 undefined on input li
+ne 413.
+
+
+LaTeX Warning: Reference `sec:method:stage2' on page 9 undefined on input line 
+417.
+
+
+LaTeX Warning: Reference `tab:ablation' on page 9 undefined on input line 421.
+
+[9 <./figs/bottleneck_severity.pdf>]) (./secs/6_conclusion.tex)
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [10 <./figs/sspro_gt_sizes.pdf> <./figs/error_quadrants.pdf>]
+(./AnonymousSubmission2027.bbl
 Underfull \hbox (badness 1460) in paragraph at lines 12--17
 \T1/ntxrx/m/n/10 Language Model for Un-der-stand-ing, Lo-cal-iza-tion, Text
  []
 
-[10]
+
 Underfull \hbox (badness 1127) in paragraph at lines 176--180
 []\T1/ntxrx/m/n/10 Lin, J.; Shen, F.; Li, J.; Nie, P.; Yu, F.; Li, M.; and
  []
@@ -823,39 +1181,209 @@ Underfull \hbox (badness 1810) in paragraph at lines 369--373
 []\T1/ntxrx/m/n/10 Xu, H.-M.; Chen, Q.; Wang, L.; and Liu, L. 2025a.
  []
 
-) (./secs/2_related.tex
-Underfull \hbox (badness 1024) in paragraph at lines 7--8
-[]\T1/ntxrx/m/n/10 Most ex-ist-ing GUI ground-ing meth-ods for-mu-late lo-
- []
+[12]) (./secs/2_related.tex
+
+Package natbib Warning: Citation `sun2022metagui' on page 13 undefined on input
+ line 5.
 
 
-Underfull \hbox (badness 1460) in paragraph at lines 7--8
-\T1/ntxrx/m/n/10 cal-iza-tion as co-or-di-nate or action-parameter pre-dic-tion
-.
- []
+Package natbib Warning: Citation `hong2024cogagent' on page 13 undefined on inp
+ut line 5.
+
+
+Package natbib Warning: Citation `cheng2024seeclick' on page 13 undefined on in
+put line 5.
+
+
+Package natbib Warning: Citation `you2024ferretui' on page 13 undefined on inpu
+t line 5.
+
+
+Package natbib Warning: Citation `lu2024omniparser' on page 13 undefined on inp
+ut line 5.
+
+
+Package natbib Warning: Citation `gou2024navigating' on page 13 undefined on in
+put line 5.
+
+
+Package natbib Warning: Citation `Os-atlas' on page 13 undefined on input line 
+5.
+
+
+Package natbib Warning: Citation `lin2025showui' on page 13 undefined on input 
+line 5.
+
+
+Package natbib Warning: Citation `xu2024aguvis' on page 13 undefined on input l
+ine 5.
+
+
+Package natbib Warning: Citation `qin2025uitars' on page 13 undefined on input 
+line 5.
+
+
+Package natbib Warning: Citation `screenspotpro' on page 13 undefined on input 
+line 5.
+
+
+Package natbib Warning: Citation `lu2025ui' on page 13 undefined on input line 
+7.
+
+
+Package natbib Warning: Citation `luo2025gui' on page 13 undefined on input lin
+e 7.
+
+
+Package natbib Warning: Citation `liu2025infigui' on page 13 undefined on input
+ line 7.
+
+
+Package natbib Warning: Citation `zhou2025gui' on page 13 undefined on input li
+ne 7.
+
+
+Package natbib Warning: Citation `liu2026infigui' on page 13 undefined on input
+ line 7.
+
+
+Package natbib Warning: Citation `fan2024readpointed' on page 13 undefined on i
+nput line 7.
+
+
+Package natbib Warning: Citation `xu2025attention' on page 13 undefined on inpu
+t line 7.
+
+
+Package natbib Warning: Citation `wu2025gui' on page 13 undefined on input line
+ 7.
+
+
+Package natbib Warning: Citation `luo2025regionfocus' on page 13 undefined on i
+nput line 7.
+
+
+Package natbib Warning: Citation `wu2025dimogui' on page 13 undefined on input 
+line 7.
+
+
+Package natbib Warning: Citation `ouyang2026focusui' on page 13 undefined on in
+put line 7.
+
+
+Package natbib Warning: Citation `lin2026happens' on page 13 undefined on input
+ line 7.
+
+
+Package natbib Warning: Citation `dosovitskiy2021vit' on page 13 undefined on i
+nput line 13.
+
+
+Package natbib Warning: Citation `radford2021clip' on page 13 undefined on inpu
+t line 13.
+
+
+Package natbib Warning: Citation `carion2020detr' on page 13 undefined on input
+ line 13.
+
+
+Package natbib Warning: Citation `kamath2021mdetr' on page 13 undefined on inpu
+t line 13.
+
+
+Package natbib Warning: Citation `li2022glip' on page 13 undefined on input lin
+e 13.
+
+
+Package natbib Warning: Citation `liu2023groundingdino' on page 13 undefined on
+ input line 13.
+
+
+Package natbib Warning: Citation `minderer2022owlvit' on page 13 undefined on i
+nput line 13.
+
+
+Package natbib Warning: Citation `kirillov2023sam' on page 13 undefined on inpu
+t line 13.
+
+
+Package natbib Warning: Citation `peng2023kosmos2' on page 13 undefined on inpu
+t line 13.
+
+
+Package natbib Warning: Citation `chen2023shikra' on page 13 undefined on input
+ line 13.
+
+
+Package natbib Warning: Citation `you2023ferret' on page 13 undefined on input 
+line 13.
+
+
+Package natbib Warning: Citation `bai2023qwenvl' on page 13 undefined on input 
+line 13.
+
+
+Package natbib Warning: Citation `bai2025qwen25vl' on page 13 undefined on inpu
+t line 13.
+
+
+Package natbib Warning: Citation `kim2021vilt' on page 13 undefined on input li
+ne 14.
+
+
+Package natbib Warning: Citation `cao2023pumer' on page 13 undefined on input l
+ine 14.
+
+
+Package natbib Warning: Citation `chen2024fastv' on page 13 undefined on input 
+line 14.
+
+
+Package natbib Warning: Citation `li2024tokenpacker' on page 13 undefined on in
+put line 14.
+
+
+Package natbib Warning: Citation `abnar2020attentionflow' on page 13 undefined 
+on input line 14.
+
+
+Package natbib Warning: Citation `chefer2021transformer' on page 13 undefined o
+n input line 14.
+
+
+Package natbib Warning: Citation `xiao2023streamingllm' on page 13 undefined on
+ input line 14.
+
+
+Package natbib Warning: Citation `darcet2024registers' on page 13 undefined on 
+input line 14.
+
+
+Package natbib Warning: Citation `kang2025visualsink' on page 13 undefined on i
+nput line 14.
 
 ) (./secs/a_appendix.tex
-Underfull \hbox (badness 1237) in paragraph at lines 13--4
-\T1/ntxrx/m/n/10 in mod-ern ground-ing sys-tems. ViT (Doso-vit-skiy et al.
- []
+
+LaTeX Warning: Reference `fig:app_perlayer_combined' on page 13 undefined on in
+put line 18.
 
 
-Underfull \hbox (badness 1874) in paragraph at lines 13--4
-\T1/ntxrx/m/n/10 2021) in-tro-duces patch-level vi-sual to-k-eniza-tion, while
- []
+Underfull \vbox (badness 1303) has occurred while \output is active []
+
+ [13]
+
+LaTeX Warning: Reference `sec:method:stage1' on page 14 undefined on input line
+ 23.
 
 
-Underfull \hbox (badness 1127) in paragraph at lines 13--4
-\T1/ntxrx/m/n/10 ing on these foun-da-tions, DETR (Car-ion et al. 2020),
- []
-
-[12]
-Underfull \hbox (badness 1430) in paragraph at lines 18--21
-\T1/ntxrx/m/n/10 Figure 6[] shows the per-layer over-lap@1 of ev-ery A7
- []
+LaTeX Warning: Reference `sec:analysis' on page 14 undefined on input line 33.
 
 
-<figs/a7_layerwise_plots/a7_layerwise_combined.pdf, id=330, 1178.09508pt x 1332
+LaTeX Warning: Reference `sec:analysis:layerwise' on page 14 undefined on input
+ line 41.
+
+
+<figs/a7_layerwise_plots/a7_layerwise_combined.pdf, id=382, 1178.09508pt x 1332
 .71019pt>
 File: figs/a7_layerwise_plots/a7_layerwise_combined.pdf Graphic file (type pdf)
 
@@ -864,7 +1392,22 @@ Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_combined.pdf used
  on input line 52.
 (pdftex.def)             Requested size: 505.88791pt x 520.34462pt.
 
-<figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf, id=331, 859.38693pt x 587.463
+
+LaTeX Warning: Reference `sec:analysis' on page 14 undefined on input line 62.
+
+
+LaTeX Warning: Reference `sec:analysis' on page 14 undefined on input line 62.
+
+
+LaTeX Warning: Reference `fig:app_perlayer_sspro' on page 14 undefined on input
+ line 68.
+
+
+LaTeX Warning: Reference `fig:app_perlayer_uivision' on page 14 undefined on in
+put line 68.
+
+
+<figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf, id=383, 859.38693pt x 587.463
 5pt>
 File: figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf Graphic file (type pdf)
  <use figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf>
@@ -872,7 +1415,7 @@ Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf used o
 n input line 72.
 (pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
 
-<figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf, id=332, 859.38693pt x 587.4635
+<figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf, id=384, 859.38693pt x 587.4635
 pt>
 File: figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf Graphic file (type pdf)
  <use figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf>
@@ -880,7 +1423,7 @@ Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf used on
  input line 85.
 (pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
 
-<figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf, id=333, 859.38693pt x 587.
+<figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf, id=385, 859.38693pt x 587.
 4635pt>
 File: figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf Graphic file (type pdf
 )
@@ -889,7 +1432,7 @@ Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf use
 d on input line 97.
 (pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
 
-<figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf, id=334, 859.38693pt x 587.46
+<figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf, id=386, 859.38693pt x 587.46
 35pt>
 File: figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf Graphic file (type pdf)
  <use figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf>
@@ -897,7 +1440,7 @@ Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf used
 on input line 109.
 (pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
 
-<figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf, id=335, 859.38693pt x 587.
+<figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf, id=387, 859.38693pt x 587.
 4635pt>
 File: figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf Graphic file (type pdf
 )
@@ -908,8 +1451,8 @@ d on input line 123.
 
 (./prompt/uitars.tex
 
-! Package pgfkeys Error: I do not know the key '/tcb/label' and I am going to i
-gnore it. Perhaps you misspelled it.
+./prompt/uitars.tex:3: Package pgfkeys Error: I do not know the key '/tcb/label
+' and I am going to ignore it. Perhaps you misspelled it.
 
 See the pgfkeys package documentation for explanation.
 Type  H <return>  for immediate help.
@@ -924,8 +1467,8 @@ and deduce the truth by order and method.
 
 ) (./prompt/guiowl.tex
 
-! Package pgfkeys Error: I do not know the key '/tcb/label' and I am going to i
-gnore it. Perhaps you misspelled it.
+./prompt/guiowl.tex:3: Package pgfkeys Error: I do not know the key '/tcb/label
+' and I am going to ignore it. Perhaps you misspelled it.
 
 See the pgfkeys package documentation for explanation.
 Type  H <return>  for immediate help.
@@ -935,10 +1478,13 @@ l.3 ..., fonttitle=\bfseries, label=prompt:guiowl]
                                                   
 (That was another \errmessage.)
 
+
+LaTeX Warning: Float too large for page by 525.64806pt on input line 57.
+
 ) (./prompt/guiowl15.tex
 
-! Package pgfkeys Error: I do not know the key '/tcb/label' and I am going to i
-gnore it. Perhaps you misspelled it.
+./prompt/guiowl15.tex:3: Package pgfkeys Error: I do not know the key '/tcb/lab
+el' and I am going to ignore it. Perhaps you misspelled it.
 
 See the pgfkeys package documentation for explanation.
 Type  H <return>  for immediate help.
@@ -948,10 +1494,13 @@ l.3 ...fonttitle=\bfseries, label=prompt:guiowl15]
                                                   
 (That was another \errmessage.)
 
+
+LaTeX Warning: Float too large for page by 45.26012pt on input line 35.
+
 ) (./prompt/ui_venus15.tex
 
-! Package pgfkeys Error: I do not know the key '/tcb/label' and I am going to i
-gnore it. Perhaps you misspelled it.
+./prompt/ui_venus15.tex:3: Package pgfkeys Error: I do not know the key '/tcb/l
+abel' and I am going to ignore it. Perhaps you misspelled it.
 
 See the pgfkeys package documentation for explanation.
 Type  H <return>  for immediate help.
@@ -963,8 +1512,8 @@ l.3 ...onttitle=\bfseries, label=prompt:uivenus15]
 
 ) (./prompt/uitars_ours.tex
 
-! Package pgfkeys Error: I do not know the key '/tcb/label' and I am going to i
-gnore it. Perhaps you misspelled it.
+./prompt/uitars_ours.tex:3: Package pgfkeys Error: I do not know the key '/tcb/
+label' and I am going to ignore it. Perhaps you misspelled it.
 
 See the pgfkeys package documentation for explanation.
 Type  H <return>  for immediate help.
@@ -976,8 +1525,8 @@ l.3 ...le=\bfseries, label=prompt:uitars-retrofit]
 
 ) (./prompt/guiowl_ours.tex
 
-! Package pgfkeys Error: I do not know the key '/tcb/label' and I am going to i
-gnore it. Perhaps you misspelled it.
+./prompt/guiowl_ours.tex:3: Package pgfkeys Error: I do not know the key '/tcb/
+label' and I am going to ignore it. Perhaps you misspelled it.
 
 See the pgfkeys package documentation for explanation.
 Type  H <return>  for immediate help.
@@ -987,10 +1536,13 @@ l.3 ...le=\bfseries, label=prompt:guiowl-retrofit]
                                                   
 (That was another \errmessage.)
 
+
+LaTeX Warning: Float too large for page by 361.22523pt on input line 43.
+
 ) (./prompt/ui_venus15_ours.tex
 
-! Package pgfkeys Error: I do not know the key '/tcb/label' and I am going to i
-gnore it. Perhaps you misspelled it.
+./prompt/ui_venus15_ours.tex:3: Package pgfkeys Error: I do not know the key '/
+tcb/label' and I am going to ignore it. Perhaps you misspelled it.
 
 See the pgfkeys package documentation for explanation.
 Type  H <return>  for immediate help.
@@ -1000,7 +1552,7 @@ l.3 ...e=\bfseries, label=prompt:uivenus-retrofit]
                                                   
 (That was another \errmessage.)
 
-) <figs/append/uitars/idx00021.png, id=336, 1222.5675pt x 1174.3875pt>
+) <figs/append/uitars/idx00021.png, id=388, 1222.5675pt x 1174.3875pt>
 File: figs/append/uitars/idx00021.png Graphic file (type png)
 
 <use figs/append/uitars/idx00021.png>
@@ -1008,7 +1560,7 @@ Package pdftex.def Info: figs/append/uitars/idx00021.png used on input line 156
 .
 (pdftex.def)             Requested size: 379.4175pt x 364.45059pt.
 
-<figs/append/uitars/idx00440.png, id=337, 1222.5675pt x 1174.3875pt>
+<figs/append/uitars/idx00440.png, id=389, 1222.5675pt x 1174.3875pt>
 File: figs/append/uitars/idx00440.png Graphic file (type png)
 
 <use figs/append/uitars/idx00440.png>
@@ -1019,7 +1571,7 @@ Package pdftex.def Info: figs/append/uitars/idx00440.png used on input line 163
 
 LaTeX Warning: Float too large for page by 106.47125pt on input line 168.
 
-<figs/append/uitars/idx00114.png, id=338, 1222.5675pt x 1174.3875pt>
+<figs/append/uitars/idx00114.png, id=390, 1222.5675pt x 1174.3875pt>
 File: figs/append/uitars/idx00114.png Graphic file (type png)
 
 <use figs/append/uitars/idx00114.png>
@@ -1027,7 +1579,7 @@ Package pdftex.def Info: figs/append/uitars/idx00114.png used on input line 175
 .
 (pdftex.def)             Requested size: 379.4175pt x 364.45059pt.
 
-<figs/append/uitars/idx00329.png, id=339, 1222.5675pt x 1174.3875pt>
+<figs/append/uitars/idx00329.png, id=391, 1222.5675pt x 1174.3875pt>
 File: figs/append/uitars/idx00329.png Graphic file (type png)
 
 <use figs/append/uitars/idx00329.png>
@@ -1038,7 +1590,7 @@ Package pdftex.def Info: figs/append/uitars/idx00329.png used on input line 182
 
 LaTeX Warning: Float too large for page by 106.47125pt on input line 187.
 
-<figs/append/uivenus/idx00015.png, id=340, 1222.5675pt x 1429.34pt>
+<figs/append/uivenus/idx00015.png, id=392, 1222.5675pt x 1429.34pt>
 File: figs/append/uivenus/idx00015.png Graphic file (type png)
 
 <use figs/append/uivenus/idx00015.png>
@@ -1046,7 +1598,7 @@ Package pdftex.def Info: figs/append/uivenus/idx00015.png used on input line 19
 6.
 (pdftex.def)             Requested size: 328.82541pt x 384.42207pt.
 
-<figs/append/uivenus/idx02155.png, id=341, 1222.5675pt x 1429.34pt>
+<figs/append/uivenus/idx02155.png, id=393, 1222.5675pt x 1429.34pt>
 File: figs/append/uivenus/idx02155.png Graphic file (type png)
 
 <use figs/append/uivenus/idx02155.png>
@@ -1057,7 +1609,7 @@ Package pdftex.def Info: figs/append/uivenus/idx02155.png used on input line 20
 
 LaTeX Warning: Float too large for page by 146.41422pt on input line 208.
 
-<figs/append/uivenus/idx00405.png, id=342, 1222.5675pt x 1429.34pt>
+<figs/append/uivenus/idx00405.png, id=394, 1222.5675pt x 1429.34pt>
 File: figs/append/uivenus/idx00405.png Graphic file (type png)
 
 <use figs/append/uivenus/idx00405.png>
@@ -1065,7 +1617,7 @@ Package pdftex.def Info: figs/append/uivenus/idx00405.png used on input line 21
 5.
 (pdftex.def)             Requested size: 328.82541pt x 384.42207pt.
 
-<figs/append/uivenus/idx00493.png, id=343, 1222.5675pt x 1429.34pt>
+<figs/append/uivenus/idx00493.png, id=395, 1222.5675pt x 1429.34pt>
 File: figs/append/uivenus/idx00493.png Graphic file (type png)
 
 <use figs/append/uivenus/idx00493.png>
@@ -1076,62 +1628,1147 @@ Package pdftex.def Info: figs/append/uivenus/idx00493.png used on input line 22
 
 LaTeX Warning: Float too large for page by 146.41422pt on input line 227.
 
-) [13] [14 <./figs/a7_layerwise_plots/a7_layerwise_combined.pdf>] [15 <./figs/a
-7_layerwise_plots/a7_layerwise_ss_pro.pdf>] [16 <./figs/a7_layerwise_plots/a7_l
-ayerwise_ss_v2.pdf>] [17 <./figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf>
-] [18 <./figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf>] [19 <./figs/a7_laye
-rwise_plots/a7_layerwise_ui_vision.pdf>] [20] [21] [22] [23] [24 <./figs/append
-/uitars/idx00021.png (PNG copy)> <./figs/append/uitars/idx00440.png (PNG copy)>
-] [25 <./figs/append/uitars/idx00114.png (PNG copy)> <./figs/append/uitars/idx0
-0329.png (PNG copy)>] [26 <./figs/append/uivenus/idx00015.png (PNG copy)> <./fi
-gs/append/uivenus/idx02155.png (PNG copy)>] [27 <./figs/append/uivenus/idx00405
-.png (PNG copy)> <./figs/append/uivenus/idx00493.png (PNG copy)>]
-(./AnonymousSubmission2027.aux)
+
+LaTeX Warning: Reference `tab:ood_peak_layer' on page 14 undefined on input lin
+e 241.
+
+
+Overfull \hbox (169.91544pt too wide) in paragraph at lines 248--258
+ [][] 
+ []
+
+
+LaTeX Warning: Reference `tab:bootstrap_ci' on page 14 undefined on input line 
+263.
+
+
+LaTeX Warning: Reference `tab:bootstrap_ci_exp4' on page 14 undefined on input 
+line 263.
+
+
+./secs/a_appendix.tex:271: LaTeX Error: Too many unprocessed floats.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.271 \begin{table}[t]
+                      
+You've lost some text.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+./secs/a_appendix.tex:271: Undefined control sequence.
+\@float@Hx ...ltovf \fi \global \setbox \@currbox 
+                                                  \color@vbox \normalcolor \...
+l.271 \begin{table}[t]
+                      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:271: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.271 \begin{table}[t]
+                      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+
+Overfull \hbox (143.90718pt too wide) in paragraph at lines 274--284
+ [][] 
+ []
+
+./secs/a_appendix.tex:286: Undefined control sequence.
+\@largefloatcheck ->\ifdim \ht \@currbox 
+                                         >\textheight \@tempdima -\textheigh...
+l.286 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:286: Missing number, treated as zero.
+<to be read again> 
+                   >
+l.286 \end{table}
+                 
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:286: Undefined control sequence.
+<argument> \@currbox 
+                     
+l.286 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+
+./secs/a_appendix.tex:287: LaTeX Error: Too many unprocessed floats.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.287 \begin{table}[t]
+                      
+You've lost some text.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+./secs/a_appendix.tex:287: Undefined control sequence.
+\@float@Hx ...ltovf \fi \global \setbox \@currbox 
+                                                  \color@vbox \normalcolor \...
+l.287 \begin{table}[t]
+                      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:287: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.287 \begin{table}[t]
+                      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+
+Overfull \hbox (118.80151pt too wide) in paragraph at lines 290--300
+ [][] 
+ []
+
+./secs/a_appendix.tex:302: Undefined control sequence.
+\@largefloatcheck ->\ifdim \ht \@currbox 
+                                         >\textheight \@tempdima -\textheigh...
+l.302 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:302: Missing number, treated as zero.
+<to be read again> 
+                   >
+l.302 \end{table}
+                 
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:302: Undefined control sequence.
+<argument> \@currbox 
+                     
+l.302 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+
+Underfull \hbox (badness 1028) in paragraph at lines 263--303
+\T1/ntxrx/bx/n/10 W6). \T1/ntxrx/m/n/10 Ta-bles []--[] re-port $\OT1/cmr/m/n/10
+ 1000\OMS/ntxrx/m/n/10 ^^B$ \T1/ntxrx/m/n/10 boot-strap re-sam-ples
+ []
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \@elt 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Missing = inserted for \ifnum.
+<to be read again> 
+                   \@elt 
+l.303 
+      
+I was expecting to see `<', `=', or `>'. Didn't.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \@elt 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+
+./secs/a_appendix.tex:303: LaTeX Error: This may be a LaTeX bug.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.303 
+      
+Call for help
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ...advance \@tempdima \ht \@marbox 
+                                                  \ifdim \@tempdima >\z@ \@l...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Bad register code (-13697024).
+\@addmarginpar ...e \space moved}\else \@tempdima 
+                                                  \z@ \fi \global \@mparbott...
+l.303 
+      
+A register number must be between 0 and 32767.
+I changed this one to zero.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Illegal unit of measure (pt inserted).
+<to be read again> 
+                   \global 
+l.303 
+      
+Dimensions can be in units of em, ex, in, pt, pc,
+cm, mm, dd, cc, nd, nc, bp, or sp; but yours is a new one!
+I'll assume that you meant to say pt, for printer's points.
+To recover gracefully from this error, it's best to
+delete the erroneous units; e.g., type `2' to delete
+two letters. (See Chapter 27 of The TeXbook.)
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ...vance \@mparbottom \dp \@marbox 
+                                                  \global \advance \@mparbot...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ...dvance \@tempdima -\ht \@marbox 
+                                                  \global \setbox \@marbox \...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ...marbox \global \setbox \@marbox 
+                                                  \vbox {\vskip \@tempdima \...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ...\vskip \@tempdima \box \@marbox 
+                                                  }\global \ht \@marbox \z@ ...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   }
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ... \@marbox }\global \ht \@marbox 
+                                                  \z@ \global \dp \@marbox \...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Illegal unit of measure (pt inserted).
+<to be read again> 
+                   \global 
+l.303 
+      
+Dimensions can be in units of em, ex, in, pt, pc,
+cm, mm, dd, cc, nd, nc, bp, or sp; but yours is a new one!
+I'll assume that you meant to say pt, for printer's points.
+To recover gracefully from this error, it's best to
+delete the erroneous units; e.g., type `2' to delete
+two letters. (See Chapter 27 of The TeXbook.)
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ...marbox \z@ \global \dp \@marbox 
+                                                  \z@ \kern -\@pagedp \noint...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \kern 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:303: Illegal unit of measure (pt inserted).
+<to be read again> 
+                   \kern 
+l.303 
+      
+Dimensions can be in units of em, ex, in, pt, pc,
+cm, mm, dd, cc, nd, nc, bp, or sp; but yours is a new one!
+I'll assume that you meant to say pt, for printer's points.
+To recover gracefully from this error, it's best to
+delete the erroneous units; e.g., type `2' to delete
+two letters. (See Chapter 27 of The TeXbook.)
+
+./secs/a_appendix.tex:303: Undefined control sequence.
+\@addmarginpar ...arginparwidth \fi \box \@marbox 
+                                                  \hss }\nointerlineskip \hb...
+l.303 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:303: Missing number, treated as zero.
+<to be read again> 
+                   \hss 
+l.303 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+
+./secs/a_appendix.tex:303: LaTeX Error: This may be a LaTeX bug.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.303 
+      
+Call for help
+
+
+LaTeX Warning: Reference `tab:fusion_ablation' on page 14 undefined on input li
+ne 305.
+
+
+./secs/a_appendix.tex:312: LaTeX Error: Too many unprocessed floats.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.312 \begin{table}[t]
+                      
+You've lost some text.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+./secs/a_appendix.tex:312: Undefined control sequence.
+\@float@Hx ...ltovf \fi \global \setbox \@currbox 
+                                                  \color@vbox \normalcolor \...
+l.312 \begin{table}[t]
+                      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:312: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.312 \begin{table}[t]
+                      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+
+Overfull \hbox (102.98314pt too wide) in paragraph at lines 315--327
+ [][] 
+ []
+
+
+Underfull \hbox (badness 1024) in paragraph at lines 327--327
+[]\T1/ntxrx/m/n/10 Table 13: |\T1/ntxrx/bx/n/10 Inference-time fu-sion ab-la-ti
+on (over-lap@1,
+ []
+
+./secs/a_appendix.tex:329: Undefined control sequence.
+\@largefloatcheck ->\ifdim \ht \@currbox 
+                                         >\textheight \@tempdima -\textheigh...
+l.329 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:329: Missing number, treated as zero.
+<to be read again> 
+                   >
+l.329 \end{table}
+                 
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:329: Undefined control sequence.
+<argument> \@currbox 
+                     
+l.329 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:330: Argument of \@xnext has an extra }.
+<inserted text> 
+                \par 
+l.330 
+      
+I've run across a `}' that doesn't seem to match anything.
+For example, `\def\a#1{...}' and `\a}' would produce
+this error. If you simply proceed now, the `\par' that
+I've just inserted will cause me to report a runaway
+argument that might be the root of the problem. But if
+your `}' was spurious, just type `2' and it will go away.
+
+Runaway argument?
+\@currbox \@currlist \ifnum \count \@currbox >\z@ \advance \@pageht \@pagedp \E
+TC.
+./secs/a_appendix.tex:330: Paragraph ended before \@xnext was complete.
+<to be read again> 
+                   \par 
+l.330 
+      
+I suspect you've forgotten a `}', causing me to apply this
+control sequence to too much text. How can we recover?
+My plan is to forget the whole thing and hope for the best.
+
+
+LaTeX Warning: Reference `fig:targetsize_gap' on page 14 undefined on input lin
+e 332.
+
+
+LaTeX Warning: Reference `tab:targetsize_gap' on page 14 undefined on input lin
+e 332.
+
+
+./secs/a_appendix.tex:338: LaTeX Error: Too many unprocessed floats.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.338 \begin{table}[t]
+                      
+You've lost some text.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+./secs/a_appendix.tex:338: Undefined control sequence.
+\@float@Hx ...ltovf \fi \global \setbox \@currbox 
+                                                  \color@vbox \normalcolor \...
+l.338 \begin{table}[t]
+                      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:338: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.338 \begin{table}[t]
+                      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+
+Overfull \hbox (64.40051pt too wide) in paragraph at lines 340--350
+ [][] 
+ []
+
+./secs/a_appendix.tex:352: Undefined control sequence.
+\@largefloatcheck ->\ifdim \ht \@currbox 
+                                         >\textheight \@tempdima -\textheigh...
+l.352 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:352: Missing number, treated as zero.
+<to be read again> 
+                   >
+l.352 \end{table}
+                 
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:352: Undefined control sequence.
+<argument> \@currbox 
+                     
+l.352 \end{table}
+                 
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+
+./secs/a_appendix.tex:353: LaTeX Error: Too many unprocessed floats.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.353 \begin{figure}[t]
+                       
+You've lost some text.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+./secs/a_appendix.tex:353: Undefined control sequence.
+\@float@Hx ...ltovf \fi \global \setbox \@currbox 
+                                                  \color@vbox \normalcolor \...
+l.353 \begin{figure}[t]
+                       
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:353: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.353 \begin{figure}[t]
+                       
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+<figs/fig_targetsize_gap.pdf, id=396, 390.13976pt x 240.90176pt>
+File: figs/fig_targetsize_gap.pdf Graphic file (type pdf)
+
+<use figs/fig_targetsize_gap.pdf>
+Package pdftex.def Info: figs/fig_targetsize_gap.pdf used on input line 355.
+(pdftex.def)             Requested size: 220.24239pt x 135.99579pt.
+
+./secs/a_appendix.tex:358: Undefined control sequence.
+\@largefloatcheck ->\ifdim \ht \@currbox 
+                                         >\textheight \@tempdima -\textheigh...
+l.358 \end{figure}
+                  
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:358: Missing number, treated as zero.
+<to be read again> 
+                   >
+l.358 \end{figure}
+                  
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:358: Undefined control sequence.
+<argument> \@currbox 
+                     
+l.358 \end{figure}
+                  
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+
+Underfull \hbox (badness 7133) in paragraph at lines 332--359
+ \T1/ntxrx/bx/n/10 Con-trolled within-benchmark target-size re-gres-sion
+ []
+
+./secs/a_appendix.tex:359: Missing number, treated as zero.
+<to be read again> 
+                   \@elt 
+l.359 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:359: Missing = inserted for \ifnum.
+<to be read again> 
+                   \@elt 
+l.359 
+      
+I was expecting to see `<', `=', or `>'. Didn't.
+
+./secs/a_appendix.tex:359: Missing number, treated as zero.
+<to be read again> 
+                   \@elt 
+l.359 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:359: Argument of \@xnext has an extra }.
+<inserted text> 
+                \par 
+l.359 
+      
+I've run across a `}' that doesn't seem to match anything.
+For example, `\def\a#1{...}' and `\a}' would produce
+this error. If you simply proceed now, the `\par' that
+I've just inserted will cause me to report a runaway
+argument that might be the root of the problem. But if
+your `}' was spurious, just type `2' and it will go away.
+
+Runaway argument?
+\@marbox \@currlist \@cons \@freelist \@marbox \@cons \@freelist \@currbox \ETC
+.
+./secs/a_appendix.tex:359: Paragraph ended before \@xnext was complete.
+<to be read again> 
+                   \par 
+l.359 
+      
+I suspect you've forgotten a `}', causing me to apply this
+control sequence to too much text. How can we recover?
+My plan is to forget the whole thing and hope for the best.
+
+./secs/a_appendix.tex:359: Argument of \@xnext has an extra }.
+<inserted text> 
+                \par 
+l.359 
+      
+I've run across a `}' that doesn't seem to match anything.
+For example, `\def\a#1{...}' and `\a}' would produce
+this error. If you simply proceed now, the `\par' that
+I've just inserted will cause me to report a runaway
+argument that might be the root of the problem. But if
+your `}' was spurious, just type `2' and it will go away.
+
+Runaway argument?
+\@currbox \@currlist \ifnum \count \@currbox >\z@ \advance \@pageht \@pagedp \E
+TC.
+./secs/a_appendix.tex:359: Paragraph ended before \@xnext was complete.
+<to be read again> 
+                   \par 
+l.359 
+      
+I suspect you've forgotten a `}', causing me to apply this
+control sequence to too much text. How can we recover?
+My plan is to forget the whole thing and hope for the best.
+
+
+LaTeX Warning: Reference `fig:norm_census' on page 14 undefined on input line 3
+61.
+
+
+LaTeX Warning: Reference `sec:method:stage1' on page 14 undefined on input line
+ 365.
+
+
+./secs/a_appendix.tex:369: LaTeX Error: Too many unprocessed floats.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.369 \begin{figure}[t]
+                       
+You've lost some text.  Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+./secs/a_appendix.tex:369: Undefined control sequence.
+\@float@Hx ...ltovf \fi \global \setbox \@currbox 
+                                                  \color@vbox \normalcolor \...
+l.369 \begin{figure}[t]
+                       
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:369: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.369 \begin{figure}[t]
+                       
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+<figs/fig_norm_census_guiowl7b.pdf, id=397, 931.07535pt x 242.60913pt>
+File: figs/fig_norm_census_guiowl7b.pdf Graphic file (type pdf)
+
+<use figs/fig_norm_census_guiowl7b.pdf>
+Package pdftex.def Info: figs/fig_norm_census_guiowl7b.pdf used on input line 3
+71.
+(pdftex.def)             Requested size: 227.42392pt x 59.26021pt.
+
+./secs/a_appendix.tex:374: Undefined control sequence.
+\@largefloatcheck ->\ifdim \ht \@currbox 
+                                         >\textheight \@tempdima -\textheigh...
+l.374 \end{figure}
+                  
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./secs/a_appendix.tex:374: Missing number, treated as zero.
+<to be read again> 
+                   >
+l.374 \end{figure}
+                  
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./secs/a_appendix.tex:374: Undefined control sequence.
+<argument> \@currbox 
+                     
+l.374 \end{figure}
+                  
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+)
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \@elt 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Missing = inserted for \ifnum.
+<to be read again> 
+                   \@elt 
+l.214 
+      
+I was expecting to see `<', `=', or `>'. Didn't.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \@elt 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+
+./AnonymousSubmission2027.tex:214: LaTeX Error: This may be a LaTeX bug.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.214 
+      
+Call for help
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ...advance \@tempdima \ht \@marbox 
+                                                  \ifdim \@tempdima >\z@ \@l...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Bad register code (-27909235).
+\@addmarginpar ...e \space moved}\else \@tempdima 
+                                                  \z@ \fi \global \@mparbott...
+l.214 
+      
+A register number must be between 0 and 32767.
+I changed this one to zero.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Illegal unit of measure (pt inserted).
+<to be read again> 
+                   \global 
+l.214 
+      
+Dimensions can be in units of em, ex, in, pt, pc,
+cm, mm, dd, cc, nd, nc, bp, or sp; but yours is a new one!
+I'll assume that you meant to say pt, for printer's points.
+To recover gracefully from this error, it's best to
+delete the erroneous units; e.g., type `2' to delete
+two letters. (See Chapter 27 of The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ...vance \@mparbottom \dp \@marbox 
+                                                  \global \advance \@mparbot...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ...dvance \@tempdima -\ht \@marbox 
+                                                  \global \setbox \@marbox \...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ...marbox \global \setbox \@marbox 
+                                                  \vbox {\vskip \@tempdima \...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \vbox 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ...\vskip \@tempdima \box \@marbox 
+                                                  }\global \ht \@marbox \z@ ...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   }
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ... \@marbox }\global \ht \@marbox 
+                                                  \z@ \global \dp \@marbox \...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \global 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Illegal unit of measure (pt inserted).
+<to be read again> 
+                   \global 
+l.214 
+      
+Dimensions can be in units of em, ex, in, pt, pc,
+cm, mm, dd, cc, nd, nc, bp, or sp; but yours is a new one!
+I'll assume that you meant to say pt, for printer's points.
+To recover gracefully from this error, it's best to
+delete the erroneous units; e.g., type `2' to delete
+two letters. (See Chapter 27 of The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ...marbox \z@ \global \dp \@marbox 
+                                                  \z@ \kern -\@pagedp \noint...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \kern 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Illegal unit of measure (pt inserted).
+<to be read again> 
+                   \kern 
+l.214 
+      
+Dimensions can be in units of em, ex, in, pt, pc,
+cm, mm, dd, cc, nd, nc, bp, or sp; but yours is a new one!
+I'll assume that you meant to say pt, for printer's points.
+To recover gracefully from this error, it's best to
+delete the erroneous units; e.g., type `2' to delete
+two letters. (See Chapter 27 of The TeXbook.)
+
+./AnonymousSubmission2027.tex:214: Undefined control sequence.
+\@addmarginpar ...arginparwidth \fi \box \@marbox 
+                                                  \hss }\nointerlineskip \hb...
+l.214 
+      
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+./AnonymousSubmission2027.tex:214: Missing number, treated as zero.
+<to be read again> 
+                   \hss 
+l.214 
+      
+A number should have been here; I inserted `0'.
+(If you can't figure out why I needed to see a number,
+look up `weird error' in the index to The TeXbook.)
+
+[14] [15 <./figs/a7_layerwise_plots/a7_layerwise_combined.pdf>] [16 <./figs/a7_
+layerwise_plots/a7_layerwise_ss_pro.pdf>] [17 <./figs/a7_layerwise_plots/a7_lay
+erwise_ss_v2.pdf>] [18 <./figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf>]
+[19 <./figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf>] [20 <./figs/a7_layerw
+ise_plots/a7_layerwise_ui_vision.pdf>]
+
+Package natbib Warning: There were undefined citations.
+
+[21
+
+ <./figs/fig_norm_census_guiowl7b.pdf>] [22] [23] [24] [25] [26] [27]
+[28 <./figs/append/uitars/idx00021.png (PNG copy)> <./figs/append/uitars/idx004
+40.png (PNG copy)>] [29 <./figs/append/uitars/idx00114.png (PNG copy)> <./figs/
+append/uitars/idx00329.png (PNG copy)>] [30 <./figs/append/uivenus/idx00015.png
+ (PNG copy)> <./figs/append/uivenus/idx02155.png (PNG copy)>] [31 <./figs/appen
+d/uivenus/idx00405.png (PNG copy)> <./figs/append/uivenus/idx00493.png (PNG cop
+y)>] (./AnonymousSubmission2027.aux
+
+Package natbib Warning: Citation(s) may have changed.
+(natbib)                Rerun to get citations correct.
+
+)
 
 LaTeX Font Warning: Some font shapes were not available, defaults substituted.
 
 
-LaTeX Warning: There were multiply-defined labels.
+LaTeX Warning: There were undefined references.
 
- ) 
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+ )
+(\end occurred when \ifx on line 359 was incomplete)
+(\end occurred when \ifnum on line 359 was incomplete)
+(\end occurred when \ifnum on line 359 was incomplete)
+(\end occurred when \ifnum on line 359 was incomplete)
+(\end occurred when \ifx on line 359 was incomplete)
+(\end occurred when \ifnum on line 359 was incomplete)
+(\end occurred when \ifx on line 359 was incomplete)
+(\end occurred when \ifnum on line 359 was incomplete)
+(\end occurred when \ifnum on line 359 was incomplete)
+(\end occurred when \ifnum on line 359 was incomplete)
+(\end occurred when \ifx on line 330 was incomplete)
+(\end occurred when \ifnum on line 330 was incomplete)
+(\end occurred when \ifnum on line 330 was incomplete)
+(\end occurred when \ifnum on line 330 was incomplete) 
 Here is how much of TeX's memory you used:
- 15656 strings out of 495063
- 280953 string characters out of 3182201
- 781643 words of memory out of 3000000
- 18390 multiletter control sequences out of 15000+200000
+ 15677 strings out of 495063
+ 281502 string characters out of 3182201
+ 931893 words of memory out of 3000000
+ 18410 multiletter control sequences out of 15000+200000
  65918 words of font info for 90 fonts, out of 3000000 for 9000
  14 hyphenation exceptions out of 8191
- 55i,12n,92p,2008b,1238s stack positions out of 5000i,500n,10000p,200000b,50000s
-{/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/share/texliv
-e/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texm
-f-dist/fonts/type1/public/amsfonts/cm/cmbx9.pfb></usr/share/texlive/texmf-dist/
-fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/
-type1/public/amsfonts/cmextra/cmex7.pfb></usr/share/texlive/texmf-dist/fonts/ty
-pe1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/pu
-blic/amsfonts/cm/cmmi5.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/am
-sfonts/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
-cm/cmmi9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi
-b10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb
-></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr5.pfb></usr/s
-hare/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/tex
-live/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/texlive/tex
-mf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/share/texlive/texmf-dist/
-fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/
-type1/public/amsfonts/cm/cmsy5.pfb></usr/share/texlive/texmf-dist/fonts/type1/p
-ublic/amsfonts/cm/cmsy7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/a
-msfonts/cm/cmsy9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts
-/symbols/msbm10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/txfonts/r
-txb.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/txfonts/rtxbsc.pfb></
-usr/share/texlive/texmf-dist/fonts/type1/public/txfonts/rtxi.pfb></usr/share/te
-xlive/texmf-dist/fonts/type1/public/txfonts/rtxr.pfb></usr/share/texlive/texmf-
-dist/fonts/type1/public/txfonts/rtxsc.pfb></usr/share/texlive/texmf-dist/fonts/
-type1/urw/courier/ucrr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/tim
-es/utmb8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmr8a.pfb><
-/usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on AnonymousSubmission2027.pdf (27 pages, 4611173 bytes).
+ 55i,13n,92p,2008b,1238s stack positions out of 5000i,500n,10000p,200000b,50000s
+{/usr/share/texlive/texmf
+-dist/fonts/enc/dvips/base/8r.enc}</usr/share/texlive/texmf-dist/fonts/type1/pu
+blic/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/a
+msfonts/cm/cmbx9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts
+/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cmext
+ra/cmex7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi
+10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi5.pfb>
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/s
+hare/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi9.pfb></usr/share/te
+xlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmib10.pfb></usr/share/texlive
+/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmr5.pfb></usr/share/texlive/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/texlive/texmf-dist/fonts/type1
+/public/amsfonts/cm/cmr7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmr9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts
+/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cm
+sy5.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb
+></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/
+share/texlive/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/s
+hare/texlive/texmf-dist/fonts/type1/public/txfonts/rtxb.pfb></usr/share/texlive
+/texmf-dist/fonts/type1/public/txfonts/rtxbsc.pfb></usr/share/texlive/texmf-dis
+t/fonts/type1/public/txfonts/rtxi.pfb></usr/share/texlive/texmf-dist/fonts/type
+1/public/txfonts/rtxr.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/txf
+onts/rtxsc.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/courier/ucrr8a.pf
+b></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/t
+exlive/texmf-dist/fonts/type1/urw/times/utmr8a.pfb></usr/share/texlive/texmf-di
+st/fonts/type1/urw/times/utmri8a.pfb>
+Output written on AnonymousSubmission2027.pdf (31 pages, 4663715 bytes).
 PDF statistics:
- 1117 PDF objects out of 1200 (max. 8388607)
- 233 compressed objects within 3 object streams
+ 1249 PDF objects out of 1440 (max. 8388607)
+ 256 compressed objects within 3 object streams
  0 named destinations out of 1000 (max. 500000)
- 108 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 123 words of extra memory for PDF output out of 10000 (max. 10000000)
 
