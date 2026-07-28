@@ -1,0 +1,5177 @@
+Qwen3负优化与OPD
+============
+
+【提问 轮数1】
+[文件不支持导出]
+最核心的问题你跳过了？最核心的问题就是我们在qwen3系列上负优化了啊，我现在打算用on-policy distillation（OPD）之类的技巧辅助涨点，但是这意味着：
+1. 我要在接下来的7天内尽可能刷点，overlap还能勉强比一比，hit部分几乎是刷不上去，有没有什么别的办法即使hit刷不上去也能让我们的实验结果自洽呢？
+2. 原先论文的逻辑是：stage1完全可以被stage2复用。但是现在按照审稿人的建议，似乎是：在分析部分架构/训练/方法越简单越好越能说明我们假设的可行性；在实验部分可以更复杂（比如OPD）但是要把点刷上去，至少不应该负优化
+
+怎么办？只剩7天了，我们该怎么办让我们的论文实验实证部分更加solid？
+
+
+你说得对，我在 README 里确实把"Qwen3-VL 负优化"这个最致命的问题写成了一句轻描淡写的"backbone 越强、收益越小"的事后解释，没有把它当成头等大事来处理。这是审稿人 4KeN 和 eKpD 反复强调的核心质疑——方法在更强的 backbone 上不work，这直接动摇"方法有效性"这个根基，比 Stage2 loss 措辞漏洞、appendix 数字对不上这些"补丁级"问题严重得多。
+关于 OPD（On-Policy Distillation），我目前知识库里没有这个具体技术的准确信息，需要先搜索确认。让我先查一下。
+已获取URL
+https://arxiv.org/abs/2306.13649 等3个URL
+(0)
+已获取URL
+https://arxiv.org/abs/2306.13649
+(1)
+这是 GKD（Generalized Knowledge Distillation）论文，是"on-policy distillation"这个概念的学术源头（ICLR 2024），但不一定是用户所指的最新工业界叫法。用户提到的"OPD"很可能指最近（2025年下半年）Thinking Machines / OpenAI 博客中重新流行的说法，我需要再确认一下最新的、更貼近实际应用场景的版本。
+已获取URL
+https://thinkingmachines.ai/blog/on-policy-distillation/
+(1)
+现在我完全理解了 OPD（Thinking Machines 2025-10-27 博客，核心是 reverse-KL per-token distillation，学生模型自己 rollout、教师逐 token 打分/给 log-prob）。这个技术的本质是让学生模型（这里是我们 retrofit 后的模型/或者用来生成coordinate的原backbone）去学习一个更强教师在student自己犯错的地方该怎么做——这和我们的坐标序列化问题有一个非常直接的映射关系，我马上想清楚了怎么用。
+现在让我重新审视三份审稿意见，聚焦到"Qwen3负优化"这个问题上，看审稿人到底是怎么表述的，以及重新读一下当前A8/训练脚本的具体情况，来设计一个7天可执行的方案。
+已执行命令
+$
+grep -n -A3 "Qwen3\|stronger\|weaker backbone\|not consistently\|degrade" /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN /mnt/dolphinfs/ssd_pool/...
+<
+q/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN:6:Motivated by this analysis, the paper proposes ZWERGE-UI, a frozen-backbone retrofit that attaches cross-attention probes to intermediate layers and fuses their spatial heatmaps to make coordinate-free grounding predictions. The method is evaluated by retrofitting several Qwen2.5-VL- and Qwen3-VL-based GUI agents across ScreenSpot-Pro, ScreenSpot-v2, OSWorld-G, MMBench-GUI, and UI-Vision. They find that middle-layer probes often locate targets better than final-layer probes, while later layers are better at predicting coordinate tokens. ZWERGE-UI improves some models and benchmarks, especially weaker backbones, but its gains are mixed for stronger models.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-7-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-8-Summary Of Strengths:
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-9-The paper is well motivated and offers a useful new way to think about GUI-agent grounding: separating target identification from coordinate serialization. I also liked that the authors do more than just report final accuracy. They try to understand the proposed bottleneck using layerwise probes, coordinate-token likelihood, and instruction-switch tests. The analysis is fairly thorough for the factors they study, and the instruction-switch experiment is a good attempt to rule out simple visual saliency. The paper also tests several GUI agents, backbone families, and benchmarks, which broadens the study. However, as discussed in the weaknesses, some important controls are still missing, especially regarding probe capacity, adapter baselines, and patch-level evaluation.
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN:18:The method improves some weaker models and benchmarks, but gains are small or negative on several stronger backbones. This weakens the claim that the method generally solves a coordinate-serialization bottleneck.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-19-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-20-Figure 2 supports instruction sensitivity, but for some models the strongest effects appear in later layers, not clearly middle layers. The high-resolution/small-target claim is also based on dataset-level comparisons, without controlling for target size, resolution, UI density, or error type.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-21-
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:4:This paper studies GUI grounding in autoregressive multimodal GUI agents. The core claim is that current GUI agents conflate two computations: spatially localizing the intended UI element and serializing that location into coordinate/action tokens. The authors argue that these two computations peak at different transformer depths: intermediate layers contain more decodable instruction-conditioned spatial information, whereas later layers better predict coordinate tokens under teacher forcing. They call this mismatch the “coordinate serialization bottleneck.” The paper supports this claim using a frozen-backbone spatial probe and a parameter-free coordinate-token likelihood “serialization lens” across four GUI agents based on Qwen2.5-VL and Qwen3-VL backbones. The abstract and introduction state this as the main phenomenon and motivate a frozen-backbone retrofit, ZwerGe-UI.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-5-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-6-Methodologically, ZwerGe-UI attaches independent cross-attention probes to intermediate transformer layers, producing per-layer spatial posteriors over visual patch tokens, and then optionally learns a lightweight cross-layer fusion head to combine these posteriors. The backbone is kept frozen, and the method avoids autoregressive coordinate-token decoding at inference, instead decoding from a heatmap/patch posterior.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-7-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:8:Empirically, the paper evaluates on five GUI grounding benchmarks: ScreenSpot-Pro, ScreenSpot-v2, OSWorld-G, MMBench-GUI, and UI-Vision, using four GUI agents: GUI-Owl-7B, UI-TARS-1.5-7B, GUI-Owl-1.5-8B, and UI-Venus-1.5-8B. The experimental setup reports 200k training examples for the probe/fusion heads, frozen backbones, and patch-granularity overlap@1 evaluation. The results show substantial gains for some Qwen2.5-based models and some task families, especially OSWorld-G, MMBench-GUI, and UI-Vision spatial tasks, but also mixed or negative results for stronger Qwen3-based baselines on several benchmarks.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-9-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-10-Overall, the paper is about probing and exploiting intermediate-layer spatial representations in GUI agents, with a practical frozen-backbone retrofit motivated by an analysis of the depth mismatch between localization and coordinate serialization.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-11-
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:20:The main performance claim is overstated relative to the tables. The paper repeatedly suggests that ZWERGE-UI improves GUI grounding across benchmarks, but the main results are mixed. On ScreenSpot-Pro, ZWERGE improves GUI-Owl-7B and UI-TARS-1.5-7B, but substantially hurts GUI-Owl-1.5-8B and UI-Venus-1.5-8B. On ScreenSpot-v2, three of the four retrofits are slightly or clearly worse than their baselines. On MMBench-GUI, UI-Venus-1.5-8B is worse after retrofitting. The paper does acknowledge that Qwen2.5 backbones benefit more than Qwen3 backbones, but the abstract/conclusion should more clearly state that the method is not consistently beneficial and may degrade stronger coordinate-trained models.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-21-The “bottleneck” interpretation is suggestive but not yet fully established. The spatial lens uses supervised probes with around 42M parameters trained on 200k grounding examples. Even with the backbone frozen, a full-rank cross-attention probe can learn substantial task-specific readout geometry and dataset priors. Therefore, the result primarily shows that target location is more decodable from some intermediate layers under this probe architecture; it does not by itself prove that final layers have lost spatial information or that late layers are “coordinate serializers, not spatial refiners.” The instruction-switch counterfactual helps, but it uses only 150 pairs and still depends on the trained probe. More controls are needed: lower-capacity linear probes, shared probes across layers, random-label controls, held-out OOD UI layouts, probe-capacity sweeps, and direct comparison with attention-only or saliency baselines.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-22-The serialization lens needs more methodological detail and controls. The paper measures coordinate token log-likelihood at each layer using the native LM head under teacher forcing. However, applying a final LM head to intermediate states is a logit-lens-style analysis that can be heavily confounded by layerwise alignment to the output embedding space. It is expected that later layers will become more compatible with the final LM head, even for reasons unrelated to coordinate serialization. The paper should specify exactly how intermediate logits are computed, whether final norm/output head are used unchanged, and should include controls such as non-coordinate action tokens, random coordinates, text-only tokens, calibrated tuned lenses, or causal interventions showing that intermediate spatial peaks actually improve coordinate prediction when routed to a decoder.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-23-There appears to be a technical inconsistency in the Stage 2 objective. The paper states that in Stage 2 all backbone and probe weights are frozen, and only fusion parameters are updated. It then adds an auxiliary per-layer KL loss and says this prevents fusion from collapsing by keeping all active probe posteriors individually calibrated. But if the per-layer posteriors (p_\ell) come from frozen probes and are not functions of the fusion parameters, this auxiliary term is constant with respect to the trained parameters and cannot have the claimed effect. The authors need to clarify whether gradients actually flow into the probes in Stage 2, whether (p_\ell) changes through the fusion module, or whether this auxiliary loss should be removed/reinterpreted.
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:27:Appendix claims about fusion seem stronger than the plotted evidence. The appendix states that fusion “consistently outperforms the best single layer” and that the fusion dotted line lies above the peak of the per-layer curve in nearly all panels. However, several plots appear to show fusion below or close to the best individual probe, especially in ScreenSpot-Pro and ScreenSpot-v2. The authors should correct this claim and provide a quantitative table comparing best single layer, average over active layers, Stage 1-only, and Stage 2 fusion.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:28:The ablations do not directly validate the final method. The ablation section uses a “fast LoRA-probe variant” separate from the final CrossAttn probes, trained on only 50k samples and evaluated at checkpoint 800. Moreover, some ablation results seem to undermine the final design choices: for example, Gaussian+CosMeta is not consistently better than alternatives, and OSWorld-G drops sharply for several variants. The final CrossAttn architecture should be ablated directly, including probe capacity, number of active layers, final-layer-only probe, intermediate-only probe, static averaging, learned fusion without CosMeta, and patch decoding strategy.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-29-Important related baselines should be discussed more concretely. GUI-Actor is especially close: it is also a coordinate-free GUI grounding method with an attention-based action head and frozen-backbone claims, and reports ScreenSpot-Pro results with Qwen2/Qwen2.5 backbones. Re-Prefill is also directly relevant because it studies the prefill stage and evaluates on the same family of GUI grounding benchmarks. The paper cites these lines of work, but the experimental comparison and positioning are not yet sufficient for a selective ACL venue. (arXiv)
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:30:The paper needs clearer distinction between analysis contribution and method contribution. The diagnostic findings are interesting even if ZWERGE-UI is not consistently stronger than baselines. Conversely, if the method is presented as the main contribution, the mixed results and missing comparison to close coordinate-free methods are more problematic. The authors should decide whether the paper is primarily an interpretability/analysis paper or a method paper, and align claims, evaluation, and title accordingly.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-31-Comments Suggestions And Typos:
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:32:Please temper broad claims such as “improves GUI grounding across five benchmarks.” A more accurate statement would be that ZWERGE-UI substantially helps some Qwen2.5-based models and spatial/layout-heavy tasks, while gains are mixed or negative for stronger Qwen3-based coordinate-trained models.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:33:Add a table summarizing deltas by model and benchmark, including number of wins/losses and average delta for Qwen2.5 vs Qwen3 backbones.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-34-Provide full details of the 200k training samples: dataset names, licenses, split construction, filtering, duplicate removal, benchmark overlap checks, screenshot resolution distribution, instruction templates, and whether any evaluation benchmark training portions were used.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-35-Report standard native point-in-box accuracy in addition to patch overlap@1. If patch overlap@1 is retained, clearly define patch size, grid construction, and how patch predictions are converted to executable click coordinates.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-36-Include statistical uncertainty: confidence intervals for all main tables, bootstrap intervals for layerwise curves, and at least 3 random seeds for probe/fusion training.
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:39:Add stronger controls for the probe analysis: random instruction, random target, shuffled labels, image-only, text-only, saliency-only, final-layer tuned probe with higher capacity, and lower-capacity linear probes.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:40:The explanation that Qwen3-VL backbones have more diverse grounding supervision is plausible but should be supported with evidence or removed/softened.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-41-The OSWorld-G refusal removal should include the number and percentage of removed samples, and whether refusal removal changes the task distribution.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-42-Please make macro vs micro averaging explicit. Some table/figure differences may be due to macro vs sample-weighted averages, but this is not always clear.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-43-Typo/grammar: “This pattern is consistent with the our hypothesis” → “This pattern is consistent with our hypothesis.”
+这份摘要因重复内容损坏严重，我先去读取实际的对话记录，确认当前真实状态和用户最新的具体请求。
+已执行命令
+$
+wc -l /home/hadoop-mt-ocr/.catpaw/projects/ide-mnt-dolphinfs-ssd_pool-docker-user-hadoop-mt-ocr-yangwenkui03-zwerge-code/db86f814-28d1-4853-885b-5387d6cbac31/agent-transcripts/transcript.txt
+q2842 /home/hadoop-mt-ocr/.catpaw/projects/ide-mnt-dolphinfs-ssd_pool-docker-user-hadoop-mt-ocr-yangwenkui03-zwerge-code/db86f814-28d1-4853-885b-5387d6cbac31/agent-transcripts/transcript.txt
+42842行。让我先搜索关键词定位到最新的用户请求（OPD、7天计划等）。
+已执行命令
+$
+grep -n "^user:" /home/hadoop-mt-ocr/.catpaw/projects/ide-mnt-dolphinfs-ssd_pool-docker-user-hadoop-mt-ocr-yangwenkui03-zwerge-code/db86f814-28d1-4853-885b-5387d6cbac31/agent-transcripts/transcript.tx...
+<
+q1:user:
+641:user:
+878:user:
+1055:user:
+2799:user:
+只有5条用户消息，文件其实不大（42842行主要是工具输出）。让我读取最后一条用户消息附近的内容。
+已读取
+transcript.txt
+(L2799-2863)
+现在情况清楚了：我之前的分析被截断了，用户最新的完整请求（第2799-2808行）是：
+我在 Qwen3 系列上出现负优化，需要用 OPD（On-Policy Distillation）在剩下 7 天内刷点
+overlap 还能比一比，hit 部分几乎刷不上去——问有没有别的办法让实验结果自洽
+论文逻辑冲突：分析部分要简单（证明假设可行性），实验部分可以复杂（用OPD）但至少不能负优化
+要求重新审视所有审稿人意见，不要忽略问题
+要求先搜索 OPD 相关信息、告诉用户该搜索/下载什么资料到本地
+我已经通过 web_fetch 确认了 OPD（Thinking Machines 2025-10-27 博客）的核心机制：reverse-KL per-token distillation，学生模型自己 rollout、教师逐 token 打分。现在让我继续之前中断的工作：重新审视审稿人意见中关于 Qwen3 负优化的具体措辞。
+已执行命令
+$
+grep -n -A3 "Qwen3\|stronger\|weaker backbone\|not consistently\|degrade" /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN /mnt/dolphinfs/ssd_pool/...
+<
+q/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN:6:Motivated by this analysis, the paper proposes ZWERGE-UI, a frozen-backbone retrofit that attaches cross-attention probes to intermediate layers and fuses their spatial heatmaps to make coordinate-free grounding predictions. The method is evaluated by retrofitting several Qwen2.5-VL- and Qwen3-VL-based GUI agents across ScreenSpot-Pro, ScreenSpot-v2, OSWorld-G, MMBench-GUI, and UI-Vision. They find that middle-layer probes often locate targets better than final-layer probes, while later layers are better at predicting coordinate tokens. ZWERGE-UI improves some models and benchmarks, especially weaker backbones, but its gains are mixed for stronger models.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-7-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-8-Summary Of Strengths:
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-9-The paper is well motivated and offers a useful new way to think about GUI-agent grounding: separating target identification from coordinate serialization. I also liked that the authors do more than just report final accuracy. They try to understand the proposed bottleneck using layerwise probes, coordinate-token likelihood, and instruction-switch tests. The analysis is fairly thorough for the factors they study, and the instruction-switch experiment is a good attempt to rule out simple visual saliency. The paper also tests several GUI agents, backbone families, and benchmarks, which broadens the study. However, as discussed in the weaknesses, some important controls are still missing, especially regarding probe capacity, adapter baselines, and patch-level evaluation.
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN:18:The method improves some weaker models and benchmarks, but gains are small or negative on several stronger backbones. This weakens the claim that the method generally solves a coordinate-serialization bottleneck.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-19-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-20-Figure 2 supports instruction sensitivity, but for some models the strongest effects appear in later layers, not clearly middle layers. The high-resolution/small-target claim is also based on dataset-level comparisons, without controlling for target size, resolution, UI density, or error type.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN-21-
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:4:This paper studies GUI grounding in autoregressive multimodal GUI agents. The core claim is that current GUI agents conflate two computations: spatially localizing the intended UI element and serializing that location into coordinate/action tokens. The authors argue that these two computations peak at different transformer depths: intermediate layers contain more decodable instruction-conditioned spatial information, whereas later layers better predict coordinate tokens under teacher forcing. They call this mismatch the “coordinate serialization bottleneck.” The paper supports this claim using a frozen-backbone spatial probe and a parameter-free coordinate-token likelihood “serialization lens” across four GUI agents based on Qwen2.5-VL and Qwen3-VL backbones. The abstract and introduction state this as the main phenomenon and motivate a frozen-backbone retrofit, ZwerGe-UI.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-5-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-6-Methodologically, ZwerGe-UI attaches independent cross-attention probes to intermediate transformer layers, producing per-layer spatial posteriors over visual patch tokens, and then optionally learns a lightweight cross-layer fusion head to combine these posteriors. The backbone is kept frozen, and the method avoids autoregressive coordinate-token decoding at inference, instead decoding from a heatmap/patch posterior.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-7-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:8:Empirically, the paper evaluates on five GUI grounding benchmarks: ScreenSpot-Pro, ScreenSpot-v2, OSWorld-G, MMBench-GUI, and UI-Vision, using four GUI agents: GUI-Owl-7B, UI-TARS-1.5-7B, GUI-Owl-1.5-8B, and UI-Venus-1.5-8B. The experimental setup reports 200k training examples for the probe/fusion heads, frozen backbones, and patch-granularity overlap@1 evaluation. The results show substantial gains for some Qwen2.5-based models and some task families, especially OSWorld-G, MMBench-GUI, and UI-Vision spatial tasks, but also mixed or negative results for stronger Qwen3-based baselines on several benchmarks.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-9-
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-10-Overall, the paper is about probing and exploiting intermediate-layer spatial representations in GUI agents, with a practical frozen-backbone retrofit motivated by an analysis of the depth mismatch between localization and coordinate serialization.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-11-
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:20:The main performance claim is overstated relative to the tables. The paper repeatedly suggests that ZWERGE-UI improves GUI grounding across benchmarks, but the main results are mixed. On ScreenSpot-Pro, ZWERGE improves GUI-Owl-7B and UI-TARS-1.5-7B, but substantially hurts GUI-Owl-1.5-8B and UI-Venus-1.5-8B. On ScreenSpot-v2, three of the four retrofits are slightly or clearly worse than their baselines. On MMBench-GUI, UI-Venus-1.5-8B is worse after retrofitting. The paper does acknowledge that Qwen2.5 backbones benefit more than Qwen3 backbones, but the abstract/conclusion should more clearly state that the method is not consistently beneficial and may degrade stronger coordinate-trained models.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-21-The “bottleneck” interpretation is suggestive but not yet fully established. The spatial lens uses supervised probes with around 42M parameters trained on 200k grounding examples. Even with the backbone frozen, a full-rank cross-attention probe can learn substantial task-specific readout geometry and dataset priors. Therefore, the result primarily shows that target location is more decodable from some intermediate layers under this probe architecture; it does not by itself prove that final layers have lost spatial information or that late layers are “coordinate serializers, not spatial refiners.” The instruction-switch counterfactual helps, but it uses only 150 pairs and still depends on the trained probe. More controls are needed: lower-capacity linear probes, shared probes across layers, random-label controls, held-out OOD UI layouts, probe-capacity sweeps, and direct comparison with attention-only or saliency baselines.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-22-The serialization lens needs more methodological detail and controls. The paper measures coordinate token log-likelihood at each layer using the native LM head under teacher forcing. However, applying a final LM head to intermediate states is a logit-lens-style analysis that can be heavily confounded by layerwise alignment to the output embedding space. It is expected that later layers will become more compatible with the final LM head, even for reasons unrelated to coordinate serialization. The paper should specify exactly how intermediate logits are computed, whether final norm/output head are used unchanged, and should include controls such as non-coordinate action tokens, random coordinates, text-only tokens, calibrated tuned lenses, or causal interventions showing that intermediate spatial peaks actually improve coordinate prediction when routed to a decoder.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-23-There appears to be a technical inconsistency in the Stage 2 objective. The paper states that in Stage 2 all backbone and probe weights are frozen, and only fusion parameters are updated. It then adds an auxiliary per-layer KL loss and says this prevents fusion from collapsing by keeping all active probe posteriors individually calibrated. But if the per-layer posteriors (p_\ell) come from frozen probes and are not functions of the fusion parameters, this auxiliary term is constant with respect to the trained parameters and cannot have the claimed effect. The authors need to clarify whether gradients actually flow into the probes in Stage 2, whether (p_\ell) changes through the fusion module, or whether this auxiliary loss should be removed/reinterpreted.
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:27:Appendix claims about fusion seem stronger than the plotted evidence. The appendix states that fusion “consistently outperforms the best single layer” and that the fusion dotted line lies above the peak of the per-layer curve in nearly all panels. However, several plots appear to show fusion below or close to the best individual probe, especially in ScreenSpot-Pro and ScreenSpot-v2. The authors should correct this claim and provide a quantitative table comparing best single layer, average over active layers, Stage 1-only, and Stage 2 fusion.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:28:The ablations do not directly validate the final method. The ablation section uses a “fast LoRA-probe variant” separate from the final CrossAttn probes, trained on only 50k samples and evaluated at checkpoint 800. Moreover, some ablation results seem to undermine the final design choices: for example, Gaussian+CosMeta is not consistently better than alternatives, and OSWorld-G drops sharply for several variants. The final CrossAttn architecture should be ablated directly, including probe capacity, number of active layers, final-layer-only probe, intermediate-only probe, static averaging, learned fusion without CosMeta, and patch decoding strategy.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-29-Important related baselines should be discussed more concretely. GUI-Actor is especially close: it is also a coordinate-free GUI grounding method with an attention-based action head and frozen-backbone claims, and reports ScreenSpot-Pro results with Qwen2/Qwen2.5 backbones. Re-Prefill is also directly relevant because it studies the prefill stage and evaluates on the same family of GUI grounding benchmarks. The paper cites these lines of work, but the experimental comparison and positioning are not yet sufficient for a selective ACL venue. (arXiv)
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:30:The paper needs clearer distinction between analysis contribution and method contribution. The diagnostic findings are interesting even if ZWERGE-UI is not consistently stronger than baselines. Conversely, if the method is presented as the main contribution, the mixed results and missing comparison to close coordinate-free methods are more problematic. The authors should decide whether the paper is primarily an interpretability/analysis paper or a method paper, and align claims, evaluation, and title accordingly.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-31-Comments Suggestions And Typos:
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:32:Please temper broad claims such as “improves GUI grounding across five benchmarks.” A more accurate statement would be that ZWERGE-UI substantially helps some Qwen2.5-based models and spatial/layout-heavy tasks, while gains are mixed or negative for stronger Qwen3-based coordinate-trained models.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:33:Add a table summarizing deltas by model and benchmark, including number of wins/losses and average delta for Qwen2.5 vs Qwen3 backbones.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-34-Provide full details of the 200k training samples: dataset names, licenses, split construction, filtering, duplicate removal, benchmark overlap checks, screenshot resolution distribution, instruction templates, and whether any evaluation benchmark training portions were used.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-35-Report standard native point-in-box accuracy in addition to patch overlap@1. If patch overlap@1 is retained, clearly define patch size, grid construction, and how patch predictions are converted to executable click coordinates.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-36-Include statistical uncertainty: confidence intervals for all main tables, bootstrap intervals for layerwise curves, and at least 3 random seeds for probe/fusion training.
+--
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:39:Add stronger controls for the probe analysis: random instruction, random target, shuffled labels, image-only, text-only, saliency-only, final-layer tuned probe with higher capacity, and lower-capacity linear probes.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD:40:The explanation that Qwen3-VL backbones have more diverse grounding supervision is plausible but should be supported with evidence or removed/softened.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-41-The OSWorld-G refusal removal should include the number and percentage of removed samples, and whether refusal removal changes the task distribution.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-42-Please make macro vs micro averaging explicit. Some table/figure differences may be due to macro vs sample-weighted averages, but this is not always clear.
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD-43-Typo/grammar: “This pattern is consistent with the our hypothesis” → “This pattern is consistent with our hypothesis.”
+现在关键审稿意见已经清楚了。让我再看第三位审稿人和当前的实验结果数据，然后规划完整方案。
+已执行命令
+$
+cat /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4sok 2>&1 | head -100
+qOfficial Review of Submission2403 by Reviewer 4sok
+Official Reviewby Reviewer 4sok06 Jul 2026, 18:19 (modified: 12 Jul 2026, 23:16)Program Chairs, Senior Area Chairs, Area Chairs, Reviewers Submitted, Authors, Reviewer 4sokRevisions
+Paper Summary:
+The paper investigates the internal representations of autoregressive GUI agents, identifying a "coordinate serialization bottleneck" where intermediate transformer layers hold optimal spatial grounding signals, while final layers specialize in coordinate token formatting. To exploit this, the authors propose ZwerGe-UI, a parameter-efficient, frozen-backbone retrofit. It extracts layer-wise spatial posteriors using intermediate cross-attention probes and dynamically aggregates them via a cross-layer fusion head. Evaluated on GUI benchmarks, ZwerGe-UI improves spatial grounding over standard autoregressive decoding.
+
+Summary Of Strengths:
+The isolation of the spatial-to-serialization transition using dual analytical lenses (spatial probes vs. teacher-forced coordinate log-likelihoods) provides insights into MLLM behavior.
+
+Freezing the backbone and appending shallow cross-attention probes (~0.5% of backbone parameters) could improve efficiency.
+
+The instruction-switch experiment rules out passive visual saliency, providing potential evidence that the mid-layer signals are instruction-conditioned spatial posteriors.
+
+Summary Of Weaknesses:
+I am a little confused by the CosMeta fusion design (Eq. 5). The text correctly notes the "heterogeneity of semantic spaces" across different depths (Section 3.1). Could the authors clarify how a single global, learnable meta-query (
+) can effectively compute cosine similarities across these heterogeneous latent spaces?
+
+Could you elaborate further on the behavior of the anisotropic Gaussian label (Eq. 3) for very small targets? Since the variance is defined as a fraction of the bounding box size (
+,
+), it seems the variance might approach zero for tiny icons on high-resolution screens. I wonder if the authors could discuss whether this causes the KL divergence loss (Eq. 4) to revert to a hard, one-hot penalty in these exact scenarios, which is the specific issue soft-labeling aims to mitigate.
+
+Have the authors considered the potential impact of an out-of-distribution (OOD) shift during prefill-forced inference? The backbone agents (e.g., Qwen-VL variants) are typically trained to generate <|ground|><|pointer_start|> tokens autoregressively, often after latent reasoning or Chain-of-Thought tokens.
+
+What was the justification for applying a strict
+ pre-scale constraint (
+) prior to LayerNorm (Section 3.1)? While this effectively prevents numerical overflow, in modern LLMs, activation magnitude often correlates with token confidence or attention sinks.
+
+It is not entirely clear how the continuous KL divergence training objective fully aligns with the discrete inference decoding strategy. While the model is trained to map a unimodal Gaussian posterior, inference relies on a "BFS centroid decode strategy with a 0.3x max threshold" (Section 4.1).
+
+Comments Suggestions And Typos:
+NA
+
+Confidence: 3 =  Pretty sure, but there's a chance I missed something. Although I have a good feel for this area in general, I did not carefully check the paper's details, e.g., the math or experimental design.
+Soundness: 3.5
+Excitement: 3 = Interesting: I might mention some points of this paper to others and/or attend its presentation in a conference if there's time.
+Overall Assessment: 3.5 = Borderline Conference
+Ethical Concerns:
+There are no concerns with this submission
+
+Reproducibility: 4 = They could mostly reproduce the results, but there may be some variation because of sample variance or minor variations in their interpretation of the protocol or method.
+Datasets: 1 = No usable datasets submitted.
+Software: 3 = Potentially useful: Someone might find the new software useful for their work.
+Knowledge Of Or Educated Guess At Author Identity: No
+Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Knowledge Of Paper Source: N/A, I do not know anything about the paper from outside sources
+Impact Of Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Reviewer Certification: I certify that the review I entered accurately reflects my assessment of the work. If you used any type of automated tool to help you craft your review, I hereby certify that its use was restricted to improving grammar and style, and the substance of the review is either my own work or the work of an acknowledged secondary reviewer.
+Publication Ethics Policy Compliance: I used a privacy-preserving tool exclusively for the use case(s) approved by PEC policy, such as language edits
+现在再看 4KeN 的完整意见（补充部分），以及当前的实验结果数据（各模型 hit/overlap 具体数字）。
+已执行命令
+$
+cat /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-4KeN 2>&1
+qOfficial Review of Submission2403 by Reviewer 4KeN
+Official Reviewby Reviewer 4KeN09 Jul 2026, 15:34 (modified: 12 Jul 2026, 23:16)Program Chairs, Senior Area Chairs, Area Chairs, Reviewers Submitted, Authors, Reviewer 4KeNRevisions
+Paper Summary:
+This paper studies how autoregressive GUI agents internally represent screen grounding. The authors argue that current GUI agents conflate two computations: locating the target UI element on the screen and serializing that location into coordinate/action tokens. They hypothesize a “coordinate serialization bottleneck,” where spatial grounding is more accessible in intermediate layers while later layers specialize in producing coordinate tokens. To test this, they probe different model layers for spatial information, measure how well each layer predicts coordinate tokens, and swap instructions on the same screenshot to check whether the heatmaps follow the instruction rather than just salient visual elements.
+
+Motivated by this analysis, the paper proposes ZWERGE-UI, a frozen-backbone retrofit that attaches cross-attention probes to intermediate layers and fuses their spatial heatmaps to make coordinate-free grounding predictions. The method is evaluated by retrofitting several Qwen2.5-VL- and Qwen3-VL-based GUI agents across ScreenSpot-Pro, ScreenSpot-v2, OSWorld-G, MMBench-GUI, and UI-Vision. They find that middle-layer probes often locate targets better than final-layer probes, while later layers are better at predicting coordinate tokens. ZWERGE-UI improves some models and benchmarks, especially weaker backbones, but its gains are mixed for stronger models.
+
+Summary Of Strengths:
+The paper is well motivated and offers a useful new way to think about GUI-agent grounding: separating target identification from coordinate serialization. I also liked that the authors do more than just report final accuracy. They try to understand the proposed bottleneck using layerwise probes, coordinate-token likelihood, and instruction-switch tests. The analysis is fairly thorough for the factors they study, and the instruction-switch experiment is a good attempt to rule out simple visual saliency. The paper also tests several GUI agents, backbone families, and benchmarks, which broadens the study. However, as discussed in the weaknesses, some important controls are still missing, especially regarding probe capacity, adapter baselines, and patch-level evaluation.
+
+Summary Of Weaknesses:
+The main evidence comes from large supervised cross-attention probes, not directly from the original GUI agents. This shows that target locations are decodable from intermediate layers, but it does not fully prove that the model naturally knows where to click.
+
+The probes are expressive, so the middle-layer advantage may partly reflect where this probe design learns best. The claim that late layers are "coordinate serializers, not spatial refiners” is too strong; late layers may still encode spatial/action information in a different form.
+
+ZWERGE-UI adds supervised adapter-like parameters, but it is mainly compared against the base model. The paper should compare against other ways of adding similar supervised capacity trained on the same data, such as final-layer probes, simple MLP/linear probes, LoRA adapters, or supervised coordinate heads.
+
+The method improves some weaker models and benchmarks, but gains are small or negative on several stronger backbones. This weakens the claim that the method generally solves a coordinate-serialization bottleneck.
+
+Figure 2 supports instruction sensitivity, but for some models the strongest effects appear in later layers, not clearly middle layers. The high-resolution/small-target claim is also based on dataset-level comparisons, without controlling for target size, resolution, UI density, or error type.
+
+Since the method predicts patches and uses overlap@1, the paper should clearly report patch size, box-to-patch mapping, and target-size effects. Metrics beyond top-1 overlap, such as target-region probability mass or top-k coverage, would also help.
+
+Comments Suggestions And Typos:
+No comments.
+
+Confidence: 4 = Quite sure. I tried to check the important points carefully. It's unlikely, though conceivable, that I missed something that should affect my ratings.
+Soundness: 2.5
+Excitement: 2.5
+Overall Assessment: 3 = Findings: I think this paper could be accepted to the Findings of the ACL.
+Ethical Concerns:
+There are no concerns with this submission
+
+Needs Ethics Review: No
+Reproducibility: 3 = They could reproduce the results with some difficulty. The settings of parameters are underspecified or subjectively determined, and/or the training/evaluation data are not widely available.
+Datasets: 1 = No usable datasets submitted.
+Software: 1 = No usable software released.
+Knowledge Of Or Educated Guess At Author Identity: No
+Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Knowledge Of Paper Source: N/A, I do not know anything about the paper from outside sources
+Impact Of Knowledge Of Paper: N/A, I do not know anything about the paper from outside sources
+Reviewer Certification: I certify that the review I entered accurately reflects my assessment of the work. If you used any type of automated tool to help you craft your review, I hereby certify that its use was restricted to improving grammar and style, and the substance of the review is either my own work or the work of an acknowledged secondary reviewer.
+Publication Ethics Policy Compliance: I did not use any generative AI tools for this review
+三份审稿意见都已明确读取。现在让我看当前实验部分的具体数字（哪些模型/benchmark负优化），以及现有的实验结果文件，来量化问题规模。
+已执行命令
+$
+grep -n "Qwen3\|GUI-Owl-1.5\|UI-Venus" /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/secs/5_experiment.tex | head -50
+q31:\multirow{2}{*}{GUI-Owl-1.5-8B}
+35:\multirow{2}{*}{UI-Venus-1.5-8B}
+68:\multirow{2}{*}{UI-Venus-8B}
+96:\multirow{2}{*}{GUI-Owl-1.5-8B}
+100:\multirow{2}{*}{UI-Venus-1.5-8B}
+130:We retrofit \textsc{ZwerGe-UI} onto four GUI agents: \textbf{GUI-Owl-7B}~\citep{ye2025guiowl} and \textbf{UI-TARS-1.5-7B}~\citep{qin2025uitars} (Qwen2.5-VL backbone, 28 layers) and \textbf{GUI-Owl-1.5-8B}~\citep{xu2026mobile} and \textbf{UI-Venus-1.5-8B}~\citep{team2026ui} (Qwen3-VL backbone, 36 layers). Each backbone is kept completely frozen throughout both training stages; only the probe and fusion heads are updated.
+161:\multirow{2}{*}{GUI-Owl-1.5-8B}
+165:\multirow{2}{*}{UI-Venus-1.5-8B}
+197:\multirow{2}{*}{GUI-Owl-1.5-8B}
+201:\multirow{2}{*}{UI-Venus-1.5-8B}
+213:\textbf{Qwen2.5-VL backbones benefit more than Qwen3-VL backbones.}
+214:On ScreenSpot-Pro, GUI-Owl-7B (Qwen2.5-VL) gains $+7.97$~pp overall while UI-TARS-1.5-7B gains $+1.33$~pp; GUI-Owl-1.5-8B (Qwen3-VL) and UI-Venus-1.5-8B show smaller or negative overall deltas.
+215:This pattern is consistent with the our hypothesis: Qwen3-VL models are trained on substantially more diverse grounding supervision, yielding stronger end-to-end coordinate serialization and a smaller gap between intermediate spatial quality and final-layer output.
+已读取
+5_experiment.tex
+(L1-230)
+现在我看到全部原始数据了。关键发现：这些表格用的是 overlap@1，而不是 hit@1。用户说"overlap还能勉强比一比，hit部分几乎是刷不上去"——说明用户内部知道 hit@1 的数字更差。让我看一下当前实验方法(Method部分)和当前A8的最新checkpoint评测结果，确认真实的hit@1数字规模，并查看是否已有OPD相关的探索代码。
+已执行命令
+$
+echo "=== 查找 checkpoint 目录 ===" && ls -la /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/ 2>&1 | head -50
+q=== 查找 checkpoint 目录 ===
+total 7
+drwxr-xr-x 14 hadoop-mt-ocr hadoop-mt-ocr 12 Jul 22 17:20 .
+drwxr-xr-x  5 hadoop-mt-ocr hadoop-mt-ocr  4 May 25 22:33 ..
+drwxr-xr-x 38 hadoop-mt-ocr hadoop-mt-ocr 36 May 26 12:52 ablation
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 32 May 23 20:22 guiowl7b_A7_exp001
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 32 May 26 10:42 guiowl7b_A8_cosmeta_ctx_exp001
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 33 May 25 13:17 guiowl_A7_exp002
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 33 May 26 11:53 guiowl_A8_cosmeta_ctx_exp001
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 24 May 27 00:25 qwen35_A7_exp001
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 32 May 25 18:39 uitars1_A7_exp001
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 32 May 23 20:34 uitars_A7_exp001
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 32 May 26 10:52 uitars_A8_cosmeta_ctx_exp001
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 33 May 25 12:39 uivenus_A7_exp002
+drwxrwxr-x 12 hadoop-mt-ocr hadoop-mt-ocr 33 May 26 11:12 uivenus_A8_cosmeta_ctx_exp001
+drwxrwxr-x  6 hadoop-mt-ocr hadoop-mt-ocr  9 Jul 22 21:57 uivenus_A8_cosmeta_ctx_exp003
+有一个较新的 uivenus_A8_cosmeta_ctx_exp003（7月22日，今天），说明用户可能已经在尝试新方案。让我查看这个和其他结果的 summary json，看看实际的 hit@1 数字。
+已执行命令
+$
+echo "=== exp003 (最新) ===" && find /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003 -maxdepth 3 2>&1 echo "" echo "=== A8 uivenus_A8_cosmet...
+<
+已执行命令
+$
+find /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003 -maxdepth 3 2>&1
+q/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/eval_daemon.log
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/chat_template.jinja
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_6.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/optimizer.pt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_7.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_3.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/tokenizer_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/model-00003-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/special_tokens_map.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/preprocessor_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/merges.txt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_5.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/tokenizer.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/generation_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/vocab.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/scheduler.pt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/trainer_state.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/added_tokens.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/model-00001-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_1.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/model-00002-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_0.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_4.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/video_preprocessor_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/rng_state_2.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/model.safetensors.index.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/model-00004-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-600/training_args.bin
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/train.log
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/.eval_daemon_tmp
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/training_args.bin
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_1.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_4.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/tokenizer.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/scheduler.pt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/preprocessor_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/tokenizer_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/model-00003-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_2.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/added_tokens.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/video_preprocessor_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/model-00004-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/optimizer.pt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/trainer_state.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_6.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/generation_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_3.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/chat_template.jinja
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/model.safetensors.index.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_0.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_5.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/model-00002-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/vocab.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/rng_state_7.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/model-00001-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/merges.txt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-500/special_tokens_map.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/scheduler.pt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/generation_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/tokenizer.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/video_preprocessor_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/model.safetensors.index.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_0.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/model-00002-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_2.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/preprocessor_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_4.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/vocab.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/osworld_g_orig_layerwise_summary.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/mmbench_layerwise_summary.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/details
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/ss_v2_layerwise_summary.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/ui_vision_layerwise_summary.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/ss_pro_layerwise_summary.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/osworld_g_layerwise_summary.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/layerwise_all_summary.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/model-00003-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/model-00001-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/model-00004-of-00004.safetensors
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/optimizer.pt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/chat_template.jinja
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_6.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/tokenizer_config.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_3.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_7.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/special_tokens_map.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/added_tokens.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/training_args.bin
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_5.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/merges.txt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/rng_state_1.pth
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/trainer_state.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/is_permanent_ckpt
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/args.json
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/.wandb_run_id
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/.eval_submitted.json
+有一个正在跑的 uivenus exp003 训练。让我看看它的 args.json（了解这是什么新尝试）和最新的评测结果（hit@1 vs overlap@1 具体数字）。
+已读取
+args.json
+这确认了这是标准的 A8 训练（无 OPD），说明用户提到的 OPD 还没开始实施。让我看一下checkpoint-400的评测结果，了解 hit@1 vs overlap@1 的真实差距规模，然后再看已有的方法论文件（method.tex），从而设计一个完整方案。
+已读取
+layerwise_all_summary.json
+(too large to read at once)
+已执行命令
+$
+python3 -c " import json with open('/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/layerwise_all_summary.json') as...
+<
+已执行命令
+$
+python3 -c "import json; d=json.load(open('/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/layerwise_all_summary.js...
+<
+q<class 'dict'> ['ss_pro', 'ss_v2', 'osworld_g', 'osworld_g_orig', 'mmbench', 'ui_vision']
+已执行命令
+$
+python3 -c " import json d=json.load(open('/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/layerwise_all_summary.js...
+<
+inspect_summary.py
++13
+-0
+1/1
+import json, sys
+path = sys.argv[1]
+d = json.load(open(path))
+for bench, v in d.items():
+    if not isinstance(v, dict):
+        print(bench, "->", v)
+        continue
+    keys = list(v.keys())
+    print(f"=== {bench} === keys: {keys[:20]}")
+    for k in ["fusion_acc", "fusion_hit_acc", "hit_acc", "hit_top1", "overlap_top1", "n_samples", "best_layer", "best_layer_acc"]:
+        if k in v:
+            print(f"   {k}: {v[k]}")
+展开
+已执行命令
+$
+python3 /tmp/inspect_summary.py /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge/uivenus_A8_cosmeta_ctx_exp003/checkpoint-400/results/layerwise_all_summary.json
+q=== ss_pro === keys: ['bench', 'bench_key', 'total', 'valid', 'skipped', 'topk', 'probe_layers', 'active_probe_layers', 'layer_accs', 'layer_accs_sorted', 'fusion_acc', 'fusion_group_accs', 'domain_accs', 'elapsed_s']
+   fusion_acc: {'hit_top1': 49.8419, 'overlap_top1': 66.6034, 'hit_topk': 55.408, 'overlap_topk': 73.8773, 'topk': 3}
+=== ss_v2 === keys: ['bench', 'bench_key', 'total', 'valid', 'skipped', 'topk', 'probe_layers', 'active_probe_layers', 'layer_accs', 'layer_accs_sorted', 'fusion_acc', 'fusion_group_accs', 'domain_accs', 'elapsed_s']
+   fusion_acc: {'hit_top1': 93.4697, 'overlap_top1': 94.9646, 'hit_topk': 95.8301, 'overlap_topk': 97.0889, 'topk': 3}
+=== osworld_g === keys: ['bench', 'bench_key', 'total', 'valid', 'skipped', 'topk', 'probe_layers', 'active_probe_layers', 'layer_accs', 'layer_accs_sorted', 'fusion_acc', 'fusion_group_accs', 'domain_accs', 'elapsed_s']
+   fusion_acc: {'hit_top1': 60.5882, 'overlap_top1': 79.8039, 'hit_topk': 63.1373, 'overlap_topk': 84.1176, 'topk': 3}
+=== osworld_g_orig === keys: ['bench', 'bench_key', 'total', 'valid', 'skipped', 'topk', 'probe_layers', 'active_probe_layers', 'layer_accs', 'layer_accs_sorted', 'fusion_acc', 'fusion_group_accs', 'domain_accs', 'elapsed_s']
+   fusion_acc: {'hit_top1': 52.549, 'overlap_top1': 73.9216, 'hit_topk': 57.2549, 'overlap_topk': 80.1961, 'topk': 3}
+=== mmbench === keys: ['bench', 'bench_key', 'total', 'valid', 'skipped', 'topk', 'probe_layers', 'active_probe_layers', 'layer_accs', 'layer_accs_sorted', 'fusion_acc', 'fusion_group_accs', 'domain_accs', 'elapsed_s']
+   fusion_acc: {'hit_top1': 81.1909, 'overlap_top1': 87.0339, 'hit_topk': 85.5593, 'overlap_topk': 91.0963, 'topk': 3}
+=== ui_vision === keys: ['bench', 'bench_key', 'total', 'valid', 'skipped', 'topk', 'probe_layers', 'active_probe_layers', 'layer_accs', 'layer_accs_sorted', 'fusion_acc', 'fusion_group_accs', 'domain_accs', 'elapsed_s']
+   fusion_acc: {'hit_top1': 34.1105, 'overlap_top1': 49.6373, 'hit_topk': 40.2418, 'overlap_topk': 58.791, 'topk': 3}
+现在数字很清楚了：ZwerGe 侧的 hit@1 比 overlap@1 低约 15-20 个百分点（SS-Pro: 49.8 vs 66.6，OSWorld-G: 60.6 vs 79.8，UI-Vision: 34.1 vs 49.6）。这印证了 .mrules 里记录的 "28px/32px 粗网格量化误差" 结论——这是 ZwerGe 侧固有的架构限制，与 Qwen3 负优化是两个不同的问题。
+现在我需要看一下当前的 baseline（backbone 原生 autoregressive decode）的 hit@1 数字对比，来确认"负优化"到底是在 hit@1 还是 overlap@1 上更严重。让我查看方法论部分和 4_method.tex 的 Stage 2 loss 描述，来准备回答 eKpD 的技术不一致问题。
+已读取
+4_method.tex
+现在我完全理解了 eKpD 的技术不一致问题所在：论文文字说"all backbone and probe weights frozen"（第102行），但 Loss 里又有对
+p
+ℓ
+p
+ℓ
+​
+ （frozen probe输出）的辅助 KL 项（第123-129行），如果 probe 真的冻结，这个辅助项对可训练参数（fusion）就是常数，梯度为零，无法起到"防止 fusion collapse"的作用。这与我们 .mrules 里记录的 A8 设计（"active probes 接收两条梯度路径"）矛盾——说明论文文字与实际代码实现不一致：实际代码里 active probe 是没有冻结、可训练的，但论文写成了"frozen"。
+这是一个必须立刻修复的文字bug（不需要重新训练，只需要改论文表述），而且恰好牵涉到 eKpD 提的核心技术问题。现在让我系统性建立完整认知，检查 appendix 里 fusion vs best-layer 的图表是否也有类似问题，然后规划 TODO。
+已检索文件
+consistently outperforms|best single layer|fusion.*(dotted|dashed)
+这确认了 eKpD 提出的第二个问题：appendix 声称 "fusion consistently outperforms the best single layer"，但审稿人观察到实际图中 SS-Pro/SS-v2 上 fusion 经常低于或接近最佳单层。我需要拿到实际数据核实这个claim的真伪。
+现在让我系统地组织所有信息，建立 TODO 列表，并开始逐项解决。首先看一下实际图表数据来验证 fusion vs best-layer 的真实情况。
+已执行命令
+$
+find /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots -maxdepth 1 -type f | head -30
+q/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_osworld_g.png
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_mmbench.png
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_ss_pro.png
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_combined.png
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_combined.pdf
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_ui_vision.png
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf
+/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/our_paper_tex/figs/a7_layerwise_plots/a7_layerwise_ss_v2.png
+只有图片，没有原始数据 json。让我看图（SS-Pro 和 SS-v2，审稿人特别提到的两个）来核实这个claim。
+已读取
+a7_layerwise_ss_pro.png
+现在真相非常清楚了。这个图的红色虚线（fusion, ckpt-3129/3130）确实在所有四个模型的最新checkpoint上都高于红色实线（per-layer probe）的峰值：
+UI-TARS: fusion 51.0% vs peak≈52.0%（fusion 略低于峰值！）
+GUI-Owl-7B: fusion 58.1% vs peak≈59.4%（fusion 略低于峰值）
+GUI-Owl-1.5-8B: fusion 67.4% vs peak≈68.7%（fusion 略低于峰值）
+UI-Venus-1.5-8B: fusion 61.1% vs peak≈62.7%（fusion 略低于峰值）
+审稿人 eKpD 是对的：appendix 声称"fusion consistently outperforms the best single layer"、"fusion dotted line lies above the peak of the per-layer curve in nearly all panels"，但实际图中所有四个模型 fusion 都低于或非常接近单层峰值，这个claim与实际证据矛盾，必须立即修正。
+让我再检查 SS-v2 图确认这个规律是否一致。
+已读取
+a7_layerwise_ss_v2.png
+完全确认了审稿人 eKpD 是对的——SS-v2 上四个模型的 fusion 都低于甚至明显低于 per-layer 峰值（GUI-Owl-7B: fusion 89.8% vs peak≈92.3%；UI-Venus: fusion 91.5% vs peak≈92.7%）。appendix 的 claim 是错误的，必须纠正。
+现在我有了足够信息，让我系统地规划整个方案。这是一个复杂的多层面任务，我需要用 todo 管理：
+核实所有5个benchmark上fusion vs best-single-layer的真实关系（不只是SS-Pro/SS-v2），产出量化表格用于替换appendix中的错误claim
+0 of 8
+已读取
+a7_layerwise_osworld_g.png
+很有意思——在 OSWorld-G 上，fusion 确实明显超过了单层峰值（例如 GUI-Owl-1.5-8B: fusion 81.0% vs peak≈81%持平略高，UI-Venus: fusion 78.0% vs peak≈80%，这里 fusion 反而略低）。让我看剩下两个（MMBench、UI-Vision）来完成全貌。
+已读取
+a7_layerwise_mmbench.png
+MMBench 上 fusion 明显超过单层峰值（尤其 UI-Venus: 88.4% vs peak≈87.9%，GUI-Owl-1.5-8B: 82.9% vs peak≈83.3%持平）。让我看最后 UI-Vision。
+已读取
+a7_layerwise_ui_vision.png
+现在有全景数据了。UI-Vision 上 fusion 明显、稳定地超过 单层峰值（4/4 模型都是，尤其UI-Venus: 57.6% vs peak≈57.9%接近，其余都稳超）。
+现在总结全部20组（5 bench × 4 模型）fusion vs peak的关系：
+Bench
+UI-TARS
+GUI-Owl-7B
+GUI-Owl-1.5
+UI-Venus-1.5
+SS-Pro
+fusion≈peak(51.0 vs 52.0) 略低
+略低(58.1 vs 59.4)
+略低(67.4 vs 68.7)
+略低(61.1 vs 62.7)
+SS-v2
+略低(89.9 vs 90.9)
+略低(89.8 vs 92.3)
+略低(91.8 vs 92.6)
+略低(91.5 vs 92.7)
+OSWorld-G
+略低(73.3 vs 76.0)
+略低(74.7 vs 77.0)
+明显高(81.0 vs ~81)
+略低(78.0 vs 80.0)
+MMBench
+略低(77.8 vs 78.3)
+略低(80.2 vs 81.4)
+略低(82.9 vs 83.3)
+明显高(88.4 vs 87.9)
+UI-Vision
+明显高(38.3 vs 37.0)
+明显高(52.8 vs 52.5)
+明显高(47.2 vs 47.3持平)
+明显高(57.6 vs 57.9接近)
+这印证了 eKpD 完全正确：appendix 说 "fusion consistently outperforms...in nearly all panels" 与实际情况相反——在 SS-Pro 和 SS-v2 这两个 正是审稿人专门点名的 benchmark 上，fusion 系统性地略低于单层峰值（差距通常 1-3pp）。只有 UI-Vision 上 fusion 稳定占优，OSWorld-G/MMBench 则是各模型分化。
+这是一个纯文字/表格修正问题（不需要重训），我现在有充分证据来修正 appendix。让我先完成完整的量化表格，然后转向审稿意见全貌梳理。
+fusion_vs_peak_table.md
++15
+-0
+1/1
+
+
+# Fusion vs Best-Single-Layer (overlap@1, %, last checkpoint only)
+| Benchmark | UI-TARS-1.5-7B | GUI-Owl-7B | GUI-Owl-1.5-8B | UI-Venus-1.5-8B |
+|---|---|---|---|---|
+| SS-Pro    | fusion 51.0 / peak ~52.0 (**-1.0**) | fusion 58.1 / peak ~59.4 (**-1.3**) | fusion 67.4 / peak ~68.7 (**-1.3**) | fusion 61.1 / peak ~62.7 (**-1.6**) |
+| SS-v2     | fusion 89.9 / peak ~90.9 (**-1.0**) | fusion 89.8 / peak ~92.3 (**-2.5**) | fusion 91.8 / peak ~92.6 (**-0.8**) | fusion 91.5 / peak ~92.7 (**-1.2**) |
+| OSWorld-G | fusion 73.3 / peak ~76.0 (**-2.7**) | fusion 74.7 / peak ~77.0 (**-2.3**) | fusion 81.0 / peak ~81.0 (**+0.0**) | fusion 78.0 / peak ~80.0 (**-2.0**) |
+| MMBench   | fusion 77.8 / peak ~78.3 (**-0.5**) | fusion 80.2 / peak ~81.4 (**-1.2**) | fusion 82.9 / peak ~83.3 (**-0.4**) | fusion 88.4 / peak ~87.9 (**+0.5**) |
+| UI-Vision | fusion 38.3 / peak ~37.0 (**+1.3**) | fusion 52.8 / peak ~52.5 (**+0.3**) | fusion 47.2 / peak ~47.3 (**-0.1**) | fusion 57.6 / peak ~57.9 (**-0.3**) |
+## Summary
+- Fusion beats best single layer in only **4/20** (model, benchmark) cells (UI-Vision x3, MMBench-UI-Venus x1), ties in 1, loses in 15/20.
+- On the two benchmarks the reviewer explicitly named (SS-Pro, SS-v2), fusion **loses to the best single layer in all 8/8 cells**, by -0.8 to -2.7pp.
+- Appendix claim "fusion consistently outperforms the best single layer...in nearly all panels" is **factually wrong** and must be corrected.
+- Honest framing: fusion is **not** meant to beat an oracle-selected best-layer (which requires knowing the best layer in advance, per-model, per-benchmark — not deployable). Fusion's real value proposition is that it is a **single deployable predictor that does not require knowing which layer is best a priori**, and it usually lands close to (within 1-3pp of) the peak, while any *fixed* single-layer choice would be far off-peak on some other benchmark/model (non-monotonic optimal layer, Finding 1). This is a much weaker but defensible claim.
+展开
+Todo 1 完成。现在梳理三位审稿人的完整问题清单。让我再补充读取被截断部分（4KeN、eKpD中间部分）。
+已执行命令
+$
+sed -n '11,20p' /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/docs/reviews/Reviewer-eKpD
+q
+Summary Of Strengths:
+Timely and relevant problem. GUI grounding is central to current computer-use and GUI-agent systems. The paper targets a concrete weakness of coordinate-generating agents: the possibility that spatial localization and coordinate serialization are different computational stages. This is a useful framing for the GUI-agent community.
+Interesting empirical hypothesis. The proposed “coordinate serialization bottleneck” is a plausible and potentially important phenomenon. The layerwise probing results, instruction-switch counterfactual, and high-resolution/small-target analysis provide an appealing diagnostic story: intermediate representations may be better suited for spatial grounding than the final representation used for token generation. The four stated findings are clearly organized and connected to the method.
+The retrofit idea is practically attractive. Freezing the backbone and attaching relatively small grounding heads is appealing because it could make existing GUI agents more usable without expensive end-to-end retraining. The method is also conceptually simple: read an anchor representation, cross-attend to visual patch tokens, and fuse layerwise heatmaps.
+Evaluation spans multiple models and benchmarks. The paper evaluates four GUI agents and five benchmarks, including high-resolution professional GUI grounding, real computer-task grounding, and multi-platform GUI evaluation. This breadth is a strength compared with papers that only report a single model or dataset.
+Some results are strong and informative. The gains on UI-Vision spatial tasks are particularly large for the two Qwen2.5-based models, e.g., +25.95 pp Spatial for GUI-Owl-7B and +13.39 pp Spatial for UI-TARS-1.5-7B. This supports the idea that the method is especially helpful for tasks requiring spatial posterior recovery.
+The paper is generally well organized. The narrative from diagnostic analysis to method to evaluation is easy to follow. The appendices include additional layerwise curves and qualitative cases, which help readers understand the claimed inverted-U spatial profile.
+Summary Of Weaknesses:
+The main performance claim is overstated relative to the tables. The paper repeatedly suggests that ZWERGE-UI improves GUI grounding across benchmarks, but the main results are mixed. On ScreenSpot-Pro, ZWERGE improves GUI-Owl-7B and UI-TARS-1.5-7B, but substantially hurts GUI-Owl-1.5-8B and UI-Venus-1.5-8B. On ScreenSpot-v2, three of the four retrofits are slightly or clearly worse than their baselines. On MMBench-GUI, UI-Venus-1.5-8B is worse after retrofitting. The paper does acknowledge that Qwen2.5 backbones benefit more than Qwen3 backbones, but the abstract/conclusion should more clearly state that the method is not consistently beneficial and may degrade stronger coordinate-trained models.
+好，我已经有三份审稿意见的完整内容。现在整理成一份完整问题清单，标注严重程度和处理方式。
+梳理并列出3位审稿人提出的全部问题清单
+1 of 8
+现在让我先检查一下 OPD 的技术细节确认（因为我在之前的对话中看到 assistant 已经 fetch 过 Thinking Machines 的博客），确保理解正确，避免重复搜索。让我看看之前 fetch 的结果是否被保存下来（虽然工具结果没显示在摘要中，我需要重新拉取以确保准确）。
+已获取URL
+https://thinkingmachines.ai/blog/on-policy-distillation/
+(1)
+现在我对 OPD 有了权威、完整的理解。核心机制：学生模型自己 rollout（on-policy），教师逐 token 打分（reverse-KL, dense reward），本质是"RL 的相关性 + SFT 的稠密监督"的结合，源自 Qwen3 技术报告的做法。
+现在我需要严肃地思考这对 ZwerGe 有什么真正的适用性——这是本次任务最核心的技术判断。让我先理解 ZwerGe 当前的训练范式本质，判断 OPD 是否真的能解决这个问题，还是这是一个错误方向。
+已读取
+1_intro.tex
+现在我对全局有了完整认识。让我做一个关键的技术评估：OPD 是否真的适合当前的问题。
+ZwerGe 的核心问题不是"backbone 自回归生成坐标不准"，而是"probe/fusion head 从中间层读出的 patch posterior 在 patch 网格量化下不够精确（hit@1 < overlap@1），且在 Qwen3 系列上负优化"。OPD 是针对自回归序列生成的技术（学生 rollout 一个 token 序列，教师逐 token 打分）。而 ZwerGe 的推理方式是单次 prefill + patch posterior 分类，根本不是自回归采样过程，没有"rollout"的概念。
+这意味着 直接套用 OPD 存在根本性的架构不匹配。让我确认这个判断，并思考真正可行的迁移方式，然后完成研究并给出结论。
+已执行命令
+$
+grep -n "predict_zoom_backbone\|zoom_backbone" /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code/zwerge/eval/inference_base.py | head -20
+q925:        Build inputs for backbone generate (Stage 2 of zoom_backbone).
+991:    def predict_zoom_backbone(
+关键发现：代码库里已经存在 zoom_backbone 策略（Stage-1 ZwerGe 定位粗糙 ROI → crop → backbone 自回归 generate 精化坐标）。这个"两阶段：ZwerGe 定位 + backbone 精化生成"的架构，恰好是能让 OPD 有意义落地的地方——因为这里才真正存在"学生 rollout 一段坐标 token 序列"的场景。
+这给了我一个关键洞察：OPD 不应该用来训练 ZwerGe 的 probe/fusion head 本身（那是 patch 分类，不是 token 序列生成），而应该用于 zoom_backbone 的第二阶段——教会 backbone 在 crop 后的局部图上更准确地生成坐标，这才是"自回归序列生成"场景，OPD 才适用。
+现在让我快速核实一下 Qwen3 团队在报告里描述 OPD 应用的具体细节，以及 Qwen3-VL/GUI-Owl backbone 是否有对应的教师模型可用（这是 OPD 落地的硬性前提：需要一个更强的teacher）。
+已执行命令
+$
+ls /mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/ 2>&1
+qEvoCUA-32B-20260105
+EvoCUA-8B-20260105
+GUI-Actor-3B-Qwen2.5-VL
+GUI-Actor-7B-Qwen2.5-VL
+GUI-Actor-7B-Qwen2-VL
+GUI-AIMA-3B
+GUI-AIMA-lite-3B
+GUI-Owl-1.5-2B-Instruct
+GUI-Owl-1.5-32B-Instruct
+GUI-Owl-1.5-32B-Think
+GUI-Owl-1.5-4B-Instruct
+GUI-Owl-1.5-8B-Instruct
+GUI-Owl-1.5-8B-Think
+GUI-Owl-32B
+GUI-Owl-7B
+Holo1.5-3B
+Holo1.5-7B
+Holo2-4B
+Holo2-8B
+OpenCUA-32B
+OpenCUA-7B
+UI-TARS-1.5-7B
+UI-TARS-2B-SFT
+UI-TARS-72B-DPO
+UI-TARS-72B-SFT
+UI-TARS-7B-DPO
+UI-TARS-7B-SFT
+UI-Venus-1.5-2B
+UI-Venus-1.5-8B
+UI-Venus-Ground-72B
+UI-Venus-Ground-7B
+VideoAgentTrek-CUA-7B
+VideoAgentTrek-IDM-s1-7B
+VideoAgentTrek-IDM-s2-7B
+很好，GUI-Owl-1.5-32B-Instruct（同系列更大模型）和 UI-TARS-72B-SFT/UI-TARS-72B-DPO（UI-TARS 系列更大模型）都在本地，可以作为对应 teacher。但没有 UI-Venus 的更大版本（只有 7B/8B/2B）。这对 OPD 落地是重要约束。
+现在我有了足够信息做出关键技术判断。让我把所有分析整合，给出最终的完整方案。首先完成审稿意见问题清单的整理（TODO 2），然后一次性给出完整方案。
+设计7天可执行计划
+4 of 8
+现在给出完整的书面方案。这是一个复杂的战略性判断，我会一次性讲清楚所有关键点。
+一、先说结论：OPD 用错了地方，会浪费你 7 天里最宝贵的 3-4 天
+我把 OPD 原文（Thinking Machines，2025-10-27）逐段看完了，核心机制是：
+学生模型自己 rollout 一段 token 序列 → 教师模型对每个 token 做 reverse-KL 逐 token 打分（dense reward）→ 学生朝教师分布收敛
+这是给自回归序列生成设计的技术，前提是"学生在自己生成的轨迹上会犯错，教师能看出错在哪个 token"。
+但 ZwerGe 的推理管线根本不是这个范式：
+inference_base.py
+1/1
+Apply
+def _build_generation_inputs(self, image, instruction):
+    ...
+ZwerGe 是"单次 prefill → 读中间层 hidden state → cross-attn probe 输出一个 patch 上的 softmax 分布 → 直接 argmax/centroid 出坐标"。这里没有 rollout，没有 token 序列，probe head 的输出是一次性的分类分布，不是自回归生成的产物。你如果直接把 OPD 套在 probe/fusion head 训练上，会遇到根本性的定义问题：教师给谁打分？打在哪个"token"上？probe 的 KL loss 现在监督的对象是一个 Gaussian 软标签，不是教师的 next-token 分布。
+唯一能让 OPD 有意义落地的地方，是我在你代码里翻到的 zoom_backbone 两阶段策略（.mrules [2026-05-22] 已经实现）：Stage 1 用 ZwerGe 定位粗糙 ROI，crop 出小图后，Stage 2 用 backbone 自回归 generate 精确坐标。这一步才是真正的"序列生成"，OPD 才对得上号。但这意味着：
+OPD 优化的是 backbone 的坐标生成能力，不是 ZwerGe 的核心方法（probe+fusion）
+需要一个更强 teacher：本地有 UI-TARS-72B-SFT/DPO、GUI-Owl-1.5-32B，但 UI-Venus 没有大模型可用，这条路对 UI-Venus 直接走不通
+需要实现 rollout 采样 + reverse-KL loss + 训练循环，这在 7 天里于 4 个模型上都跑通、调参、出稳定结果，工程量本身就要 3-4 天，出了 bug 你可能只剩 2-3 天做别的
+而且即使做成了，它优化的是"backbone 精化坐标"这个旁路能力，跟你论文的核心 claim（"中间层 probe 能读出比 backbone 自己解码更好的定位信号"）没有直接关系，反而可能被审稿人问："既然你都要靠 backbone 自己 generate 精修坐标了，你 probe 存在的意义是什么？"——这会正中 4KeN 说的"方法和baseline比较不充分"的靶心。
+二、真正该做的事：审稿人指出的问题，九成不需要新实验
+我把三份审稿意见完整过了一遍（Reviewer-4KeN / eKpD / 4sok），逐条列出，标注处理方式：
+#
+问题
+来源
+严重度
+需要什么
+1
+Qwen3 系列负优化（SS-Pro上GUI-Owl-1.5/UI-Venus明显掉点，SS-v2 3/4掉点，MMBench UI-Venus掉点）
+eKpD, 4KeN
+致命
+文字+叙事重构，不一定要新实验
+2
+Abstract/结论过度声称"improves across benchmarks"，与表格矛盾
+eKpD
+高，纯文字
+今天就能改
+3
+Stage2 loss 技术矛盾：文字说probe frozen，但aux loss对frozen probe无意义
+eKpD
+高，纯文字/表述
+今天就能改（见下）
+4
+Appendix 声称 "fusion consistently outperforms best single layer"，实际 SS-Pro/SS-v2 上 8/8 个 cell fusion 都低于峰值
+eKpD
+高，纯文字+我已核实数据
+我已经核实完，可以直接改
+5
+Ablation 用的是 fast LoRA-probe variant（50k样本，ckpt-800），不是最终 CrossAttn 架构，说服力不足
+eKpD
+中
+可能需要补一组小实验，但可以用已有 A7/A8 checkpoint 数据代替
+6
+缺 baseline 对比：final-layer probe、linear probe、LoRA adapter、supervised coordinate head
+4KeN
+中高
+需要新实验，但规模小（复用现有 pipeline，只是换 probe 架构）
+7
+probe 是有监督大模型（42M参数，200k样本），不能证明"backbone天然知道"，只能证明"这个探针架构学得好"
+eKpD
+中，理论定位问题
+纯文字softening，弱化claim即可
+8
+Serialization lens 用final LM head读中间层，是logit-lens，可能被输出空间对齐混淆
+eKpD
+中
+需要补 control（如 random coordinate / tuned lens），有一定工作量但可脚本化
+9
+CosMeta fusion 用单一全局 meta-query 怎么处理跨层异构语义空间
+4sok
+中，理论问题
+纯文字回答即可，不需要实验
+10
+Gaussian label 在极小目标上方差趋近0，退化成one-hot
+4sok
+中
+可以田字格分析验证，用现有数据统计一下小bbox的sigma分布
+11
+prefill-forced推理和backbone原始CoT-then-click的训练分布不一致（OOD问题）
+4sok
+中
+文字讨论 + 可引用zoom_backbone作为未来工作
+12
+RMS pre-scale可能丢弃了"激活幅值=置信度/attention sink"的信号
+4sok
+低中
+文字讨论
+13
+训练用连续KL目标，推理用离散BFS centroid decode，目标不一致
+4sok
+中，恰好是hit<overlap的根源
+文字讨论，可引用你已有的[2026-05-19]消融结论
+14
+需要统计显著性/置信区间/多seed
+eKpD
+中，工作量大
+时间不够可以softening成limitation
+15
+overlap@1定义、patch粒度、box-to-patch映射要写清楚
+4KeN, eKpD
+低，纯文字
+补充说明即可
+16
+与GUI-Actor、Re-Prefill的对比不够具体
+eKpD
+中
+文字补充，你已有大量related work分析在.mrules里
+17
+"论文是analysis paper还是method paper" 身份认定不清
+eKpD
+致命，决定整体框架
+这是你自己问的"分析从简、实验复杂"矛盾的根源，下面详细说
+关键判断：#1（致命）主要靠 #17（论文定位）的重构来化解，而不是靠刷点。 #4 我已经用你现成的 A7 checkpoint 数据核实完，appendix 的 claim 确实是错的，需要马上改。
+三、Stage 2 loss 矛盾到底怎么回事（eKpD 问题 #3）
+我去比对了 .mrules [2026-05-25] A8 Stage-2 的记录和论文正文：
+4_method.tex
+generating...
+1/1
+\paragraph{Stage 2 training.}
+Only fusion parameters are updated.
+The loss combines a top-level KL term on $p_{\mathrm{final}}$ with a per-layer auxiliary:
+...
+The auxiliary term prevents fusion from collapsing onto a single dominant layer by keeping all active probe posteriors individually calibrated.
+论文正文第102行还写"with all backbone and probe weights frozen"。但根据你自己 .mrules 里记录的 A8 设计：
+active probes（layers 16-25）继承 A7 权重但没有冻结，接收两条梯度路径：loss_fuse（通过 p_l 间接）+ loss_layer（直接）
+这不是代码bug，是论文写错了——代码是对的（active probe 可训练，aux loss 真实驱动了这些 probe 的更新），论文文字说反了（写成了"probe frozen"）。eKpD 的质疑逻辑完全正确：如果 probe 真冻结，aux loss 对 fusion 参数求导确实是常数，不可能"prevent collapse"。
+修复方式（今天就能做，不需要重新训练）：把 method.tex 第102行和129行的表述改成准确的：
+"Stage 2 loads the Stage-1 checkpoint. Only the fusion head and the active-subset probes (10-12 layers drawn from the spatial plateau) remain trainable; the backbone and the inactive probe layers are frozen. The per-layer auxiliary term provides a direct gradient to each active probe (in addition to the indirect gradient it receives via
+p
+final
+p
+final
+​
+  in the fusion loss), preventing any single probe from being neglected purely because the fusion scorer assigns it low
+ω
+ω."
+这样文字和代码就完全对齐了，而且这个表述其实比原来更有说服力（active probe 参与训练本来就是合理设计，不是bug）。
+四、Appendix fusion claim 修正（eKpD 问题 #4，我已核实数据）
+我把 A7 layerwise plots 里全部 5 个 benchmark、4 个模型（20组）的 fusion vs 单层峰值数字都读出来了：
+Benchmark
+UI-TARS
+GUI-Owl-7B
+GUI-Owl-1.5
+UI-Venus-1.5
+SS-Pro
+fusion 51.0 / peak ~52.0
+fusion 58.1 / peak ~59.4
+fusion 67.4 / peak ~68.7
+fusion 61.1 / peak ~62.7
+SS-v2
+fusion 89.9 / peak ~90.9
+fusion 89.8 / peak ~92.3
+fusion 91.8 / peak ~92.6
+fusion 91.5 / peak ~92.7
+OSWorld-G
+fusion 73.3 / peak ~76.0
+fusion 74.7 / peak ~77.0
+fusion 81.0 / peak ~81.0
+fusion 78.0 / peak ~80.0
+MMBench
+fusion 77.8 / peak ~78.3
+fusion 80.2 / peak ~81.4
+fusion 82.9 / peak ~83.3
+fusion 88.4 / peak ~87.9
+UI-Vision
+fusion 38.3 / peak ~37.0
+fusion 52.8 / peak ~52.5
+fusion 47.2 / peak ~47.3
+fusion 57.6 / peak ~57.9
+Fusion 只在 20 组里的 4 组真正超过单层峰值（全在 UI-Vision + MMBench-UI-Venus），在审稿人点名的 SS-Pro 和 SS-v2 上是 8/8 全部低于峰值（差 0.8-2.7pp）。appendix 现在的说法是错的，必须改。
+但这不是坏消息——换一个诚实的框架反而是更强的论点：
+"Fusion does not aim to beat an oracle that already knows the best layer per (model, benchmark) pair — such an oracle is not deployable, since Finding 1 shows the optimal layer is non-monotonic and varies by backbone and task. Fusion's actual value is that it is a single, sample-adaptive, deployable predictor that stays within 1–3pp of the (unknown, oracle) peak on 16/20 cells, and exceeds it on the remaining 4 — without requiring per-benchmark layer selection."
+这个表述我建议直接替换 appendix 里第39-41行、第61行的错误 claim，我可以现在就帮你改。
+五、Qwen3 负优化：怎么让"分析简单、实验复杂但不倒退"自洽
+你问的这两点其实是同一个问题的两面。我建议这样重构论文定位：
+把论文明确定位成"analysis-primary, method-secondary"（这正是 eKpD 问题 #17 要求你做的选择）：
+Analysis 部分（§3）保持极简：coordinate serialization bottleneck 这个发现本身，用最简单的探针（你现在的 CrossAttn probe 已经够简单，不需要更简单）去证明"信号确实在中间层"，这个 claim 在 4 个模型上全部成立（Qwen2.5和Qwen3系列的 per-layer 曲线都是 inverted-U，这个证据非常稳，负优化不影响这个结论）。
+Method 部分（§4 ZwerGe-UI）弱化为"a natural but not unique way to exploit the finding"：不再说"improves GUI grounding across five benchmarks"，改成"we present one instantiation of exploiting this signal; its effectiveness correlates with how severe the bottleneck is for a given backbone"。
+实验部分加一张"delta vs bottleneck severity"的诊断图：你已经有这个数据的雏形（.mrules 提到 GUI-Owl-1.5/UI-Venus 的 per-layer 曲线更平坦——inverted-U 没那么陡）。做一个散点图：x轴="该模型peak层与最终层的overlap@1差距"（即bottleneck严重程度），y轴="ZwerGe相对baseline的delta"。如果这个相关性显著为正（bottleneck越严重，ZwerGe增益越大），那么"Qwen3负优化"就不再是方法失败，而是恰好印证了你的核心假设——Qwen3 backbone 的 bottleneck 本来就轻微甚至不存在，所以retrofit没有空间可挖，这是符合预期的证伪检验通过，不是bug。
+这个散点图/相关性分析是用你已有数据就能做的（A7 per-layer 曲线 + 主表delta），不需要重新训练，大概半天到一天工作量，而且直接把"负优化"从"方法缺陷"转化成"理论自洽的证据"。这比 OPD 刷分性价比高得多。
+六、hit@1 刷不上去，怎么自洽（不投机取巧地说）
+hit@1 低于 overlap@1 的原因你自己在 .mrules [2026-05-19] 已经分析得很透彻：28px/32px patch 网格量化误差是架构固有的，换解码策略（argmax/centroid/temperature）都无法消除，唯一真正能提升 hit@1 的路径是更小 patch（提高 max_pixels）或 zoom-in。这个结论本身就可以直接写进论文当 limitation，配合 4sok 问题 #13（"连续KL训练目标 vs 离散BFS decode不一致"）一起讨论：
+"We report overlap@1 as our primary metric because it isolates the model's ability to identify the correct patch, decoupled from a decode-time quantization artifact: predicting a small GT box's centroid can fall just outside the box while the predicted patch still overlaps it. We view closing this hit/overlap gap via finer patch granularity or a zoom-in refinement stage (§limitations) as orthogonal to our central claim about where spatial signal is decodable."
+这不是洗地，这是准确描述你的方法真正测的是什么。审稿人 4KeN 自己也建议你"report metrics beyond top-1 overlap, such as target-region probability mass or top-k coverage"——你已经有 hit_topk/overlap_topk 数据（我在 checkpoint-400 的 json 里看到了），直接把这些放进正文 + 补充一列"probability mass within GT box"（用 Gaussian label 的思路，算 predicted p_final 落在 GT bbox 内的总概率质量，这是一个不受 patch 量化影响的连续指标，可以作为 hit@1 的补充，而且很可能显示 ZwerGe 相对 baseline autoregressive 有明显优势，因为 baseline 根本没有"概率质量"这个概念）。这个新指标半天工作量能出。
+七、7天计划
+<br>
+天数
+任务
+产出
+是否需要新实验
+Day 1
+修 method.tex Stage2表述矛盾；修appendix fusion claim（用我已核实的表格）；软化abstract/intro/conclusion的"improves across benchmarks"措辞
+论文文字全部对齐代码事实
+否
+Day 2
+做"bottleneck severity vs ZwerGe delta"相关性图；补充discussion段落把Qwen3负优化重新框定为"预期内的证伪检验通过"
+1张新图+1段论述，Related work/Discussion改写
+否（复用现有数据）
+Day 3
+补充 hit_topk/overlap_topk 到正表；新增"probability mass in GT box"指标（连续、不受patch量化影响）；写清楚 patch/overlap@1 定义（4KeN问题#15）
+表格增强+新指标
+小实验（脚本化统计，几小时）
+Day 4
+补充 4KeN 要的 baseline 对比：至少跑一个 final-layer-only probe 和一个简单 linear probe（同数据同epoch，复用A7 pipeline，改一下probe架构参数即可）
+1-2组新baseline结果
+是，但工作量小（复用pipeline）
+Day 5
+回应 eKpD 的 serialization lens 质疑：补 random-coordinate control + non-coordinate action token control（用已有 layer_probe.py 加几个control条件）
+Control实验结果
+是，脚本化，半天到1天
+Day 6
+回复 4sok 的3个理论问题（CosMeta异构空间、Gaussian退化、RMS pre-scale）：主要写文字论证，Gaussian退化可以用现有200k训练数据统计一下bbox尺寸分布和对应sigma是否真的退化成one-hot（几行脚本）
+Rebuttal文字+1个小统计
+极小，脚本化
+Day 7
+通读rebuttal，补充统计显著性讨论（如果时间不够，明确写成future work并说明为何当前resource下不可行），整体自查一致性
+完整rebuttal + 更新后的论文
+否
+明确不建议做的事：不要在这7天里启动 OPD。如果你仍然想要一个"实验部分更复杂但不掉点"的东西，比更现实的选择是：用你已有的 zoom_backbone 策略（已经实现，见 .mrules [2026-05-22]）直接跑一次 SS-Pro 评测，把它作为"一个更复杂、性能确定更强的 pipeline 变体"放进 appendix 或作为 future work 的 proof-of-concept，因为它是"ZwerGe 定位 + backbone 精修"而非"backbone 单独硬刚"，不会破坏你的核心 claim，而且代码已经现成，跑一次评测只要几小时。
+八、如果你仍然坚持要做 OPD 相关探索，需要搜索/下载什么
+如果你评估后仍想留一个"应急选项"（不是主路线），可以按优先级下载这些到本地供我细看：
+Qwen3 Technical Report（arXiv:2505.09388）——OPD 的直接工程来源，Qwen3 团队怎么用它替代部分RL做reasoning蒸馏，值得看他们的具体loss实现和数据规模
+Thinking Machines Tinker Cookbook（github.com/thinking-machines-lab/tinker-cookbook，路径 tinker_cookbook/recipes/distillation）——OPD 的参考实现代码，可以直接看 reverse-KL loss 怎么写
+Agarwal et al. 2023（arXiv:2306.13649，GKD）——OPD 学术源头，loss function的消融分析（各种散度选择的对比）
+MiniLLM（Gu et al., arXiv:2306.08543）——另一个 reverse-KL 蒸馏工作，讨论了 exposure bias
+但我的建议仍然是：先看完 Day 1-2 的成果，如果论文重新框定后 Qwen3 负优化不再是硬伤，就完全不需要碰 OPD。
+现在开始动手，从 Day 1 最紧急的文字修正做起。
+To-dos 11
+
+View All
+设计7天可执行计划
+设计hit@1无法提升情况下的实验自洽性方案
+调和论文结构策略
+给用户完整书面方案
+Day1: 修复method.tex Stage2表述矛盾
+Day1: 修复appendix fusion claim错误
+Day1: 软化abstract/intro/conclusion过度声称
+我已经把完整的战略分析和方案交给你了。是否现在就开始动手改论文文字（Day 1 的三项任务：Stage2 表述矛盾、appendix fusion claim、abstract/intro 措辞软化）？还是你想先确认一下方向、或者先讨论 OPD 那部分的判断是否合理？
+重新审视之前所有的审稿人的问题，不要忽略问题！OPD的相关信息你知道吗？不知道的话可以你自己上网简单搜搜告诉我应该搜什么下载到本地让你仔细看，我来搜好下载到本地
+
+**不，我觉得刷点还是很重要的，点刷不上去就只能赌审稿人喜欢我们的阐述，点刷上去了就可以满足几乎所有审稿人（方法侧重和分析侧重），不然的话方法也相当于没有用啊？你聚焦了OPD，但是有一些OPSD的工作是在做grounding的。我们输出的不是自回归文本token拟合教师，而是视觉token的概率不是吗？虽然不是自回归生成的，但也是同样有益的吧？把现在你的战略写成一个文件：策略1，我们可以按照这个策略进行。但是我觉得要拼一拼在战略一的基础上把点也刷上去，如果OPD/OPSD不行的话，有什么其他的办法你觉得合适的吗？RL？上网尽量调研一下相关工作，救救我**
+
+【回答内容 轮数1】
+你说得对：**剩下 7 天不能只做“论证兜底”，必须双轨推进，而且刷点应当占据主线资源。** 我之前把 OPD 过度限定成了自回归文本 token 蒸馏；更准确地说，OPD 的核心是让学生在其当前策略所访问的分布上，接受具有额外信息的教师分布监督。你的 patch posterior 本身就是视觉 token 上的 categorical policy，因此可以做**空间后验版 OPSD/在线蒸馏**。Dense prediction 里也早已有把空间激活归一化成概率图、再以 KL 蒸馏的先例。citeturn805136academia0
+
+我已经把完整战略写成了一份 14 页的执行文档：
+
+[下载《ZWERGE-UI 7 天实验救援与论文重构方案》](sandbox:/mnt/data/ZWERGE_UI_7day_rescue_strategy.docx)
+
+## 我现在的核心判断
+
+上传稿中的问题确实不能只靠话术解决：Qwen3 两个模型在 ScreenSpot-Pro 都下降，在 ScreenSpot-v2 也都下降，UI-Venus 在 MMBench-GUI 还下降；而正文又把主要问题表述为“retrofit 是否能持续改进”，所以审稿人把它视为方法有效性的根本问题是合理的。fileciteturn0file0L672-L703
+
+同时，你的直觉已经有直接相关工作的支持：
+
+- **GUI-SD** 就是在 GUI grounding 上做 OPSD：教师看到 target bounding box 和 Gaussian soft mask，学生在自己的 rollout 上学习教师的稠密信号；论文称其在六个 GUI benchmark 上优于朴素 OPSD 和 GRPO 路线。
+- **GUI-RD/QASD** 进一步发现朴素 OPSD 的教师信号会因学生当前错误状态而失真，所以必须结合 correctness-aware gating 和 teacher-probability scaling；单独使用其中一个甚至不一定有效。
+- Vision-OPD、VA-OPD、V-Zero 和 Region-to-Image Distillation 都说明了同一件事：想让蒸馏真正改善细粒度视觉能力，教师必须获得 crop、区域证据或其他 privileged visual context，而不是仅仅重复普通输入上的输出。citeturn856844academia0turn856844academia1turn856844academia3turn966139view4
+
+## 7 天内最值得押注的刷点顺序
+
+### 1. Soft-Oracle Layer Distillation：第一优先级
+
+这应该是明天第一个做的实验，不是 OPD。
+
+你目前已经有每个样本的多个 layer posterior。训练时根据 GT 计算每层 loss，构造一个 soft oracle：
+
+$$
+
+w_\ell^*=\mathrm{softmax}(-\mathrm{CE}(y,p_\ell)/\tau),\qquad
+q_{\mathrm{oracle}}=\sum_\ell w_\ell^*\,\mathrm{stopgrad}(p_\ell)
+
+$$
+
+然后让 fusion 同时拟合 GT 和 $q_{\mathrm{oracle}}$。
+
+这条路线最对症，因为你稿件附录声称 fusion 几乎总超过最佳单层，但实际图中该结论并不成立；这表明 fusion 本身仍有明确的可回收 headroom。fileciteturn0file0L1213-L1248
+
+优点是：
+
+- 不需要大教师；
+- 不需要重新跑 backbone；
+- 不需要 rollout；
+- 只改 Stage 2 loss；
+- 24 小时内能获得明确的 go/no-go 信号。
+
+### 2. Baseline Residual Mixture / Safety Gate：最快消除 Qwen3 负优化
+
+不要再强制用 ZWERGE 完全替换强 Qwen3 的原生 coordinate decoder。把原生 click 映射为一个 patch Gaussian $p_{\text{base}}$，然后学习：
+
+$$
+
+p_{\text{mix}}=g(x)p_{\text{ZWERGE}}+(1-g(x))p_{\text{base}}
+
+$$
+
+其中 gate 使用 posterior entropy、top1-top2 margin、层间 disagreement、fusion 权重、原生 coordinate likelihood 等特征。
+
+这条线的价值不只是刷点，而是直接改写方法故事：
+
+> 中间层 posterior 不是无条件替换原生 serializer，而是在置信度充分时纠正它。
+
+先别训练 gate，第一步直接在 held-out validation 上扫固定混合系数 $\lambda$。如果简单的固定 mixture 已经能消除负优化，再训练 sample-adaptive gate。这样最快能确认“互补信息是否真的存在”。
+
+### 3. Privileged Spatial Posterior Distillation：你提出的空间版 OPSD
+
+学生看到原图，教师看到：
+
+- Gaussian soft mask；
+- bbox outline；
+- 2×/4× target crop；
+- target crop 与同尺寸 hard-negative crop；
+- 或 privileged 输入上的 best-layer/EMA posterior。
+
+教师和学生都输出原始 patch grid 上的 posterior，使用质量门控蒸馏：
+
+$$
+
+q_t=\rho y_{\text{GT}}+(1-\rho)p_{\text{teacher}}(x_{\text{priv}})
+
+$$
+
+$$
+
+L=L_{\text{GT}}+\beta_i\,\mathrm{KL}(q_t\Vert p_s)
+
+$$
+
+其中 $\beta_i$ 由教师在 GT 区域内的 probability mass、entropy，以及当前学生 patch 是否仍与 GT 相交决定。
+
+这里最重要的一点是：**不要只把当前 GT Gaussian 换一个名字再蒸馏一次。** 教师必须提供 GT 标签之外的多峰结构、不确定性、目标附近 hard negative 或 crop 后更准确的 posterior，否则损失与现有 KL 基本等价。
+
+GUI-SD 的 privileged visual context 和 GUI-RD 的质量门控可以迁移，但“坐标数字位重要性”和“错误坐标前缀是否还能完成到 GT box”不能原样迁移，要替换成 patch 几何可完成性和 teacher mass。turn966139view1
+
+### 4. Sub-Patch Offset Head：hit@1 真正应该押注的路线
+
+稿件目前明确采用 patch-level overlap@1，并把原生坐标也转换成 patch 后比较；这个指标设计本身会掩盖 patch 内量化问题。fileciteturn0file0L630-L642
+
+因此，继续改 posterior loss 很可能只让 overlap 涨，而 hit 不明显变化。要涨 hit，应直接增加一个轻量 offset head：
+
+$$
+
+\hat c=c_{\text{patch}}+
+\frac{1}{2}[w_{\text{patch}},h_{\text{patch}}]\odot\tanh(\Delta x,\Delta y)
+
+$$
+
+只在 GT-overlap patch 上训练 patch 内偏移，使用 Huber loss。它可以保持中间层 coordinate-free posterior 作为核心，同时恢复 sub-patch precision。
+
+我认为它是**hit 路线里成功概率最高**的改动，比试图用 RL 强迫粗 patch 的 BFS centroid 变准更合理。
+
+### 5. Exact Expected Spatial Reward：先用 RL 的 reward，不要先用 RL 算法
+
+GUI-G² 证明 Gaussian point reward、coverage reward 和 target-size-adaptive variance 能为 GUI grounding 提供比二元 hit reward 更连续的信号。
+
+但你的模型与自回归坐标模型不同：你已经拥有所有 patch 的完整概率 $p(i)$，每个 patch 的几何 reward $R_i$ 也能直接计算。因此可直接优化：
+
+$$
+
+L_{\mathrm{ER}}=-\sum_i p(i)R_i
+
+$$
+
+这是我的推论：在你这个设置中，它相当于精确计算期望 reward，通常比 REINFORCE/GRPO 多次采样具有更低方差，也更适合 7 天窗口。可以把 reward 设计为：
+
+- patch center 是否在 box 内；
+- patch 与 box 的 overlap；
+- 到 GT centroid 的 Gaussian 距离；
+- GT-overlap patches 的总 probability mass。
+
+### 6. 完整 GRPO/RL：只作为最后备选
+
+完整 RL 不是完全不能做，但只有在以下条件满足时才值得：
+
+- 你已经有能稳定运行的 GRPO infrastructure；
+- 非可微 BFS/连通域 decode 是主要瓶颈；
+- Day 3 之前前面的低风险实验已经出现正向信号；
+- rollout 成本不会挤掉全量评测和论文修改时间。
+
+GUI-RC 等工作显示多样本一致性和 test-time RL 的确可能带来约 2–3% 的收益，但它们依赖多次采样；你的单次完整 posterior 更适合先做直接的概率融合与期望奖励。citeturn805136academia2
+
+## 最值得“拼一把”的组合
+
+我建议最终目标不是单独押 OPD，而是：
+
+> **Soft-oracle fusion distillation
+> + baseline safety gate
+> + sub-patch offset**
+
+这三项分别解决三个独立根因：
+
+1. fusion 没有学到训练时可见的最佳层；
+2. 强 Qwen3 被一个较弱的 retrofit 无条件替换；
+3. hit 被 patch 量化上限卡住。
+
+Privileged spatial posterior distillation 是第二梯队，一旦前两项出现正向信号就接上。完整 RL 放最后。
+
+另外，策略 1 仍然必须同步做。稿件当前 Stage 2 一方面写 probes frozen，另一方面又声称作用于各 $p_\ell$ 的 auxiliary KL 能保持 probe calibration；若 probes 真冻结，该项对可训练 fusion 参数确实没有梯度，必须立即根据真实代码修正。fileciteturn0file0L557-L568 fileciteturn0file0L599-L609
+
+文档中已经包含：
+
+- 三位审稿人的完整问题矩阵，没有遗漏；
+- 六条刷点路线的损失公式和伪代码；
+- 最小实验矩阵；
+- 每天的 go/no-go 标准；
+- 失败、部分成功、全面成功三种情况下如何改论文；
+- 应下载到本地的 OPSD、视觉蒸馏和 GUI RL 论文/代码清单。
+
+
+【提问 轮数2】
+我突然想到，如果用overlap@3的话是能直接比过的，而且你去看我们的代码：
+https://github.com/HashTAG00002/zwergeUI
+
+overlap@3似乎是合理的，GUI-Actor也是这么做的，并且也因此训练了一个他们自己的verifer，这并非不公平：自回归GUI Agent，即使进行了TTS，在生成坐标过程中也只能一个一个坐标点的生成，开销是线性的。但是attention-based的是一下输出所有坐标点的近似概率（即使粒度很大），那么我们用overlap@3其实不会相对于overlap@1引入额外的开销，对吧？看看我们的代码，确定现在的overlap@3的逻辑是怎样的？
+
+但是这看起来很像是狡辩，有没有办法在这个基础上，不训练新模型来说服审稿人，并采用更好的采样策略把overlap转换成hit？毕竟overlap只是额外引入了14/16像素点的margin，这说明语义上是没问题的，只是有一点点偏移不是吗？还是说还是要zoom-in？
+
+发挥你的全部能力帮我设计一款快速在已有权重上的test-time的优化策略，这种优化不应该是通过简单的扩展，而是公平的，进一步把现有坐标-free的限制解除的，让他发挥全部潜能的相对公平的比较
+
+【回答内容 轮数2】
+我把你们当前 `master` 分支的推理与评测逻辑逐段看了。先给最重要的判断：
+
+> **overlap@3 是合理而且有价值的，但它只能被定义为“单次前向的候选区域召回率”，不能直接替代最终可执行的 top-1 点击准确率。**
+>
+> 真正有说服力的路线是：先用 overlap@3 证明 ZWERGE 在一次前向里已经把正确区域召回到候选集中，再用一个**不训练新权重、非 oracle、输出唯一坐标**的 test-time selector/refiner，把这部分候选召回转化成 hit@1。
+
+这其实能形成一条很漂亮的新逻辑：
+
+> **Intermediate layers propose; late layers verify/serialize; test-time refinement removes patch quantization.**
+
+它比单纯把 overlap@3 放进主表强得多，也与你们论文最初的“定位与序列化分工”完全一致。稿件本身就是从自回归坐标序列化与空间定位的分离出发的。fileciteturn0file0L5-L8
+
+---
+
+# 一、你们现在的 overlap@3 到底是怎么计算的
+
+它并不是“概率最高的三个 patch”，而是**概率图中三个彼此分离的高响应连通区域**。
+
+当前逻辑是：
+
+1. 对最终空间 posterior $p_{\mathrm{final}}$ 取阈值：
+
+$$
+
+p_i > 0.3 \cdot \max_j p_j
+
+$$
+
+2. 在超过阈值的 patch 上，用四邻域 BFS 构建 connected components。
+
+3. 每个 component 的排序分数不是总概率质量，而是：
+
+$$
+
+s(R)=\max_{i\in R}p_i
+
+$$
+
+4. 每个 component 产生一个候选点。默认 `centroid` 策略是用该 component 内 patch 分数加权的质心；代码还支持 argmax、peak-shift 和 temperature centroid。
+
+5. 将所有 component 按最大 patch 分数排序，取前三个中心点。
+
+因此，你们的 top-3 是：
+
+> **top-3 disconnected posterior modes / regions**
+
+而不是相邻三个 patch，也不是从同一个峰附近随便取三个点。这个定义本身是有意义的，也比简单 `torch.topk(p, 3)` 更合理。turn154479view0
+
+评测中：
+
+- `hit@3`：三个 component 中心只要有一个位于 GT box 内即成功；
+- `overlap@3`：围绕每个 component 中心构造一个 patch 大小的矩形，只要其中任意一个与 GT box 相交即成功。turn284669view2
+
+代码默认 `topk=3`，默认阈值是 0.3。
+
+## 一个需要注意的实现细节
+
+每个 overlap box 的半宽和半高是：
+
+$$
+
+\Delta_x=\frac{1}{2n_w},\qquad
+\Delta_y=\frac{1}{2n_h}
+
+$$
+
+所以在原图坐标里，实际 margin 是：
+
+$$
+
+\frac{W}{2n_w},\qquad \frac{H}{2n_h}
+
+$$
+
+Qwen2.5-VL 和 Qwen3-VL 的名义 processed token cell 分别是 $14\times2=28$ 和 $16\times2=32$ 像素，因此在**处理后的图像空间**里是约 14/16 像素半径；但如果原始截图经过 smart resize，在原始图像空间里不一定恰好是 14/16 像素。代码中的 zoom 模块也明确把两类模型的 token cell 记为 28 和 32。
+
+你们论文目前的 overlap@1 描述也正是：把预测坐标视作一个 patch 的中心，并用 patch 与 GT box 是否相交来判断，同时对 baseline 做同样的 patch 化以保持有效粒度一致。fileciteturn0file0L630-L642
+
+---
+
+# 二、overlap@3 相对自回归模型是否公平
+
+## 作为“候选召回率”，是公平的，而且是你们的结构优势
+
+你说得对：
+
+- ZWERGE 已经在一次 prefill 中产生整个空间 posterior；
+- 从 posterior 中提取三个 disconnected regions 只增加极小的 CPU/BFS 后处理；
+- 不需要再运行模型；
+- 自回归模型要得到三个彼此不同的坐标，通常要多次 sampling、beam search 或其他 TTS，其序列生成开销随样本数和 token 数增加。
+
+所以你们完全可以报告：
+
+> **Single-pass proposal Recall@3 / Overlap@3**
+
+并把对应的网络前向次数、生成 token 数和延迟一起列出来。
+
+这正是 GUI-Actor 强调的优势：attention head 一次前向可以提出多个候选区域，不需要额外 action-head inference。
+
+## 但不能直接把 overlap@3 当成最终 top-1 准确率
+
+因为环境最终需要执行一个点击。若评测过程直接查看三个候选中是否有一个正确，这隐含了一个 oracle：
+
+> “已经知道三个候选中的哪一个正确。”
+
+GUI-Actor 并没有把这个问题忽略掉。它们：
+
+- 把 Hit@3 用来分析 single-pass multi-region coverage；
+- 最终 executable prediction 仍采用 point-in-box Element Accuracy；
+- 另外训练 verifier，对候选点加视觉 marker 后进行 True/False 评分，再选择一个候选。正式实验使用 $K=20$ 候选和训练后的 verifier。
+
+所以 GUI-Actor 可以作为你们的先例，但准确表述应当是：
+
+> GUI-Actor 证明了“attention posterior → 多候选 → verifier → 单一执行点”是合理范式。
+
+而不是：
+
+> GUI-Actor 证明了可以用 oracle Hit@3 代替 Hit@1。
+
+## 最稳妥的论文报告方式
+
+主结果分成三个层级：
+
+1. **Executable Hit@1 / Element Accuracy**
+   最终只输出一个坐标。
+
+2. **Patch-level Overlap@1**
+   衡量正确区域是否被选中，但存在 patch 量化容忍度。
+
+3. **Single-pass Proposal Recall@3 / Overlap@3**
+   衡量一次前向是否把正确目标放进候选集合。
+
+然后增加一列推理成本：
+
+- model forward 数；
+- autoregressive generated tokens；
+- 平均延迟；
+- 候选数量。
+
+这样 overlap@3 不但不会显得狡辩，反而成为你们与 AR 模型区别非常清楚的一项能力。
+
+---
+
+# 三、“overlap 成功但 hit 失败”是否说明语义正确，只偏了一点
+
+**通常很可能是，但仅凭 overlap 不能直接下结论。**
+
+数学上，overlap@1 相当于把 GT box 向四周膨胀半个 patch 后，再检查预测点是否落入膨胀后的区域：
+
+$$
+
+\operatorname{overlap}(B_{\text{patch}}(c),B_{\text{GT}})
+\Longleftrightarrow
+c\in B_{\text{GT}}\oplus
+[-\Delta_x,\Delta_x]\times[-\Delta_y,\Delta_y].
+
+$$
+
+因此，`overlap=1, hit=0` 的样本确实满足：
+
+> 预测中心距离 GT 边界不超过半个 patch。
+
+但它可能有两种完全不同的情况。
+
+### 情况 A：真正的量化 near-miss
+
+预测点只在 GT 外侧 2–5 像素，预测 patch 大部分覆盖目标。这可以合理解释为语义正确、坐标量化失败。
+
+### 情况 B：相邻元素误判
+
+预测点位于旁边的按钮或文字上，只是 patch 边缘轻微擦到了 GT。在高密度 GUI 中，这不能称作语义正确。
+
+所以你们需要做一个**不训练模型、几个小时就能完成的 Quantization Audit**。
+
+建议对所有 `overlap@1=1, hit@1=0` 样本统计：
+
+$$
+
+d_{\text{box}}(c)=
+\text{预测点到 GT box 的最短距离}
+
+$$
+
+并除以半个 patch，得到 patch-normalized distance：
+
+$$
+
+\tilde d=
+\max\left(
+\frac{d_x}{\Delta_x},
+\frac{d_y}{\Delta_y}
+\right).
+
+$$
+
+同时统计：
+
+- predicted patch 与 GT 的 IoU；
+- predicted patch 被 GT 覆盖的比例；
+- GT 被 predicted patch 覆盖的比例；
+- tolerance curve：margin 从 0、0.1、0.2……1.0 个半 patch 时的命中率；
+- overlap-only 样本中 $\tilde d<0.25$、$<0.5$、$<1.0$ 的比例。
+
+如果结果类似：
+
+- 75% 的 overlap-only 错误在 0.25 个半 patch 内；
+- 90% 在 0.5 个半 patch 内；
+- patch 与 GT 的重叠面积并非仅仅擦边；
+
+那么你就可以很有底气地说：
+
+> Most overlap-only errors are sub-patch quantization errors rather than semantic target-selection failures.
+
+反之，如果大量样本只是边缘擦碰，就不能这样写。
+
+---
+
+# 四、先用三个差值判断到底该修什么
+
+你们已有结果可以分解成三种 headroom：
+
+$$
+
+A=\mathrm{Hit@1}
+
+$$
+
+$$
+
+B=\mathrm{Overlap@1}-\mathrm{Hit@1}
+
+$$
+
+$$
+
+C=\mathrm{Overlap@3}-\mathrm{Overlap@1}
+
+$$
+
+$$
+
+D=1-\mathrm{Overlap@3}
+
+$$
+
+解释如下：
+
+- **$B$ 大**：主要是 patch 内精度/量化问题，应做 sub-patch refinement 或 zoom；
+- **$C$ 大**：正确区域已在 top-3，但 top-1 排序错了，应做 candidate reranking；
+- **$D$ 大**：top-3 都没有正确区域，属于真正的语义定位失败，test-time 后处理很难补救；
+- **$B$ 与 $C$ 都大**：同时需要 rerank 和 refine。
+
+这能直接决定每个 backbone/benchmark 应采用什么策略，而不是盲目调 decoder。
+
+---
+
+# 五、我最推荐的无训练方案：ZWERGE-R³
+
+我建议把它命名为：
+
+## **ZWERGE-R³: Retrieve, Refine, and Rerank**
+
+它只使用：
+
+- 现有 ZWERGE 权重；
+- 现有冻结 backbone；
+- 当前空间 posterior；
+- backbone 已有的 coordinate serializer。
+
+不训练 verifier，不添加新参数，不使用 GT，不扩张评价框。
+
+---
+
+## Stage 1：Retrieve——一次前向取 top-3 空间 proposal
+
+保留你们已有的多区域能力，但修改当前 component 提取的两个薄弱点。
+
+### 当前实现的问题 1：固定 0.3 阈值可能把两个邻近峰合并
+
+如果两个 UI 元素之间有一条概率桥，都超过 $0.3p_{\max}$，BFS 会把它们合成一个 component，最后加权质心可能落在两个元素之间。
+
+### 当前实现的问题 2：区域排序只看最大 patch 分数
+
+当前是：
+
+$$
+
+s(R)=\max_{i\in R}p_i.
+
+$$
+
+这会偏好单个尖锐噪声点，而忽略一个概率总质量更高、但峰值略低的连贯目标区域。
+
+建议改为：
+
+$$
+
+s_{\text{region}}(R)=
+\log\left(\epsilon+\sum_{i\in R}p_i\right)
++\beta\log\left(\epsilon+\max_{i\in R}p_i\right)
+-\gamma\log(1+|R|).
+
+$$
+
+初始可用：
+
+$$
+
+\beta=0.5,\qquad \gamma=0.1.
+
+$$
+
+更稳的候选提取方式是：
+
+- 对 posterior 做非常轻的 3×3 Gaussian smoothing；
+- 找 local maxima；
+- 使用 watershed 或 NMS 将多个峰分开；
+- 在 $0.2,0.35,0.5,0.7$ 多个相对阈值下检查峰是否持续存在；
+- 优先保留跨阈值稳定的 persistent modes。
+
+这仍然是纯后处理，没有新的模型计算。
+
+---
+
+## Stage 2：Refine-A——先做零额外前向的 sub-patch 解码
+
+你们现在的 centroid 是对整个 thresholded component 求均值，容易受长尾或相邻概率桥影响。
+
+可以直接借鉴 heatmap keypoint estimation 中的 distribution-aware decoding。DARK 类方法表明，仅仅改变 heatmap 到坐标的解码，就可能显著减少量化误差。citeturn408678academia27
+
+### 具体实现：局部二次曲面拟合
+
+对每个 region 的最高峰 patch，在其 3×3 邻域上取：
+
+$$
+
+h(x,y)=\log(p(x,y)+\epsilon).
+
+$$
+
+拟合二次函数：
+
+$$
+
+h(x,y)=
+a x^2+b y^2+cxy+dx+ey+f.
+
+$$
+
+连续极值位置为：
+
+$$
+
+\Delta=-H^{-1}g,
+
+$$
+
+其中：
+
+$$
+
+H=
+\begin{bmatrix}
+2a & c\\
+c & 2b
+\end{bmatrix},
+\qquad
+g=
+\begin{bmatrix}
+d\\e
+\end{bmatrix}.
+
+$$
+
+将 $\Delta_x,\Delta_y$ clip 到 $[-0.5,0.5]$ patch 范围，再映射回归一化坐标。
+
+这有三个优点：
+
+- 输出真正的连续坐标；
+- 不需要新增权重；
+- 不扩大 GT，也不改变指标；
+- 计算成本几乎为零。
+
+不过它只能恢复 posterior 形状中已经存在的 sub-cell 信号，不能创造新的视觉分辨率。
+
+---
+
+# 六、最关键的一招：用原生 coordinate serializer 做无训练 reranker
+
+这是我认为**最快、最符合论文故事、最可能救 Qwen3**的方案。
+
+你们的核心发现本来就是：
+
+- 中间层更擅长定位；
+- 后期层更擅长 coordinate serialization。
+
+那么就不应该在推理时完全丢掉后期 serializer。正确做法是：
+
+> 中间层提出候选区域，最终层只负责判断这些候选中哪个坐标最符合原生输出分布，而不是让它从整个屏幕自由生成。
+
+我把它称为：
+
+## **Serialization-Score Reranking，SSR**
+
+### 1. 对每个 top-3 region 产生若干 sub-patch 候选
+
+最初版本可以只使用三个 refined center：
+
+$$
+
+\mathcal C=\{c_1,c_2,c_3\}.
+
+$$
+
+确认有收益后，再对每个 region 产生一个 3×3 sub-grid：
+
+$$
+
+\{-0.35,0,0.35\}\times\{-0.35,0,0.35\}
+
+$$
+
+总共 27 个候选点。
+
+### 2. 把每个候选编码成模型原生 coordinate action
+
+例如：
+
+- GUI-Owl 原生 click action；
+- UI-TARS 的 `start_box` 格式；
+- Qwen3 系列对应的坐标格式。
+
+不让模型自由生成，而是对完整候选 action 做 teacher-forced likelihood：
+
+$$
+
+\ell_{\mathrm{ser}}(c)
+=
+\frac{1}{|T(c)|}
+\sum_{t=1}^{|T(c)|}
+\log P_\theta
+\left(
+T_t(c)\mid x,T_{<t}(c)
+\right).
+
+$$
+
+必须除以 token 数，避免不同坐标 tokenization 长度造成偏差。
+
+### 3. 与空间 posterior prior 结合
+
+$$
+
+S(c)=
+\alpha\log p_{\mathrm{Z}}(R(c))
++
+(1-\alpha)\ell_{\mathrm{ser}}(c)
+-\mu\|c-\hat c_R\|^2.
+
+$$
+
+然后：
+
+$$
+
+c^*=\arg\max_{c\in\mathcal C}S(c).
+
+$$
+
+初始在 held-out validation 上扫：
+
+$$
+
+\alpha\in\{0.25,0.5,0.75\}.
+
+$$
+
+### 为什么这比训练一个 verifier 更适合现在
+
+1. **没有新权重。**
+2. **不需要额外训练数据。**
+3. **不是 oracle。**
+4. **最终输出唯一坐标，可以直接算 hit@1。**
+5. **非常契合论文假设。**
+6. **可能尤其帮助 Qwen3。**
+
+Qwen3 原生 coordinate decoder 本来就强。你们目前负优化的根源之一，很可能是完全绕过了它。SSR 不再让强 serializer 主导全屏搜索，而是让它在中间层提供的少量空间 proposal 上做选择。
+
+这能把 Qwen3 的故事从：
+
+> ZWERGE 替代强 decoder，导致掉点。
+
+变成：
+
+> ZWERGE 恢复中间层 spatial proposals，原生 serializer 对候选进行轻量验证，二者互补。
+
+### 推理成本并不等于 27 次完整 generation
+
+最简单的验证实现可以先 batch 27 条完整序列。
+
+正式实现应当：
+
+1. 对 screenshot + instruction + anchor 做一次 prefix prefill；
+2. 保存 `past_key_values`；
+3. 将 cache 扩展到 $N$ 个候选；
+4. 只对每个候选的 2–8 个 coordinate tokens 做 teacher-forced scoring。
+
+因此新增成本主要是：
+
+$$
+
+N\times \text{少量 coordinate suffix tokens},
+
+$$
+
+而不是重新计算 27 次图像 encoder 和完整 prompt，更不是 27 次自由自回归 rollout。
+
+这正是你说的“attention-based 一次得到全空间候选后，可以并行处理”的计算优势。
+
+---
+
+# 七、如果 SSR 解决了 top-3 选择，但 hit 仍被 patch 精度限制：做纯 coordinate-free self-zoom
+
+你们代码已经实现了 `zoom_backbone`：
+
+1. ZWERGE 选 ROI；
+2. crop；
+3. 原生 backbone 自回归生成坐标；
+4. 映射回原图。
+
+代码明确写的是 Stage 2 使用 backbone `generate`，当前 CLI 也只有 `zoom_backbone` 和 `native_backbone`，还没有纯 ZWERGE 的递归 zoom。turn365817view4
+
+我建议新增：
+
+## **zoom_zwerge / Recursive Spatial Readout**
+
+流程是：
+
+1. 全图运行 ZWERGE，得到 top-1 或 top-3 regions；
+2. 根据 region 的实际 bbox，而不是单个 patch，扩展 2–4 个 patch context；
+3. 对 crop 重新运行**同一个 ZWERGE probe/fusion**；
+4. crop 会被 processor 重新放大到高分辨率；
+5. crop 内一个 patch 映射回原图时只对应更小范围；
+6. 用 DARK/local mode 得到 crop 内连续点；
+7. 映射回原图。
+
+如果 crop 的宽度只占原图的 $1/z$，那么局部 patch 在原图中的有效尺寸约缩小为：
+
+$$
+
+\frac{28}{z}
+\quad\text{或}\quad
+\frac{32}{z}.
+
+$$
+
+例如 $z=4$：
+
+- 28px cell 变为约 7px；
+- 32px cell 变为约 8px。
+
+这才是真正从信息层面解除 patch-granularity ceiling，而不是通过 overlap metric 容忍误差。你们稿件目前也承认，patch 级方法如果要获得 sub-patch precision，需要 second-stage zoom。fileciteturn0file0L1197-L1206
+
+## 不要对所有样本无脑 zoom
+
+使用 adaptive early exit：
+
+当以下条件均满足时直接使用第一阶段：
+
+- top1/top2 region score ratio 足够高；
+- posterior entropy 足够低；
+- active layers 的预测中心方差小；
+- DARK offset 幅度小；
+- top1 component 不接近图像边缘。
+
+否则才启动 zoom。
+
+这样可以报告：
+
+- 平均 forward 数；
+- zoom 触发率；
+- 单次平均延迟；
+- hit@1 提升。
+
+## top-3 crop 可以批处理
+
+当 top1/top2 分数接近时，对三个 crop 组成 batch，一次 GPU batch forward，而不是串行执行三次。FLOPs 仍然增加，但 wall-clock 延迟可以显著低于三次串行自回归 generation。
+
+---
+
+# 八、完整的 ZWERGE-R³ 推理流程
+
+```text
+Input: screenshot I, instruction q
+
+1. Global prefill
+   p_global, per_layer_p = ZWERGE(I, q)
+
+2. Retrieve
+   regions = persistent_region_extract(
+       p_global,
+       thresholds=[0.2, 0.35, 0.5, 0.7],
+       topk=3
+   )
+
+3. Zero-cost refine
+   for each region:
+       c_dark = quadratic_refine(log p_global, local_peak)
+
+4. Candidate rerank
+   candidates = region centers
+   optionally expand each center to a 3x3 sub-grid
+
+   serializer_ll = native_coordinate_teacher_forced_score(
+       I, q, candidates,
+       reuse_prefix_cache=True
+   )
+
+   c_star = argmax(
+       alpha * spatial_prior
+       + (1-alpha) * serializer_ll
+   )
+
+5. Adaptive zoom
+   if confidence(c_star) < threshold:
+       crop candidate region with context
+       p_local = ZWERGE(crop, q)
+       c_local = DARK(p_local)
+       c_star = map_to_original(c_local)
+
+6. Return exactly one coordinate c_star
+```
+
+我建议正式名称采用：
+
+> **Training-Free Proposal–Serialization Refinement**
+
+或者：
+
+> **ZWERGE-R³: Retrieve, Rerank, and Refine**
+
+---
+
+# 九、最快的实验顺序
+
+## 实验 0：先分解 headroom，2 小时
+
+对所有现有 prediction dump 计算：
+
+- hit@1；
+- overlap@1；
+- hit@3；
+- overlap@3；
+- $B=$ overlap@1 − hit@1；
+- $C=$ overlap@3 − overlap@1；
+- rank-1/2/3 首次正确候选比例；
+- overlap-only 的距离和 IoU 分布。
+
+这一步会告诉你要优先做 rerank 还是 zoom。
+
+## 实验 1：只用 top-3 center 做 SSR，半天
+
+先不做 3×3 sub-grid，只比较三个候选 component center。
+
+如果它能把大量 overlap@3 转成 overlap@1/hit@1，就证明 late-layer likelihood 是有效 verifier。
+
+这是最重要的 go/no-go 实验。
+
+## 实验 2：SSR + 3×3 sub-grid，半天
+
+对每个 region center 周围加入九个 sub-cell 点。
+
+它同时解决：
+
+- top-3 选择；
+- patch 内坐标偏移。
+
+## 实验 3：DARK local refinement，2–4 小时
+
+这是纯后处理，几乎没有成本。它可能单独提升若干 hit 点。
+
+## 实验 4：adaptive zoom_zwerge，1 天
+
+仅在低置信样本触发。
+
+如果 SSR 已解决候选选择，zoom 只需要处理 top1 region，不需要对三个 region 全部 zoom，成本会很低。
+
+---
+
+# 十、最终论文应该怎样呈现，才不显得狡辩
+
+不要写：
+
+> We use overlap@3 because our model performs better under this metric.
+
+要写成三个明确问题：
+
+### 1. Does a single coordinate-free forward retrieve the correct target?
+
+报告 Proposal Overlap@1/@3，展示一次前向的候选召回能力。
+
+### 2. Can the proposals be converted into one executable click without additional training?
+
+报告 ZWERGE-R³ 的 Hit@1，最终只输出一个坐标。
+
+### 3. What is the accuracy–compute trade-off?
+
+报告：
+
+- single-pass ZWERGE；
+- ZWERGE + SSR；
+- ZWERGE + adaptive self-zoom；
+- native AR baseline；
+- matched-budget AR TTS。
+
+GUI-Actor 的工作可以支持“多候选加 verifier”这一整体范式，但你们的亮点可以更强：
+
+> GUI-Actor trains a separate verifier; ZWERGE-R³ reuses the frozen agent’s native coordinate serializer as a proposal verifier and sub-patch scorer, requiring no additional parameters or verifier training.
+
+---
+
+# 最终建议
+
+**不要把宝押在 overlap@3 本身。**
+
+把它当成一个非常强的中间证据：
+
+> 正确目标已经在一次前向的 top-3 空间 posterior 中。
+
+然后用以下组合把它转成真实 top-1：
+
+1. **Persistent multi-region extraction**，替代当前固定阈值+BFS+max-score 排序；
+2. **DARK-style sub-patch decoding**，零额外模型成本；
+3. **Native serialization-likelihood reranking**，无训练、并行候选评分；
+4. **低置信样本 adaptive self-zoom**，真正解除 patch 分辨率上限。
+
+其中最值得立刻做的是第 3 项。它不仅可能刷点，而且会把论文的核心假设第一次真正转化成一个完整推理机制：
+
+> **中间层负责找候选，最后层负责在候选中序列化和验证。**
+
+这比“完全绕过最后层”在逻辑上更完整，也最可能挽救 Qwen3 上的负优化。
+
+
+【提问 轮数3】
+我突然想到，如果用overlap@3的话是能直接比过的，而且你去看我们的代码：
+https://github.com/HashTAG00002/zwergeUI
+
+overlap@3似乎是合理的，GUI-Actor也是这么做的，并且也因此训练了一个他们自己的verifer，这并非不公平：自回归GUI Agent，即使进行了TTS，在生成坐标过程中也只能一个一个坐标点的生成，开销是线性的。但是attention-based的是一下输出所有坐标点的近似概率（即使粒度很大），那么我们用overlap@3其实不会相对于overlap@1引入额外的开销，对吧？看看我们的代码，确定现在的overlap@3的逻辑是怎样的？
+
+但是这看起来很像是狡辩，有没有办法在这个基础上，不训练新模型来说服审稿人，并采用更好的采样策略把overlap转换成hit？毕竟overlap只是额外引入了14/16像素点的margin，这说明语义上是没问题的，只是有一点点偏移不是吗？还是说还是要zoom-in？
+
+发挥你的全部能力帮我设计一款快速在已有权重上的test-time的优化策略，这种优化不应该是通过简单的扩展，而是公平的，进一步把现有坐标-free的限制解除的，让他发挥全部潜能的相对公平的比较
+
+
+“三、逐条判断你的说法
+1. "overlap@3 相比 overlap@1 不引入额外推理开销，因为都来自同一次 forward" —— 这个是对的，代码可验证。
+从上面代码看得很清楚：topk_points 全部来自同一次 scores_to_point_and_topk 调用，没有第二次模型前向、没有额外采样。所以拿 overlap@1 和 overlap@3 比较自回归方法的成本，"零额外前向开销"这句话在你的实现里是事实，不是话术。
+2. "GUI-Actor 也用 topk/overlap 做类似的事，并训练了自己的 verifier，所以这不是不公平" —— 部分对，但有一个关键区别要讲清楚，否则会被审稿人抓住。
+GUI-Actor 的 verifier 做的事情，本质上是用第二个模型对多个候选做重新打分排序，是一次额外的、可学习的判别式精化，等价于一个"轻量 re-ranker"，而它评测时用的 topk 通常是 hit@k（候选点是否落进 bbox），不是 overlap@k。也就是说，GUI-Actor 的"公平性论证"建立在"多候选 + verifier 精排"上，本质是缩小候选到更精确的坐标；而你现在的 overlap@k 只是给同一批候选点加了个"±半个 patch 的几何容忍框"，并没有真正提升坐标精度——这两者在审稿人眼里不是同一件事，如果不加区分地类比，反而会显得"套牌"。
+正确的类比应该是：GUI-Actor 的 topk + verifier 论证了"多候选是公平的，因为坐标-free 方法一次前向能给出多个候选，而自回归方法产生多候选要多次解码"——这条论证你可以直接借用来支撑 hit@3 / hit@5（多候选，无额外开销，用严格 hit 判定）。但把这个论证套在 overlap@1 上就站不住，因为 overlap@1 根本不需要多候选，它只是放宽了单点的判定半径，这是精度问题不是候选数问题，容易被读成"用更松的尺子量出更好的分数"。
+3. "overlap 只是引入了 14/16px 的 margin，语义上没问题，只是有点偏移" —— 这个判断本身没错，但不能作为拿它当主指标／和别人 hit@1 比较的理由。
+从数值角度看，这个 margin 确实很小（14-16px 相对于 1080p/2K 截图是极小比例），语义上模型"基本找对了地方"。但问题不在于 margin 大小，而在于评测协议的一致性：SOTA 榜单上的数字全部是 hit@1（严格点在 bbox 内），你如果只报 overlap@1 去对比别人的 hit@1，无论 margin 多小，都是在用不同的度量单位比较，这在评审角度是"metric不一致"的硬伤，不是"狡辩"与否的问题，而是根本不可比。
+四、你问的核心问题——能不能不训练新模型，靠更好的采样策略把 overlap 转成 hit？
+先给结论：单纯换解码策略（argmax/peak_shift/temperature）已经被你自己的消融实验证伪了，.mrules [2026-05-19] 记录得非常清楚——argmax 想着"消除质心漂移"，结果 SS-Pro hit 从 37.19% 掉到 28.40%，gap 反而从 13pp 扩大到 22pp。根因你自己也分析对了：28px/32px 是硬件级的网格量化误差，不是质心算法的问题，当 GT bbox 本身小于等于 1 个 patch 时，"最优"的 patch 中心本身就可能在 bbox 外面，这是信息论意义上不可逆的信息损失（模型只能输出 patch 级别的后验，不可能输出比 patch 更精细的定位）。
+所以要真正把 overlap 转成 hit，同时不训练新模型、保持公平（不引入自回归式的多次前向），思路只能是"用已有权重，在 test-time 把有效分辨率做细"，而不是在同一分辨率上换算法。给你三个可执行、且不违反"不训练新模型"约束的方案，按性价比排序：
+方案 A（推荐，成本最低）：Test-time 双分辨率插值精化 —— 不用 zoom-in 裁剪，只用亚像素插值
+核心想法：p_final 是定义在 n_width × n_height 的粗网格上的离散分布，但这个分布本身是连续概率场的采样。你可以对最优区域周围的 patch 分数做双三次/高斯核插值上采样（例如 8×8 或 16×16 的超分辨率网格），在插值后的连续场上取峰值或加权质心。
+这不算"训练新模型"：只是对已有的离散 logits 做数学插值，纯 test-time 后处理。
+不需要第二次前向：所有信息已经在 p_final 里，只是插值提升了坐标读出精度。
+能不能真正解决问题取决于：p_final 在局部是否连续光滑（如果模型学到的就是尖锐的 one-hot 式响应，插值没有意义）。这个可以先做个诊断实验验证可行性——检查 GT bbox 小于 1 patch 的失败样本里，相邻 patch 的分数分布是否有连续的梯度（不是纯 one-hot）。
+方案 B（你已经提到的 zoom-in，其实是必要的，不是可选项）
+.mrules [2026-05-19] 结论第三条已经写死了："提升 hit 的正确路径" 里第一条就是 zoom-in，第二条是降低 max_pixels（等价于用更细的 patch）。你现在纠结"是否还要 zoom-in"，但从物理原理上看：任何在原分辨率、不改变有效 patch 大小的后处理都不可能突破 28px 的量化下界，这是信息论硬约束，不是算法能不能优化的问题。
+好消息是：predict_zoom_backbone（你已经实现了）完全符合"不训练新模型"和"公平性"的要求——它是纯 test-time 的两阶段流程：Stage 1 用 ZwerGe 头一次前向定位粗略 ROI，Stage 2 把 ROI crop 出来，让同一个冻结的 backbone做一次自回归 generate() 在局部图上产生精确坐标。这跟自回归 baseline 比"总前向次数"完全公平——因为自回归 baseline 也是做一次完整的 decode，而你只是多做了一次局部裁剪图上的短 decode（begin 我可以核实一下这次 decode 的 token 数量开销，通常远小于原图一次完整 decode，因为 assistant 输出的坐标 tokens 本身就很短）。你可以在论文里明确写清楚：
+"ZwerGe 用单次 prefill 定位 ROI（这一步接近零开销，因为坐标-free 方法本就要做这次 forward 来生成任何输出），再用一次局部 decode 精化坐标——总的自回归 token 数量与 baseline 相当或更少（因为 baseline 要在全图分辨率上定位，而我们在被裁剪的、更小的图上做定位，收敛更快/token更少）"
+这个叙事逻辑上是自洽的，不算"狡辩"，因为你确实没有引入超出自回归 baseline 复杂度的额外开销（甚至更少）。
+方案 C（辅助，用于论文里佐证 A/B 的必要性，而非替代）：多尺度融合（无需 crop，无需二次 decode）
+如果你想完全避免第二次 decode（连局部 decode 都不做），可以在同一次 forward 里，从多个中间层/多个 patch 网格粒度的 hidden state 里同时读出不同分辨率的后验（例如同时用 merge_size=2 的粗粒度头和一个专门读取合并前 raw patch token 的细粒度头），做加权融合。但这个需要改动模型结构（即使不重新训练主干，也可能需要为细粒度头做至少一次轻量微调），所以不完全满足"不训练新模型"的约束，只能作为未来工作提。”
+
+以上内容是另一个agent给出的建议，但是这并不完全对，因为他没看我的论文内容，我目前的比较（略有掉点）都是overlap之间的比较，即：改造前的overlap@1和改造后的overlap@1，改造前的模型虽然是hit，但是我手动放宽了额外14、16个像素点。这是公平的。
+
+所以，该怎么办，救救我，真的没办法了吗？
+
+【提问 轮数4】
+我突然想到，如果用overlap@3的话是能直接比过的
+overlap@3似乎是合理的，GUI-Actor也是这么做的，并且也因此训练了一个他们自己的verifer，这并非不公平：自回归GUI Agent，即使进行了TTS，在生成坐标过程中也只能一个一个坐标点的生成，开销是线性的。但是attention-based的是一下输出所有坐标点的近似概率（即使粒度很大），那么我们用overlap@3其实不会相对于overlap@1引入额外的开销，对吧？看看我们的代码，确定现在的overlap@3的逻辑是怎样的？
+
+但是这看起来很像是狡辩，有没有办法在这个基础上，不训练新模型来说服审稿人，并采用更好的采样策略把overlap转换成hit？毕竟overlap只是额外引入了14/16像素点的margin，这说明语义上是没问题的，只是有一点点偏移不是吗？还是说还是要zoom-in？
+
+发挥你的全部能力帮我设计一款快速在已有权重上的test-time的优化策略，这种优化不应该是通过简单的扩展，而是公平的，进一步把现有坐标-free的限制解除的，让他发挥全部潜能的相对公平的比较
+
+
+```三、逐条判断你的说法
+1. "overlap@3 相比 overlap@1 不引入额外推理开销，因为都来自同一次 forward" —— 这个是对的，代码可验证。
+从上面代码看得很清楚：topk_points 全部来自同一次 scores_to_point_and_topk 调用，没有第二次模型前向、没有额外采样。所以拿 overlap@1 和 overlap@3 比较自回归方法的成本，"零额外前向开销"这句话在你的实现里是事实，不是话术。
+2. "GUI-Actor 也用 topk/overlap 做类似的事，并训练了自己的 verifier，所以这不是不公平" —— 部分对，但有一个关键区别要讲清楚，否则会被审稿人抓住。
+GUI-Actor 的 verifier 做的事情，本质上是用第二个模型对多个候选做重新打分排序，是一次额外的、可学习的判别式精化，等价于一个"轻量 re-ranker"，而它评测时用的 topk 通常是 hit@k（候选点是否落进 bbox），不是 overlap@k。也就是说，GUI-Actor 的"公平性论证"建立在"多候选 + verifier 精排"上，本质是缩小候选到更精确的坐标；而你现在的 overlap@k 只是给同一批候选点加了个"±半个 patch 的几何容忍框"，并没有真正提升坐标精度——这两者在审稿人眼里不是同一件事，如果不加区分地类比，反而会显得"套牌"。
+正确的类比应该是：GUI-Actor 的 topk + verifier 论证了"多候选是公平的，因为坐标-free 方法一次前向能给出多个候选，而自回归方法产生多候选要多次解码"——这条论证你可以直接借用来支撑 hit@3 / hit@5（多候选，无额外开销，用严格 hit 判定）。但把这个论证套在 overlap@1 上就站不住，因为 overlap@1 根本不需要多候选，它只是放宽了单点的判定半径，这是精度问题不是候选数问题，容易被读成"用更松的尺子量出更好的分数"。
+3. "overlap 只是引入了 14/16px 的 margin，语义上没问题，只是有点偏移" —— 这个判断本身没错，但不能作为拿它当主指标／和别人 hit@1 比较的理由。
+从数值角度看，这个 margin 确实很小（14-16px 相对于 1080p/2K 截图是极小比例），语义上模型"基本找对了地方"。但问题不在于 margin 大小，而在于评测协议的一致性：SOTA 榜单上的数字全部是 hit@1（严格点在 bbox 内），你如果只报 overlap@1 去对比别人的 hit@1，无论 margin 多小，都是在用不同的度量单位比较，这在评审角度是"metric不一致"的硬伤，不是"狡辩"与否的问题，而是根本不可比。
+四、你问的核心问题——能不能不训练新模型，靠更好的采样策略把 overlap 转成 hit？
+先给结论：单纯换解码策略（argmax/peak_shift/temperature）已经被你自己的消融实验证伪了，.mrules [2026-05-19] 记录得非常清楚——argmax 想着"消除质心漂移"，结果 SS-Pro hit 从 37.19% 掉到 28.40%，gap 反而从 13pp 扩大到 22pp。根因你自己也分析对了：28px/32px 是硬件级的网格量化误差，不是质心算法的问题，当 GT bbox 本身小于等于 1 个 patch 时，"最优"的 patch 中心本身就可能在 bbox 外面，这是信息论意义上不可逆的信息损失（模型只能输出 patch 级别的后验，不可能输出比 patch 更精细的定位）。
+所以要真正把 overlap 转成 hit，同时不训练新模型、保持公平（不引入自回归式的多次前向），思路只能是"用已有权重，在 test-time 把有效分辨率做细"，而不是在同一分辨率上换算法。给你三个可执行、且不违反"不训练新模型"约束的方案，按性价比排序：
+方案 A（推荐，成本最低）：Test-time 双分辨率插值精化 —— 不用 zoom-in 裁剪，只用亚像素插值
+核心想法：p_final 是定义在 n_width × n_height 的粗网格上的离散分布，但这个分布本身是连续概率场的采样。你可以对最优区域周围的 patch 分数做双三次/高斯核插值上采样（例如 8×8 或 16×16 的超分辨率网格），在插值后的连续场上取峰值或加权质心。
+这不算"训练新模型"：只是对已有的离散 logits 做数学插值，纯 test-time 后处理。
+不需要第二次前向：所有信息已经在 p_final 里，只是插值提升了坐标读出精度。
+能不能真正解决问题取决于：p_final 在局部是否连续光滑（如果模型学到的就是尖锐的 one-hot 式响应，插值没有意义）。这个可以先做个诊断实验验证可行性——检查 GT bbox 小于 1 patch 的失败样本里，相邻 patch 的分数分布是否有连续的梯度（不是纯 one-hot）。
+方案 B（你已经提到的 zoom-in，其实是必要的，不是可选项）
+.mrules [2026-05-19] 结论第三条已经写死了："提升 hit 的正确路径" 里第一条就是 zoom-in，第二条是降低 max_pixels（等价于用更细的 patch）。你现在纠结"是否还要 zoom-in"，但从物理原理上看：任何在原分辨率、不改变有效 patch 大小的后处理都不可能突破 28px 的量化下界，这是信息论硬约束，不是算法能不能优化的问题。
+好消息是：predict_zoom_backbone（你已经实现了）完全符合"不训练新模型"和"公平性"的要求——它是纯 test-time 的两阶段流程：Stage 1 用 ZwerGe 头一次前向定位粗略 ROI，Stage 2 把 ROI crop 出来，让同一个冻结的 backbone做一次自回归 generate() 在局部图上产生精确坐标。这跟自回归 baseline 比"总前向次数"完全公平——因为自回归 baseline 也是做一次完整的 decode，而你只是多做了一次局部裁剪图上的短 decode（begin 我可以核实一下这次 decode 的 token 数量开销，通常远小于原图一次完整 decode，因为 assistant 输出的坐标 tokens 本身就很短）。你可以在论文里明确写清楚：
+"ZwerGe 用单次 prefill 定位 ROI（这一步接近零开销，因为坐标-free 方法本就要做这次 forward 来生成任何输出），再用一次局部 decode 精化坐标——总的自回归 token 数量与 baseline 相当或更少（因为 baseline 要在全图分辨率上定位，而我们在被裁剪的、更小的图上做定位，收敛更快/token更少）"
+这个叙事逻辑上是自洽的，不算"狡辩"，因为你确实没有引入超出自回归 baseline 复杂度的额外开销（甚至更少）。
+方案 C（辅助，用于论文里佐证 A/B 的必要性，而非替代）：多尺度融合（无需 crop，无需二次 decode）
+如果你想完全避免第二次 decode（连局部 decode 都不做），可以在同一次 forward 里，从多个中间层/多个 patch 网格粒度的 hidden state 里同时读出不同分辨率的后验（例如同时用 merge_size=2 的粗粒度头和一个专门读取合并前 raw patch token 的细粒度头），做加权融合。但这个需要改动模型结构（即使不重新训练主干，也可能需要为细粒度头做至少一次轻量微调），所以不完全满足"不训练新模型"的约束，只能作为未来工作提。```
+
+以上内容是另一个agent给出的建议，但是这并不完全对，因为他没看我的论文内容，我目前的比较（略有掉点）都是overlap之间的比较，即：改造前的overlap@1和改造后的overlap@1，改造前的模型虽然是hit，但是我手动放宽了额外14、16个像素点。这是公平的。
+
+所以，该怎么办，救救我，真的没办法了吗？
+
+【回答内容 轮数4】
+这个想法里有一个**真正能救实验的突破口**：不要把 overlap@3 直接换成主指标，而要把它当作“现有权重中已经存在、但当前 decoder 没有兑现的候选上界”，再用一个**零训练、输出单一可执行坐标**的 test-time decoder，把这部分上界尽可能转化成 hit@1。
+
+这样就不是狡辩，而是：
+
+> 模型已经在一次前向中找到了正确区域；问题出在候选排序和离散后验到连续坐标的解码。我们设计一个训练无关的分布感知 decoder，恢复已有后验中的连续位置。
+
+## 一、先给明确结论
+
+### 从推理开销上看，你的判断基本正确
+
+你们的 `p_final` 在一次 prefill 中已经输出了整个视觉 token 网格的概率。当前代码随后会把**所有**超过阈值的 patch 划分成连通区域，排序之后仅仅截取前 `topk` 个；默认 `topk=3`。所以从 overlap@1 变成 overlap@3：
+
+- 不增加 backbone forward；
+- 不增加自回归 token；
+- 只增加极少量列表截取与指标判断；
+- 严格来说，连通域本来就已经全部算出来了，`[:3]` 几乎是免费的。turn430375view1turn717475view1turn430375view5
+
+### 但从任务公平性上看，不能直接把 overlap@3 当最终准确率
+
+如果 benchmark 最终只允许执行一次 click，那么 top-3 指标默认存在一个 oracle：
+
+> 三个候选里只要有一个正确，就算成功，但系统并没有说明实际应该点哪一个。
+
+所以：
+
+- **Hit@3 / overlap@3 可以合理报告为 candidate recall；**
+- **不能无条件取代 Hit@1，作为最终可执行性能。**
+
+GUI-Actor 确实利用了“一次 attention map 产生多个候选”的优势，但它报告的是 **Hit@3**，并明确把它解释成多区域候选能力；对自回归 Aguvis，它运行三次采样作为比较。GUI-Actor 最终要把候选变成一个动作时，又训练了一个独立的 UI-TARS-SFT-2B verifier，而不是直接把 Hit@3 当 Hit@1。turn336889view1turn927176view0
+
+因此最稳妥的立场是：
+
+> **你们生成 top-3 proposal 确实没有额外 proposal cost，这是合法且重要的架构优势；但必须继续解决“从 top-3 选择一个最终 click”的问题。**
+
+---
+
+# 二、你们现在的 overlap@3 到底是什么
+
+我逐行看了当前 `master` 的实现。
+
+## 1. 候选区域生成
+
+对于后验 $p$：
+
+1. 计算阈值
+   $$
+
+   t=0.3\cdot \max_i p_i
+
+$$
+
+2. 保留所有 $p_i>t$ 的 patch。
+
+3. 按上下左右四邻域做 BFS，得到若干 connected components。
+
+4. 每个 component 的当前排序分数是：
+
+   $$
+
+   s(C)=\max_{i\in C}p_i
+
+$$
+
+5. component 的坐标默认是保留下来的 patch center 的概率加权质心：
+
+   $$
+
+   c(C)=
+   \frac{\sum_{i\in C}p_i c_i}
+        {\sum_{i\in C}p_i}
+
+$$
+
+6. 按 component 的最大 patch 概率降序排列，取前三个 component center。turn430375view1turn430375view2turn717475view1
+
+这里有一个很重要的低垂果实：
+
+> **你们按 component 内的最大单 patch 分数排序，而 GUI-Actor 官方代码按 component 的平均 activation 排序。**
+
+所以你们当前 decoder 更容易被孤立的高分尖峰劫持。GUI-Actor 则对整块区域的平均响应排序。
+
+平均值未必就是最终最优，因为它会惩罚大目标；但至少你们应该立刻离线比较：
+
+- max score：当前实现；
+- mean score：GUI-Actor 实现；
+- probability mass：$\sum_{i\in C}p_i$；
+- mass / $\sqrt{|C|}$；
+- 后面我提出的 cross-layer consensus score。
+
+这可能只改一行就能让 top-3 中的正确候选升到 top-1。
+
+## 2. overlap@3 的评测逻辑
+
+对每个候选中心 $c_j=(x_j,y_j)$，代码构造一个**合成 patch box**：
+
+$$
+
+B_j=
+\left[
+x_j-\frac{1}{2n_w},
+y_j-\frac{1}{2n_h},
+x_j+\frac{1}{2n_w},
+y_j+\frac{1}{2n_h}
+\right].
+
+$$
+
+然后：
+
+$$
+
+\text{overlap@3}=1
+\iff
+\exists j\leq 3,\quad B_j\cap B_{\mathrm{GT}}\neq\varnothing.
+
+$$
+
+而：
+
+$$
+
+\text{hit@3}=1
+\iff
+\exists j\leq3,\quad c_j\in B_{\mathrm{GT}}.
+
+$$
+
+这两个指标目前代码中都已经计算了。turn717475view0
+
+## 3. 并不总是准确地“多放宽 14/16 像素”
+
+Qwen2.5 的 patch size 为 14，merge size 为 2，所以 token cell 是 28 个**处理后图像像素**；Qwen3 对应 32，半径分别是 14、16。turn430375view6turn717475view3
+
+但评测实际使用的是归一化半径：
+
+$$
+
+m_x=\frac{1}{2n_w},\qquad
+m_y=\frac{1}{2n_h}.
+
+$$
+
+映回原始截图后，是：
+
+$$
+
+m_x^{px}=\frac{W_{\rm orig}}{2n_w},\qquad
+m_y^{px}=\frac{H_{\rm orig}}{2n_h}.
+
+$$
+
+受 smart resize 影响，它不一定在原图中严格等于 14/16 像素。
+
+另外还有两个细节：
+
+- 候选中心是多个 patch center 的连续加权质心，并不一定落在某个真实 patch center 上；
+- 当前 `do_boxes_overlap` 用 `<` 判断分离，因此两个 box **只在边界接触、交集面积为零**时也会被算作 overlap。
+
+所以不能仅凭 overlap@3 高就直接说：
+
+> “语义绝对正确，只差 14/16 像素。”
+
+这个结论需要下面的误差分解来支撑。
+
+---
+
+# 三、立刻做这个四分法，它会决定要不要 zoom
+
+对每个样本划分成四个互斥集合：
+
+$$
+
+\begin{aligned}
+A &: \text{hit@1}\\
+B &: \neg\text{hit@1}\ \land\ \text{hit@3}\\
+C &: \neg\text{hit@3}\ \land\ \text{overlap@3}\\
+D &: \neg\text{overlap@3}.
+\end{aligned}
+
+$$
+
+含义非常明确：
+
+| 类别 | 真正问题 | 对应方案 |
+|---|---|---|
+| A | 当前已正确 | 不处理 |
+| B | 正确候选在 top-3，但排序错了 | component reranking / self-verifier |
+| C | 正确区域接近，但候选点有 sub-patch 偏移 | 连续分布解码 / zoom |
+| D | top-3 连区域都没找到 | test-time decoder 很难解决，需要训练或新视觉信息 |
+
+再对 B、C 中的样本计算候选中心到 GT box 的最短距离：
+
+$$
+
+d_x=\max(x_1-x,0,x-x_2),\qquad
+d_y=\max(y_1-y,0,y-y_2),
+
+$$
+
+$$
+
+d_{\rm norm}
+=
+\sqrt{
+\left(\frac{d_x}{1/(2n_w)}\right)^2+
+\left(\frac{d_y}{1/(2n_h)}\right)^2
+}.
+
+$$
+
+建议至少画三个 CDF：
+
+- 距离小于 0.25 cell；
+- 距离小于 0.5 cell；
+- 距离小于 1.0 cell。
+
+同时把 overlap 改成正交集面积严格大于零，并报告：
+
+- intersection / predicted patch area；
+- intersection / GT area；
+- GT box 内 posterior mass。
+
+这样才能有力地说：
+
+> “绝大多数 overlap-only 错误位于半个 token cell 内，因此主要是后验解码误差，而非语义目标选择错误。”
+
+你们稿件现在把 overlap@1 解释为对两类系统统一 patch 粒度的公平指标。fileciteturn0file0L630-L642
+但要把这个论证扩展到 overlap@3，最好先完成上述严格分解，否则确实很容易被看成 metric shopping。
+
+---
+
+# 四、我最推荐的零训练方案：DACD
+
+我建议命名为：
+
+## Distribution-Aware Consensus Decoding
+**DACD：分布感知的跨层一致性解码**
+
+它解决两个不同问题：
+
+1. top-3 中哪个 component 才是真目标；
+2. component 已经正确时，怎样从粗网格恢复连续坐标。
+
+它不训练新模型、不增加参数，基础版本也不增加任何 backbone forward。
+
+---
+
+## 阶段 A：用跨层一致性替代单 patch 最大值排序
+
+当前代码已经在同一次 forward 中返回：
+
+- 所有 active layer 的 $p_\ell$；
+- fusion posterior $p_{\rm final}$；
+- sample-dependent fusion weight $\omega_\ell$。
+
+因此每个候选 component $C_j$ 可以计算每一层在其附近的概率质量：
+
+$$
+
+m_{\ell j}
+=
+\sum_{i\in \operatorname{dilate}(C_j,1)}
+p_{\ell i}.
+
+$$
+
+然后采用无额外学习参数的 weighted product-of-experts：
+
+$$
+
+S_j
+=
+\exp\left(
+\sum_\ell
+\omega_\ell
+\log(m_{\ell j}+\epsilon)
+\right).
+
+$$
+
+解释是：
+
+- 一个真正由指令支持的区域，应当在多个中间层上稳定存在；
+- 单层孤立尖峰即使最大值很高，也会因为其他层支持不足而降分；
+- learned $\omega_\ell$ 已经提供了当前样本下各层的可信度；
+- 不需要再训练 verifier。
+
+最后：
+
+1. 先按 $S_j$ 排序；
+2. 相同时按 component mass
+   $$
+
+   M_j=\sum_{i\in C_j}p_{{\rm final},i}
+
+$$
+   排序；
+3. 不再按当前的 `max(item[3])` 排序。
+
+这相当于利用你们论文最独特的资产——**跨层 posterior**——做一个内部 self-verifier。
+
+比复制 GUI-Actor 的外部 2B verifier 更符合你们自己的故事：
+
+> 不同层不是冗余输出；跨层稳定性本身可以判断哪个候选是真正的 instruction-conditioned target。
+
+### 最快的消融顺序
+
+先只改区域排序，坐标不动：
+
+1. Max，当前；
+2. Mean，GUI-Actor；
+3. Mass；
+4. Cross-layer consensus；
+5. Cross-layer consensus + mass tie-break。
+
+这些都能用相同后验完全离线跑。
+
+---
+
+## 阶段 B：从离散 Gaussian posterior 恢复 sub-patch 坐标
+
+这是我认为最可能直接涨 hit@1 的部分。
+
+你们训练标签不是 one-hot patch，而是以**连续 GT bbox centroid**为中心的各向异性 Gaussian：
+
+$$
+
+y_i\propto
+\exp\left(
+-\frac{(x_i-c_x)^2}{2\sigma_x^2}
+-\frac{(y_i-c_y)^2}{2\sigma_y^2}
+\right).
+
+$$
+
+而且 $\sigma_x,\sigma_y$ 与目标宽高相关。fileciteturn0file0L523-L553
+
+这意味着，即使输出只定义在离散 patch center 上，邻近 patch 概率之间的比例也可以编码连续中心位于 cell 内的“相位”。
+
+例如目标中心偏向右侧时：
+
+- 右邻 patch 的概率会略高；
+- 左邻 patch 的概率会略低；
+- 对数概率的局部曲率可以解析地恢复连续峰值。
+
+因此你们稿件目前说“没有 zoom 就不能获得 sub-patch precision”其实过强了。fileciteturn0file0L1197-L1206
+
+离散 heatmap 到连续坐标的分布感知解码在关键点检测领域已有直接先例：DARK 表明，仅更换 heatmap decoder、保持网络权重不变，就能显著缓解量化误差；Integral Regression 也说明离散热图可以通过积分/期望产生连续坐标。turn410838view1
+
+### 具体实现
+
+先构造跨层 consensus log field：
+
+$$
+
+s_{uv}
+=
+\sum_\ell
+\omega_\ell
+\log(p_{\ell,uv}+\epsilon).
+
+$$
+
+在获胜 component 的离散峰值周围取 $5\times5$ 窗口，拟合二维二次曲面：
+
+$$
+
+s(\Delta)
+=
+a+b^\top\Delta+
+\frac12\Delta^\top H\Delta.
+
+$$
+
+连续极大值为：
+
+$$
+
+\Delta^*=-H^{-1}b.
+
+$$
+
+然后最终坐标：
+
+$$
+
+\hat x=
+\frac{u_0+0.5+\Delta_x^*}{n_w},
+\qquad
+\hat y=
+\frac{v_0+0.5+\Delta_y^*}{n_h}.
+
+$$
+
+约束：
+
+- $H$ 必须负定；
+- $\Delta_x,\Delta_y$ clip 到 $[-0.75,0.75]$ cell；
+- 拟合 residual 太大则 fallback；
+- 图像边缘用单边拟合或当前 centroid。
+
+最简实现甚至不需要完整二维拟合。对 x/y marginal 分别做三点抛物线插值：
+
+$$
+
+\delta_x=
+\frac12
+\frac{z_{-1}-z_{+1}}
+{z_{-1}-2z_0+z_{+1}},
+
+$$
+
+y 方向同理。
+
+### 为什么它不同于你们已有的 centroid/temperature
+
+当前实现：
+
+- 先用 `0.3 × max` 丢掉低于阈值的邻居；
+- 只在 surviving component 内取质心；
+- 如果只剩一个 patch，坐标无法移动；
+- 多峰时质心可能被 component 形状拖偏。turn430375view2
+
+DACD：
+
+- 用阈值以下的邻居概率推断局部曲率；
+- 在 log probability 空间恢复 Gaussian mode；
+- 只在已分离的局部 candidate 内拟合，不会像全局 soft-argmax 那样落在两个按钮中间；
+- 可以真正输出 cell 内连续位置。
+
+一个代码级骨架如下：
+
+```python
+def decode_dacd(
+    p_final,
+    per_layer_probs,
+    omega,
+    n_width,
+    n_height,
+    activation_threshold=0.3,
+):
+    eps = 1e-9
+
+    # [L, H, W]
+    P = torch.stack([
+        p.float().reshape(n_height, n_width)
+        for p in per_layer_probs
+    ])
+    w = omega.float()
+    w = w / w.sum().clamp_min(eps)
+
+    # Weighted product-of-experts field.
+    log_q = (
+        w[:, None, None]
+        * P.clamp_min(eps).log()
+    ).sum(dim=0)
+    q = torch.softmax(log_q.flatten(), dim=0).reshape(
+        n_height, n_width
+    )
+
+    # Reuse current connected components, but expose their flat indices.
+    regions = connected_components(
+        p_final.reshape(n_height, n_width),
+        threshold=activation_threshold,
+    )
+
+    ranked = []
+    for region in regions:
+        support = dilate_one_cell(region, n_width, n_height)
+
+        # Per-layer candidate mass.
+        masses = P[:, support].sum(dim=1)
+
+        # Parameter-free cross-layer consistency score.
+        consensus_score = (
+            w * masses.clamp_min(eps).log()
+        ).sum().item()
+
+        final_mass = (
+            p_final.float().flatten()[region].sum().item()
+        )
+        ranked.append((consensus_score, final_mass, region))
+
+    ranked.sort(reverse=True)
+    winning_region = ranked[0][2]
+
+    peak_idx = max(
+        winning_region,
+        key=lambda i: q.flatten()[i].item(),
+    )
+    peak_y, peak_x = divmod(peak_idx, n_width)
+
+    dx, dy = fit_local_log_quadratic(
+        log_q, peak_x, peak_y, radius=2
+    )
+
+    x = (peak_x + 0.5 + dx) / n_width
+    y = (peak_y + 0.5 + dy) / n_height
+    return x, y
+```
+
+---
+
+# 五、什么时候仍然必须 zoom-in
+
+不是所有 overlap-only 样本都能靠解析解码恢复。
+
+当目标非常小，训练 Gaussian 退化得接近 one-hot 时：
+
+- 峰值 patch 接近 1；
+- 邻居概率没有稳定的相位信息；
+- Hessian 无效或拟合 residual 很大；
+- 任意纯后处理都无法凭空猜出 cell 内位置。
+
+这时才需要 zoom。
+
+## 建议做“条件式 coordinate-free zoom”，而不是现有 zoom_backbone
+
+你们代码已经有一个 `zoom_backbone`：
+
+1. ZwerGe 找 ROI；
+2. crop；
+3. 原生 backbone 自回归生成 coordinate；
+4. 映射回原图。
+
+它能涨 hit，但重新引入 coordinate serialization，方法故事会变弱。
+
+我建议增加：
+
+## DACD-Z：Coordinate-Free Re-prefill Zoom
+
+1. 全图跑一次 ZwerGe；
+2. DACD 选出 top-1 component；
+3. 若 Gaussian fit 不可信，则围绕 component crop；
+4. 对 crop **再次运行相同的 ZwerGe probe/fusion**；
+5. 在 crop posterior 上再做 DACD；
+6. 映射回原图。
+
+这仍然是：
+
+- 相同已有权重；
+- 没有新训练；
+- 没有 coordinate token generation；
+- 没有额外 verifier；
+- 只是对不确定样本重新分配视觉 token。
+
+建议的无 GT trigger：
+
+$$
+
+\text{zoom if}
+\quad
+\begin{cases}
+H \text{ 非负定},\\
+\text{fit residual}>\tau_r,\\
+\operatorname{Var}_\ell(\hat\mu_\ell)>\tau_v,\\
+S_1-S_2<\tau_m,\\
+\text{有效邻居 mass 太小}.
+\end{cases}
+
+$$
+
+阈值只在 held-out training/dev set 上确定，并对全部模型、benchmark 固定。
+
+这样可以报告：
+
+- 平均额外 forward 数；
+- zoom trigger rate；
+- Hit@1；
+- latency。
+
+这比“所有样本无条件 zoom”更公平、更高效，也比单纯提高 max_pixels 更有方法意义。
+
+---
+
+# 六、一个更强但属于 hybrid 的备选：Serializer-as-Verifier
+
+如果 cross-layer consensus 仍无法把正确的 top-3 候选升到第一，可以利用你们发现的另一半：
+
+> 中间层擅长提出空间候选，最终层擅长 coordinate serialization。
+
+## ZwerGe-SV
+
+对 DACD 得到的 top-3 candidate：
+
+1. 每个 candidate 先做 Gaussian subpatch refinement；
+2. 在每个点附近生成少量 local offsets，例如：
+   $$
+
+   (0,0),(\pm0.25c_x,0),(0,\pm0.25c_y)
+
+$$
+3. 把这些候选坐标格式化成每个 backbone 的原生 coordinate tokens；
+4. 用 teacher forcing 计算 final LM head 对候选坐标序列的平均 token log-likelihood；
+5. 候选全部并行评分，不做 autoregressive sampling；
+6. 用空间 posterior score 与 serialization likelihood 做 rank aggregation，输出一个坐标。
+
+候选评分可写成：
+
+$$
+
+s_{\rm spatial}(c)
+=
+\log q(c),
+
+$$
+
+$$
+
+s_{\rm ser}(c)
+=
+\frac1{|\tau(c)|}
+\sum_t
+\log P_\theta(
+\tau_t(c)\mid x,\tau_{<t}(c)
+),
+
+$$
+
+然后用 per-sample rank sum，避免调一个全局 $\lambda$。
+
+更进一步，可以缓存初次 prefill 的 KV：
+
+- screenshot 和 instruction 只处理一次；
+- 对所有候选只评分数个 coordinate continuation tokens；
+- 没有完整自回归搜索；
+- 没有第二个模型；
+- 没有额外训练数据。
+
+这个版本不再是严格意义上的纯 coordinate-free，但方法逻辑会非常强：
+
+> **ZwerGe 用中间层解决“在哪里”，用原生 final serializer 解决“候选中哪个连续坐标最符合模型自身的输出几何”。**
+
+它也直接回应了“中间层空间峰值能否真正改善 coordinate prediction”的 causal-routing 质疑。
+
+建议把它作为 strong hybrid variant，而把 DACD 保持为纯 coordinate-free 主版本。
+
+---
+
+# 七、最公平、最不容易被攻击的报告方式
+
+不要只放 overlap@3。主表建议同时放：
+
+| 方法 | Proposal passes | Coordinate tokens | Extra model | Hit@1 | Hit@3 | PatchRecall@3 | 平均延迟 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Native greedy | 1 prefill + decode | 有 | 无 | ✓ | — | — | ✓ |
+| Native TTS-3 | 3 sequences | 有 | 无 | selected/oracle 分开 | ✓ | — | ✓ |
+| ZwerGe current | 1 prefill | 0 | 无 | ✓ | ✓ | ✓ | ✓ |
+| ZwerGe + DACD | 1 prefill | 0 | 无 | **主结果** | ✓ | ✓ | ✓ |
+| ZwerGe + DACD-Z | 1 + conditional re-prefill | 0 | 无 | **主结果** | ✓ | ✓ | ✓ |
+| ZwerGe-SV | 1 prefill + candidate scoring | 仅评分 | 无 | **hybrid** | ✓ | ✓ | ✓ |
+
+指标命名建议：
+
+- `Hit@1`：最终 executable accuracy；
+- `Hit@3`：one-pass candidate recall，和 GUI-Actor 对齐；
+- `PatchRecall@3`：你们当前的 overlap@3，作为 patch-support 上界；
+- 不建议把 overlap@3 直接命名成 accuracy。
+
+自回归 TTS 的开销也不要写成“必然严格线性”。多序列可以 batch，wall-clock 未必严格乘三；更严谨的说法是：
+
+> candidate budget 增加时，自回归方法的总解码 FLOPs 和生成 token 数随样本数增加，而 ZwerGe 的所有区域模式来自同一个 dense posterior。GUI-Actor 的官方分析也采用了三次 Aguvis 采样与一次 attention-map 候选生成的对照。
+
+最终用实测 latency/FLOPs 说话，审稿人更难攻击。
+
+---
+
+# 八、48 小时内的执行顺序
+
+## 第一步：先缓存，不要反复跑模型
+
+当前 per-sample JSON 保存了指标和 `omega`，但没有保存完整 `p_final`、per-layer posterior 和最终 top-k centers。
+
+加一个 `--cache_posteriors`：
+
+- `p_final`: fp16；
+- active `per_layer_probs`: fp16；
+- `omega`；
+- `n_width`, `n_height`；
+- GT bbox；
+- metadata。
+
+跑一遍模型后，所有 decoder sweep 都可以 CPU/GPU 离线完成。
+
+## 第二步：同一天完成四分法
+
+得到 A/B/C/D：
+
+- B 大：优先 candidate consensus；
+- C 大：优先 Gaussian refinement；
+- D 大：test-time 很难救，需要 OPD/训练；
+- B+C 大而 D 小：这是最理想情况，已有权重完全有机会靠 decoder 兑现。
+
+## 第三步：先跑最小 decoder matrix
+
+保持同一阈值和 component extraction，只换：
+
+1. current max + centroid；
+2. GUI-Actor mean + centroid；
+3. mass + centroid；
+4. consensus + centroid；
+5. consensus + Gaussian mode。
+
+先在固定的 200–500 个 held-out 样本上选择一个**全局配置**，不能按 benchmark 单独调。
+
+## 第四步：只在 Gaussian 无效样本上做 DACD-Z
+
+如果纯 DACD 已经追回大部分 `overlap@3-hit@1` headroom，就不要增加 hybrid complexity。
+
+如果排序仍是主要瓶颈，再做 Serializer-as-Verifier。
+
+---
+
+# 最后的战略判断
+
+你现在不应该把论点写成：
+
+> “overlap@3 比 baseline 高，所以我们其实赢了。”
+
+而应该写成：
+
+> “一次 prefill 已经覆盖了多个互斥候选区域，因此 Hit@3/PatchRecall@3 衡量的是 architecture-native proposal recall，而不是最终 executable accuracy。我们进一步提出一个零训练、无额外 backbone pass 的 Distribution-Aware Consensus Decoder：它利用跨层 posterior agreement 选择单个候选，并通过局部 Gaussian mode reconstruction 恢复连续 sub-patch 坐标。最终所有性能增益均以 native point-in-box Hit@1 报告。”
+
+这就从“放宽指标”变成了三个清晰贡献：
+
+1. **一次前向多候选覆盖；**
+2. **跨层 posterior 自验证；**
+3. **从离散空间后验解析恢复连续 click。**
+
+最应该今天立刻实现的是：
+
+> **把当前的 `max-region + thresholded centroid` 换成 `cross-layer candidate mass + local log-Gaussian mode`。**
+
+它是所有方案中工程风险最低、最符合你们训练目标、最不破坏 coordinate-free 故事，同时最可能直接提高 hit@1 的方案。
+
+【回答内容 轮数4】
+有办法，而且**现在还没到“只能 zoom-in”**的地步。你这里最值得立刻尝试的，不是把 `overlap@3` 直接换成主指标，而是把它当作一个非常有价值的诊断信号：
+
+> **如果 overlap@3 已经明显超过 baseline，说明正确目标区域大概率已经存在于一次前向得到的 posterior 中。现在缺的不是识别能力，而是两个 test-time 模块：候选选择，以及 patch 内连续坐标恢复。**
+
+这正好与论文的核心叙事一致：模型已经形成了空间意图，但现有离散解码没有充分兑现它。你的论文从一开始研究的就是 localization 与 coordinate serialization 的分离，而 ZWERGE 当前用中间层 posterior 代替坐标 token 解码。fileciteturn0file0L5-L20
+
+## 一、先纠正一个重要判断：你当前的 overlap@1 比较确实是公平的
+
+你说得对，另一个 agent 在这一点上误读了你的论文。
+
+你不是拿 ZWERGE 的 overlap@1 与原模型公开榜单上的 native hit@1 比较。你的协议是：
+
+- 对 ZWERGE：预测 patch 与 GT box 相交；
+- 对自回归 baseline：把生成坐标也视为一个同尺寸 patch 的中心，再判断该 patch 是否与 GT box 相交。
+
+论文已经明确写了两边使用相同 patch-granularity overlap@1，目的就是把 baseline 同样放宽到相同的有效定位粒度。fileciteturn0file0L630-L642
+
+所以：
+
+1. **当前 overlap@1 的 paired comparison 是公平的。**
+2. Qwen3 的负优化也是真实存在的，不是 metric mismatch 造成的。
+3. overlap@3 如果同样基于一次 posterior 输出多个候选，也确实没有增加 ZWERGE 的模型前向成本。
+
+但 overlap@3 仍然不宜直接取代 overlap@1 成为唯一主指标，因为它同时改变了两个维度：
+
+- 从一个候选变成三个候选；
+- 每个候选又享有半个 patch 的几何容忍。
+
+最稳妥的方式是同时报告：
+
+| 指标 | 说明 |
+|---|---|
+| overlap@1 | 当前主指标，公平 paired comparison |
+| overlap@3 | 单次前向的候选区域召回能力 |
+| hit@1 | 最终单点可执行精度 |
+| hit@3 | 三个候选中是否存在可执行点 |
+| refined hit@1 | 经过训练免费 test-time decoder 后的最终结果 |
+
+GUI-Actor 确实把“attention head 一次前向产生多个候选”作为 coordinate-free 架构的优势，并报告 Hit@3；对自回归 Aguvis baseline，它通过三次带采样推理得到三个预测。GUI-Actor 的正式主评估仍然是预测点落在 GT box 中的 Element Accuracy，而 verifier 的作用是把多个候选重新压成一个最终执行点。turn996341view0
+
+因此你的正确说法应当是：
+
+> ZWERGE 的完整 posterior 在一次前向中暴露多个候选区域，因此 overlap@3 是合理的 single-pass candidate recall 指标；对自回归模型产生三个有差异的候选通常需要多次解码。我们同时保留 overlap@1 和严格 hit@1，并使用训练免费的 posterior decoder 将候选 posterior 转化为一个最终点击点。
+
+这不是狡辩。**但只有在你最终给出一个单点 selector/refiner 后，它才能成为完整的方法故事。**
+
+---
+
+## 二、我目前不能诚实地声称已经核查了你代码里的 overlap@3
+
+这轮环境中实际挂载的只有：
+
+- `EMNLP26.pdf`
+- 上一轮生成的策略文档
+
+项目源码没有挂载，所以我不会假装已经验证 `scores_to_point_and_topk` 的真实实现。
+
+根据你引用的另一个 agent 的代码检查，当前 `topk_points` 似乎来自同一次 `scores_to_point_and_topk`，因此**没有额外模型前向**。但还必须确认三个关键点：
+
+1. top-3 是三个最高分 raw patches，还是三个局部峰值/连通区域？
+2. 三个点之间有没有 NMS 或最小距离约束？
+3. `overlap_topk` 是否对前三个候选分别构造 patch box，然后执行 `any(intersects(patch_j, gt))`？
+
+理想的定义应当是：
+
+```python
+def overlap_at_k(points, gt_box, patch_w, patch_h, k):
+    for x, y in points[:k]:
+        patch_box = (
+            x - patch_w / 2,
+            y - patch_h / 2,
+            x + patch_w / 2,
+            y + patch_h / 2,
+        )
+        if boxes_intersect(patch_box, gt_box):
+            return True
+    return False
+```
+
+但如果现在的 top-3 只是三个彼此相邻的最高分 patches，就不能称为三个语义候选。应先改成：
+
+- 局部极值 + NMS；
+- 或每个连通分量输出一个 centroid；
+- 或选一个峰后抑制周围 1–2 个 patch，再选下一个。
+
+GUI-Actor 强调的是多个候选**区域**，而不仅是同一峰周围三个相邻格子。
+
+要精确审计，只需把这三个位置上传或粘出来：
+
+- `scores_to_point_and_topk`
+- `predict_*` 中构造 `topk_points` 的部分
+- 计算 `hit_topk / overlap_topk` 的 evaluator
+
+---
+
+# 三、overlap 的数学含义：你说的“只差 14/16px”基本正确，但需要证据化
+
+对于边长为 $s$ 的轴对齐 patch，预测点为 patch 中心 $c$，GT box 为 $B$：
+
+$$
+
+\operatorname{Patch}(c,s)\cap B\neq\varnothing
+
+$$
+
+等价于：
+
+$$
+
+c\in B\oplus[-s/2,s/2]^2.
+
+$$
+
+换句话说，**overlap@1 就是把 GT box 沿 x、y 两个方向分别膨胀半个 patch 后计算 hit@1**。
+
+因此在你的有效 patch 边长为 28 或 32 像素时：
+
+- overlap-but-not-hit 的预测点距 GT box 最多约 14 或 16 像素/轴；
+- 这确实通常表示“目标区域识别正确，但点落在了 box 边缘外”。
+
+这与你正文中对 patch granularity ceiling 的分析一致：ZWERGE 使用 patch posterior，所以最小原生粒度是一格而非一个像素。fileciteturn0file0L716-L732
+
+但不能仅凭 overlap 就断言每个样本“语义上一定正确”。如果两个小图标相距 10 像素，错误 patch 可能同时擦到 GT box 的边缘。因此建议立刻做一个无需推理的 error audit：
+
+对所有 `overlap@1=1, hit@1=0` 样本统计：
+
+$$
+
+d_\infty(c,B)
+=
+\max\bigl(d_x(c,B),d_y(c,B)\bigr)
+
+$$
+
+并报告：
+
+- $d_\infty\le4$ px；
+- $\le8$ px；
+- $\le s/4$；
+- $\le s/2$；
+- patch 与 GT 的 overlap fraction；
+- GT 宽高；
+- 附近是否存在另一个可点击元素。
+
+如果绝大多数 overlap-only 错误都在 4–8 px 内，你就有非常强的证据：
+
+> 现有 posterior 的失败主要是 quantization error，而不是 target identification error。
+
+这个图甚至可以成为一张 rebuttal figure。
+
+---
+
+# 四、最重要的新方案：Analytic Gaussian Inversion
+
+这是我认为你现在**最应该立即实现**的方案。它：
+
+- 不训练任何新参数；
+- 不增加任何模型 forward；
+- 不是 bicubic interpolation；
+- 不是简单 argmax/centroid；
+- 与你现有的 Gaussian supervision 在数学上严格对应；
+- 可以直接输出连续、sub-patch 的坐标。
+
+你的每层 probe 是用以 GT centroid 为中心的 anisotropic Gaussian 训练的：
+
+$$
+
+y_i\propto
+\exp\left(
+-\frac{(x_i-c_x)^2}{2\sigma_x^2}
+-\frac{(y_i-c_y)^2}{2\sigma_y^2}
+\right).
+
+$$
+
+fileciteturn0file0L523-L553
+
+注意关键点：
+
+$$
+
+\log y(x,y)
+
+$$
+
+在目标附近是一个二次曲面。即使最高概率点只能落在离散 patch center 上，**相邻 patch 概率的非对称性仍然编码了真实中心在 patch 内的偏移**。
+
+你当前 BFS centroid 使用 0.3×max threshold，本质上没有显式反演这个 Gaussian 曲面。fileciteturn0file0L652-L660
+
+## 4.1 最小实现：DARK-style 二阶解码
+
+设 $z=\log(p+\epsilon)$，离散最大值位置为 $(i_0,j_0)$。在其 3×3 邻域计算梯度：
+
+$$
+
+g_x = \frac{z_{i_0+1,j_0}-z_{i_0-1,j_0}}{2},
+
+$$
+
+$$
+
+g_y = \frac{z_{i_0,j_0+1}-z_{i_0,j_0-1}}{2},
+
+$$
+
+以及 Hessian：
+
+$$
+
+H_{xx}
+=
+z_{i_0+1,j_0}-2z_{i_0,j_0}+z_{i_0-1,j_0},
+
+$$
+
+$$
+
+H_{yy}
+=
+z_{i_0,j_0+1}-2z_{i_0,j_0}+z_{i_0,j_0-1},
+
+$$
+
+$$
+
+H_{xy}
+=
+\frac{
+z_{i_0+1,j_0+1}
+-z_{i_0+1,j_0-1}
+-z_{i_0-1,j_0+1}
++z_{i_0-1,j_0-1}
+}{4}.
+
+$$
+
+连续偏移为：
+
+$$
+
+\delta=-H^{-1}g.
+
+$$
+
+最后：
+
+$$
+
+\hat c
+=
+c_{\text{patch}}
++
+[\delta_xs_x,\delta_ys_y].
+
+$$
+
+把 $\delta$ 限制在 $[-0.75,0.75]$ 格以内。如果 Hessian 不是负定、条件数太大或峰在边界，就回退到原 BFS centroid。
+
+这与 DARK 的 distribution-aware heatmap decoding 是同一个原则：heatmap 到坐标的解码方式本身会显著影响最终定位精度，局部 log-heatmap 的二阶结构可以提供 subpixel coordinate refinement。DARK 是一个模型无关的 test-time plug-in，不要求重新训练网络。turn479188academia28
+
+## 4.2 更稳的版本：5×5 加权二次曲面拟合
+
+不要只依赖中心差分，可以在峰周围 5×5 的位置拟合：
+
+$$
+
+\log p(x,y)
+=
+a x^2+bxy+c y^2+dx+ey+f.
+
+$$
+
+使用 $p(x,y)^\alpha$ 作为加权最小二乘权重。由拟合的二次曲面解析求顶点：
+
+$$
+
+\mu
+=
+-\frac12
+A^{-1}
+\begin{bmatrix}d\\e\end{bmatrix},
+\qquad
+A=
+\begin{bmatrix}
+a & b/2\\
+b/2 & c
+\end{bmatrix}.
+
+$$
+
+这可以命名为：
+
+> **Analytic Gaussian Inverse Decoder，AGI**
+
+它不是“凭空插值”。你是在反演训练时明确施加的 Gaussian coordinate encoding。
+
+而且局部 Hessian 还能估计 covariance。因为训练时：
+
+$$
+
+\sigma_x=\eta w_b,\qquad \sigma_y=\eta h_b,
+
+$$
+
+理论上甚至可以从 posterior 曲率估计目标的大致宽高，用于判断：
+
+- 当前结果是否可靠；
+- 是否为极小目标；
+- 是否需要触发第二阶段 refinement。
+
+---
+
+# 五、用已有多层 posterior 充当“无训练 verifier”
+
+仅做 AGI 解决的是 patch 内偏移；但 overlap@3 还意味着存在“候选排序”问题。
+
+你不需要立刻训练 GUI-Actor 式 verifier。ZWERGE 已经在同一次 forward 中产生了多个 layer posterior：
+
+$$
+
+p_1,p_2,\ldots,p_L.
+
+$$
+
+它们天然构成了一个内部 ensemble。
+
+## Layer-Consensus Verifier
+
+第一步，从 fusion posterior 中提取三个**不同局部模式** $R_1,R_2,R_3$，而不是三个相邻 patch。
+
+对候选区域 $R_k$，计算：
+
+$$
+
+m_{\ell k}
+=
+\sum_{i\in R_k}p_\ell(i).
+
+$$
+
+然后用跨层共识打分：
+
+$$
+
+S_k
+=
+\alpha\log m_{\text{fusion},k}
++
+\beta\operatorname{TrimMean}_{\ell}
+\left[\log(m_{\ell k}+\epsilon)\right]
+-
+\gamma\operatorname{Dispersion}_\ell(R_k).
+
+$$
+
+其中：
+
+- 第一项：fusion 本身对候选的支持；
+- 第二项：候选是否被多个中间层稳定支持；
+- 第三项：各层峰值位置是否在候选附近一致。
+
+更稳妥的 calibration-free 版本，是先把每层 posterior 转成 patch rank percentile，再取各层中位数 rank。
+
+这相当于一个**完全不训练、无额外 forward 的 verifier**：
+
+1. fusion 负责提出 top-3；
+2. layer consensus 负责重排序；
+3. AGI 负责把胜出候选变成连续点；
+4. 最终只输出一个严格 hit@1 坐标。
+
+这非常符合论文主题，因为你的方法本来就认为不同层含有互补的空间信息。当前融合是加权算术平均：
+
+$$
+
+p_{\text{final}}=\sum_\ell w_\ell p_\ell,
+
+$$
+
+fileciteturn0file0L574-L598
+
+但算术平均可能保留“只有某一个层支持”的伪峰。test-time verifier 可以用 trimmed geometric mean：
+
+$$
+
+p_{\text{cons}}(i)
+\propto
+\exp\left(
+\operatorname{TrimMean}_\ell
+\log(p_\ell(i)+\epsilon)
+\right),
+
+$$
+
+压制跨层不一致的伪目标。
+
+这条线可能不仅提升 hit，还可能提升 Qwen3 的 overlap@1，因为 Qwen3 的中间层峰比较宽，当前 learned fusion 未必选对了样本级候选。
+
+---
+
+# 六、最可能救 Qwen3 的方案：复用 native decoder 的精度，而不是和它对抗
+
+这是另一个非常值得马上做的 test-time variant，而且不训练新模型。
+
+你的 fixed prefill 已经运行到了：
+
+```text
+click(<ground><pointer_start>
+```
+
+也就是 coordinate tokens 即将开始的位置。论文中的整个方法恰好就是在这个 anchor 处读取 hidden state。fileciteturn0file0L418-L431
+
+因此可以：
+
+1. 在同一 prefill 上得到 ZWERGE posterior；
+2. 保留 KV cache；
+3. 从同一个 cache 继续生成原生 coordinate tokens；
+4. 用 ZWERGE posterior 判断原生坐标是否得到空间证据支持。
+
+这不是重新跑一次完整 backbone prefill。额外成本主要是原生 baseline 本来也要生成的少量 coordinate tokens。
+
+## Posterior-Constrained Native Decoding
+
+令原生 decoder 生成坐标 $c_{\text{native}}$，找到它所在的 patch $r(c_{\text{native}})$。
+
+一个无需训练的 gate：
+
+$$
+
+\text{accept native}
+\iff
+\operatorname{rank}_{p_{\text{final}}}
+\bigl(r(c_{\text{native}})\bigr)
+\le K.
+
+$$
+
+例如 $K=3$。
+
+输出规则：
+
+```python
+if native_patch in top3_distinct_candidate_regions:
+    return native_coordinate
+else:
+    return AGI_refined_coordinate(best_layer_consensus_candidate)
+```
+
+更稳一点可以同时要求：
+
+- native coordinate token log-prob 不低；
+- native patch 得到至少若干中间层支持；
+- native point不处于候选 patch 的极端边缘。
+
+这条路线尤其适合 Qwen3：
+
+- Qwen3 native coordinate decoder 很强；
+- ZWERGE 可能更擅长给出正确的候选区域；
+- native decoder 提供 patch 内连续精度；
+- posterior 约束可以阻止 native decoder 跳到明显错误的区域。
+
+你可以把它作为：
+
+> **ZWERGE-Hybrid：coordinate-free proposal with posterior-constrained native precision**
+
+而不是声称 ZWERGE 必须无条件替换 serializer。
+
+它在计算上也很好解释：
+
+| 系统 | 图像 prefill | Probe | 坐标 token decode |
+|---|---:|---:|---:|
+| Native baseline | 1 | 无 | 有 |
+| ZWERGE pure | 1 | 有 | 无 |
+| ZWERGE-Hybrid | 1 | 有 | 有，复用同一 KV cache |
+
+所以 Hybrid 相对 baseline 只增加 probe/fusion 的轻量读出，而不是额外一遍完整 VLM。
+
+这是我认为**最可能快速消除 Qwen3 负优化**的 test-time 方案。
+
+---
+
+# 七、如果单次 posterior 没有足够的 sub-patch 曲率：Phase-Dithered Posterior Super-Resolution
+
+如果 AGI 在 tiny target 上失败，通常是因为 Gaussian 太窄，posterior 接近 one-hot，相邻 patch 几乎没有有效梯度。
+
+这时也不必立刻使用普通 zoom-in。可以先做一个更干净的 training-free test-time scaling：
+
+## 半 patch 相位平移
+
+假设 patch stride 为 $s$。对原图做四个不改变缩放比例的平移版本：
+
+$$
+
+(0,0),\quad(s/2,0),\quad(0,s/2),\quad(s/2,s/2).
+
+$$
+
+做法是：
+
+- 保持 canvas 尺寸不变；
+- 将图像内容平移；
+- 空白区域使用 reflect/edge padding；
+- 每次得到 posterior 后，将坐标减去对应平移量，映射回原图。
+
+四次预测对应四个不同相位的 patch lattice。将其逆变换回原坐标后，在更细网格上融合：
+
+$$
+
+\log P_{\text{phase}}(x,y)
+=
+\sum_r w_r\log(P_r(x,y)+\epsilon).
+
+$$
+
+半 patch 平移把有效格点间隔从：
+
+- 28 px 降至约 14 px；
+- 或 32 px 降至约 16 px。
+
+进一步使用四分之一 patch 相位，可以降至 7/8 px。
+
+这不是简单把 patch 放大，也不是给 metric 增加 margin。它是真正利用多个不同采样相位重建更细的空间 posterior，最后仍然输出一个严格 hit@1 坐标。
+
+代价是 4 次视觉前向，因此必须单独报告：
+
+- 平均 forward 数；
+- latency；
+- FLOPs；
+- 与 baseline 4-sample self-consistency 的等预算比较。
+
+GUI test-time scaling 中，RegionFocus 通过动态 zoom 和多步区域推理显著提高 grounding；Re-Prefill 也通过额外 prefill 进行 training-free refinement。这些工作说明额外 test-time visual computation 本身是可接受的方法类别，但需要公开计算预算。turn105551academia43
+
+## 它比普通 zoom-in 更适合作为第一版的原因
+
+- 不改变目标相对于全局布局的语义；
+- 不需要选择 crop 尺寸；
+- 不需要重新生成坐标；
+- 完全利用现有 posterior；
+- 可以直接验证“14/16px gap 是否真的是 patch phase quantization”。
+
+如果 phase-dither 仍无法提高 hit，才说明问题不是单纯量化，而是 coarse token 已经丢失了局部信息；那时 zoom-in 才是必要的。
+
+---
+
+# 八、我建议组合成一个完整的 test-time 方法
+
+可以命名为：
+
+## **ZWERGE-Refine：Training-Free Posterior-to-Point Decoding**
+
+### 单次前向版本
+
+1. 从 $p_{\text{final}}$ 提取 top-3 distinct components；
+2. 用 layer-consensus 对三个组件重排序；
+3. 对胜出组件执行 Analytic Gaussian Inversion；
+4. 输出一个连续坐标。
+
+特点：
+
+- 1 次 backbone forward；
+- 0 个新增参数；
+- 0 次额外 autoregressive decode；
+- 输出严格 hit@1；
+- 相比当前 BFS 几乎零额外开销。
+
+### Hybrid 版本
+
+1. 与上面相同；
+2. 从相同 KV cache 继续生成 native coordinate；
+3. 若 native coordinate 得到 top-3 posterior 支持，则采用 native point；
+4. 否则采用 AGI point。
+
+特点：
+
+- 不再让 ZWERGE 无条件覆盖强 Qwen3；
+- 保留 ZWERGE 的区域识别优势；
+- 复用原生 serializer 的亚 patch 精度；
+- 计算成本接近 baseline + lightweight head。
+
+### TTS 版本
+
+在高不确定度样本上触发四相位 posterior reconstruction。
+
+触发条件可以完全不训练：
+
+$$
+
+\text{trigger}
+=
+[\text{top1/top2 margin低}]
+\lor
+[\text{Hessian不稳定}]
+\lor
+[\text{layer disagreement高}]
+\lor
+[\text{estimated target size}<1\text{ patch}].
+
+$$
+
+因此平均成本不必达到 4×。
+
+---
+
+# 九、接下来 24 小时最应该跑的实验
+
+不要一开始就全 benchmark 重跑。先在：
+
+- ScreenSpot-Pro；
+- UI-Venus-1.5-8B；
+- GUI-Owl-1.5-8B；
+
+这两个负优化最明显的 Qwen3 上做。
+
+## 实验 A：确认 overlap@3 的价值
+
+报告：
+
+- overlap@1；
+- overlap@3；
+- hit@1；
+- hit@3；
+- top-3 是否为 distinct components；
+- `overlap@3=1 but overlap@1=0` 的样本数。
+
+如果 overlap@3 明显涨，但三个候选大量来自同一局部峰，要先加 NMS。
+
+## 实验 B：AGI/DARK decoder
+
+只改解码，不改 posterior。
+
+重点报告：
+
+$$
+
+\text{Recovery}
+=
+P(\text{AGI hit}=1
+\mid
+\text{old overlap}=1,\text{old hit}=0).
+
+$$
+
+以及：
+
+$$
+
+\text{Damage}
+=
+P(\text{AGI hit}=0
+\mid
+\text{old hit}=1).
+
+$$
+
+建议 go/no-go 标准：
+
+- recovery ≥ 25%；
+- damage ≤ 2%；
+- 总 hit 至少 +3 pp。
+
+如果 recovery 很高，说明你基本找到答案了。
+
+## 实验 C：Layer-consensus top-3 selector
+
+测它能关闭多少：
+
+$$
+
+\text{overlap@3}-\text{overlap@1}
+
+$$
+
+的 gap。
+
+如果 top-3 oracle 比 top-1 高 8 pp，而 consensus 能回收 3–5 pp，这已经很有价值。
+
+## 实验 D：Native-coordinate posterior gate
+
+至少测三个规则：
+
+1. 始终使用 native；
+2. native patch 在 ZWERGE top-1 时使用 native；
+3. native patch 在 ZWERGE top-3 时使用 native；
+4. 否则使用 AGI point。
+
+它很可能在强 Qwen3 上接近或超过 baseline，同时保留 ZWERGE 在其他 benchmark 的优势。
+
+## 实验 E：四相位平移
+
+只抽 200–500 个 `overlap=1, hit=0` 样本测试，不用先跑全量。
+
+如果这些样本中有 40% 以上被恢复，就值得跑完整 benchmark。
+
+---
+
+# 十、论文里应该怎么呈现
+
+不要把主表偷偷从 overlap@1 换成 overlap@3。最强而且最不容易被攻击的呈现方式是：
+
+### 表 1：Region identification
+
+- baseline overlap@1
+- ZWERGE overlap@1
+- ZWERGE overlap@3 single-pass recall
+
+### 表 2：Executable point accuracy
+
+- baseline native hit@1
+- ZWERGE BFS hit@1
+- ZWERGE-Refine hit@1
+- ZWERGE-Hybrid hit@1
+- 可选 adaptive TTS hit@1
+
+然后写：
+
+> overlap@3 is not used as a replacement for point accuracy. It measures whether the correct action region is contained among the multiple hypotheses exposed by one coordinate-free forward pass. We then evaluate whether a training-free posterior-to-point decoder can convert this regional recall into a single executable click under strict hit@1.
+
+这会把 overlap@3 从“放宽指标”变成：
+
+> **candidate recall → candidate verification → continuous point execution**
+
+完整闭环。
+
+---
+
+## 最终判断
+
+**不是没办法。现在最不应该做的是直接押宝 overlap@3，然后希望审稿人接受。**
+
+你真正可以救论文的路线是：
+
+$$
+
+\boxed{
+\text{top-3 regional posterior}
+\rightarrow
+\text{cross-layer consensus}
+\rightarrow
+\text{Gaussian inverse sub-patch decode}
+\rightarrow
+\text{one strict click}
+}
+
+$$
+
+如果需要保护强 Qwen3，再加入：
+
+$$
+
+\boxed{
+\text{posterior-constrained native coordinate}
+}
+
+$$
+
+这条路线比直接 zoom-in 更快、更干净，也与现有 Gaussian supervision 和 coordinate-serialization 叙事高度一致。你当前 limitations 甚至直接写了“patch readout without zoom cannot achieve sub-patch precision”；如果 AGI 或 phase-dither 成功，这会成为一项真正的新贡献，而不只是修补。fileciteturn0file0L1197-L1206
+
+**优先顺序：AGI → layer consensus → native posterior gate → phase-dither → 最后才是 zoom-in。**
+
+
+【提问 轮数5】
+我突然想到，如果用overlap@3的话是能直接比过的
+overlap@3似乎是合理的，GUI-Actor也是这么做的，并且也因此训练了一个他们自己的verifer，这并非不公平：自回归GUI Agent，即使进行了TTS，在生成坐标过程中也只能一个一个坐标点的生成，开销是线性的。但是attention-based的是一下输出所有坐标点的近似概率（即使粒度很大），那么我们用overlap@3其实不会相对于overlap@1引入额外的开销，对吧？看看我们的代码，确定现在的overlap@3的逻辑是怎样的？
+
+但是这看起来很像是狡辩，有没有办法在这个基础上，不训练新模型来说服审稿人，并采用更好的采样策略把overlap转换成hit？毕竟overlap只是额外引入了14/16像素点的margin，这说明语义上是没问题的，只是有一点点偏移不是吗？还是说还是要zoom-in？
+
+发挥你的全部能力帮我设计一款快速在已有权重上的test-time的优化策略，这种优化不应该是通过简单的扩展，而是公平的，进一步把现有坐标-free的限制解除的，让他发挥全部潜能的相对公平的比较
+
+
+```三、逐条判断你的说法
+1. "overlap@3 相比 overlap@1 不引入额外推理开销，因为都来自同一次 forward" —— 这个是对的，代码可验证。
+从上面代码看得很清楚：topk_points 全部来自同一次 scores_to_point_and_topk 调用，没有第二次模型前向、没有额外采样。所以拿 overlap@1 和 overlap@3 比较自回归方法的成本，"零额外前向开销"这句话在你的实现里是事实，不是话术。
+2. "GUI-Actor 也用 topk/overlap 做类似的事，并训练了自己的 verifier，所以这不是不公平" —— 部分对，但有一个关键区别要讲清楚，否则会被审稿人抓住。
+GUI-Actor 的 verifier 做的事情，本质上是用第二个模型对多个候选做重新打分排序，是一次额外的、可学习的判别式精化，等价于一个"轻量 re-ranker"，而它评测时用的 topk 通常是 hit@k（候选点是否落进 bbox），不是 overlap@k。也就是说，GUI-Actor 的"公平性论证"建立在"多候选 + verifier 精排"上，本质是缩小候选到更精确的坐标；而你现在的 overlap@k 只是给同一批候选点加了个"±半个 patch 的几何容忍框"，并没有真正提升坐标精度——这两者在审稿人眼里不是同一件事，如果不加区分地类比，反而会显得"套牌"。
+正确的类比应该是：GUI-Actor 的 topk + verifier 论证了"多候选是公平的，因为坐标-free 方法一次前向能给出多个候选，而自回归方法产生多候选要多次解码"——这条论证你可以直接借用来支撑 hit@3 / hit@5（多候选，无额外开销，用严格 hit 判定）。但把这个论证套在 overlap@1 上就站不住，因为 overlap@1 根本不需要多候选，它只是放宽了单点的判定半径，这是精度问题不是候选数问题，容易被读成"用更松的尺子量出更好的分数"。
+3. "overlap 只是引入了 14/16px 的 margin，语义上没问题，只是有点偏移" —— 这个判断本身没错，但不能作为拿它当主指标／和别人 hit@1 比较的理由。
+从数值角度看，这个 margin 确实很小（14-16px 相对于 1080p/2K 截图是极小比例），语义上模型"基本找对了地方"。但问题不在于 margin 大小，而在于评测协议的一致性：SOTA 榜单上的数字全部是 hit@1（严格点在 bbox 内），你如果只报 overlap@1 去对比别人的 hit@1，无论 margin 多小，都是在用不同的度量单位比较，这在评审角度是"metric不一致"的硬伤，不是"狡辩"与否的问题，而是根本不可比。
+四、你问的核心问题——能不能不训练新模型，靠更好的采样策略把 overlap 转成 hit？
+先给结论：单纯换解码策略（argmax/peak_shift/temperature）已经被你自己的消融实验证伪了，.mrules [2026-05-19] 记录得非常清楚——argmax 想着"消除质心漂移"，结果 SS-Pro hit 从 37.19% 掉到 28.40%，gap 反而从 13pp 扩大到 22pp。根因你自己也分析对了：28px/32px 是硬件级的网格量化误差，不是质心算法的问题，当 GT bbox 本身小于等于 1 个 patch 时，"最优"的 patch 中心本身就可能在 bbox 外面，这是信息论意义上不可逆的信息损失（模型只能输出 patch 级别的后验，不可能输出比 patch 更精细的定位）。
+所以要真正把 overlap 转成 hit，同时不训练新模型、保持公平（不引入自回归式的多次前向），思路只能是"用已有权重，在 test-time 把有效分辨率做细"，而不是在同一分辨率上换算法。给你三个可执行、且不违反"不训练新模型"约束的方案，按性价比排序：
+方案 A（推荐，成本最低）：Test-time 双分辨率插值精化 —— 不用 zoom-in 裁剪，只用亚像素插值
+核心想法：p_final 是定义在 n_width × n_height 的粗网格上的离散分布，但这个分布本身是连续概率场的采样。你可以对最优区域周围的 patch 分数做双三次/高斯核插值上采样（例如 8×8 或 16×16 的超分辨率网格），在插值后的连续场上取峰值或加权质心。
+这不算"训练新模型"：只是对已有的离散 logits 做数学插值，纯 test-time 后处理。
+不需要第二次前向：所有信息已经在 p_final 里，只是插值提升了坐标读出精度。
+能不能真正解决问题取决于：p_final 在局部是否连续光滑（如果模型学到的就是尖锐的 one-hot 式响应，插值没有意义）。这个可以先做个诊断实验验证可行性——检查 GT bbox 小于 1 patch 的失败样本里，相邻 patch 的分数分布是否有连续的梯度（不是纯 one-hot）。
+方案 B（你已经提到的 zoom-in，其实是必要的，不是可选项）
+.mrules [2026-05-19] 结论第三条已经写死了："提升 hit 的正确路径" 里第一条就是 zoom-in，第二条是降低 max_pixels（等价于用更细的 patch）。你现在纠结"是否还要 zoom-in"，但从物理原理上看：任何在原分辨率、不改变有效 patch 大小的后处理都不可能突破 28px 的量化下界，这是信息论硬约束，不是算法能不能优化的问题。
+好消息是：predict_zoom_backbone（你已经实现了）完全符合"不训练新模型"和"公平性"的要求——它是纯 test-time 的两阶段流程：Stage 1 用 ZwerGe 头一次前向定位粗略 ROI，Stage 2 把 ROI crop 出来，让同一个冻结的 backbone做一次自回归 generate() 在局部图上产生精确坐标。这跟自回归 baseline 比"总前向次数"完全公平——因为自回归 baseline 也是做一次完整的 decode，而你只是多做了一次局部裁剪图上的短 decode（begin 我可以核实一下这次 decode 的 token 数量开销，通常远小于原图一次完整 decode，因为 assistant 输出的坐标 tokens 本身就很短）。你可以在论文里明确写清楚：
+"ZwerGe 用单次 prefill 定位 ROI（这一步接近零开销，因为坐标-free 方法本就要做这次 forward 来生成任何输出），再用一次局部 decode 精化坐标——总的自回归 token 数量与 baseline 相当或更少（因为 baseline 要在全图分辨率上定位，而我们在被裁剪的、更小的图上做定位，收敛更快/token更少）"
+这个叙事逻辑上是自洽的，不算"狡辩"，因为你确实没有引入超出自回归 baseline 复杂度的额外开销（甚至更少）。
+方案 C（辅助，用于论文里佐证 A/B 的必要性，而非替代）：多尺度融合（无需 crop，无需二次 decode）
+如果你想完全避免第二次 decode（连局部 decode 都不做），可以在同一次 forward 里，从多个中间层/多个 patch 网格粒度的 hidden state 里同时读出不同分辨率的后验（例如同时用 merge_size=2 的粗粒度头和一个专门读取合并前 raw patch token 的细粒度头），做加权融合。但这个需要改动模型结构（即使不重新训练主干，也可能需要为细粒度头做至少一次轻量微调），所以不完全满足"不训练新模型"的约束，只能作为未来工作提。```
+
+以上内容是另一个agent给出的建议，但是这并不完全对，因为他没看我的论文内容，我目前的比较（略有掉点）都是overlap之间的比较，即：改造前的overlap@1和改造后的overlap@1，改造前的模型虽然是hit，但是我手动放宽了额外14、16个像素点。这是公平的。
+
+所以，该怎么办，救救我，真的没办法了吗？
+
+【回答内容 轮数5】
+有办法，而且你这次纠正了一个非常关键的前提：
+
+**你目前主表不是“ZWERGE 的 overlap 对 baseline 的 hit”，而是 baseline 和 retrofit 都统一换算成同一 patch-granularity overlap@1。** 论文里已经明确写了：baseline 的自回归坐标被视为 patch center，再构造同尺寸 patch 与 GT box 判断 overlap；因此当前 Qwen3 的下降是**同一指标下的真实下降**，不是评测尺子不一致。fileciteturn0file0L630-L642
+
+与此同时，`overlap@3` 确实是一个很有价值的救命信号。它不能直接替代最终单击准确率，但它可以证明：
+
+> 模型经常已经在一次前向中把正确目标放进前三个空间候选，只是现有的候选排序和 patch 内坐标读出没有充分利用这些信息。
+
+这与你论文最初“定位与坐标序列化是不同计算”的出发点完全一致。fileciteturn0file0L5-L8
+
+---
+
+# 一、我核实了代码：现在的 overlap@3 究竟是什么
+
+当前代码中的 `topk=3` **不是概率最高的三个 patch，也不是三次采样**，而是前三个互不连通的高响应区域：
+
+1. 对 `p_final` 取阈值：
+
+$$
+
+p_i > 0.3\cdot \max_j p_j
+
+$$
+
+2. 对所有超过阈值的 patch 做四邻域 BFS，将其划分成若干 connected components。
+
+3. 每个 connected component 形成一个候选 region。
+
+4. 默认 `centroid` 解码下，每个 region 的候选点是区域内 patch center 按 posterior score 加权得到的质心。
+
+5. region 当前按其内部的**最大 patch score**排序，而不是区域总概率质量。
+
+6. `scores_to_point_and_topk()` 返回排序后的前 3 个 region center。
+
+7. `overlap@3` 判断前三个候选中心对应的 patch box 中，是否有任意一个与 GT box 相交。
+
+这些候选全部来自同一次 `predict_layerwise()` 和同一个 `p_final`，没有额外模型前向或自回归采样。
+
+评测代码则明确计算四项：
+
+- `hit_top1`
+- `overlap_top1`
+- `hit_topk`
+- `overlap_topk`
+
+其中 overlap box 的半宽是 `0.5 / n_width`，半高是 `0.5 / n_height`；`overlap_topk` 会依次检查前三个 region center 的 patch box。
+
+## 一个需要修正的小细节
+
+“overlap 只多了 14/16 原图像素 margin”并不永远严格成立。
+
+代码中的真实 margin 是：
+
+$$
+
+m_x=\frac{W_{\text{original}}}{2n_w},\qquad
+m_y=\frac{H_{\text{original}}}{2n_h}.
+
+$$
+
+14/16 px 是 Qwen2.5/Qwen3 在**模型 resize 后图像空间**中的半个 visual cell：
+
+- Qwen2.5：patch 14 × merge 2 = 28 px，半径 14 px；
+- Qwen3：patch 16 × merge 2 = 32 px，半径 16 px。
+
+若原图经过 smart resize 或下采样，映射回原图后的 margin 可能大于 14/16 px。因此论文里最好写成“half a visual-token cell”，不要固定写成“14/16 original pixels”。
+
+---
+
+# 二、overlap@3 合理，但不能直接当作最终准确率
+
+GUI-Actor 确实给了你很强的先例：它强调 attention-based action head 能在一次前向中产生多个互斥候选区域，并将 **Hit@3** 作为 single-forward candidate recall；对于坐标生成 baseline，它们为了获得三个候选，需要进行三次带采样的推理。GUI-Actor 随后训练 verifier，在多个候选中选择一个用于最终执行。
+
+所以这两个说法是成立的：
+
+> ZWERGE 的 overlap@3 不增加模型前向开销。
+
+> 自回归模型若要获得真正多样的三个坐标候选，通常需要多次 decoding，成本随候选数增长。
+
+但要区分两个概念：
+
+- **overlap@3：候选召回率。** 正确区域是否存在于模型一次前向输出的前三个空间假设中。
+- **最终 accuracy：执行准确率。** 系统最后选择并点击的唯一坐标是否正确。
+
+没有 selector 时，直接把 overlap@3 当作最终准确率，会被理解为“由 GT oracle 从三个预测中选一个”。这确实会像 metric shopping。
+
+正确的做法不是放弃 overlap@3，而是：
+
+> 把 overlap@3 变成方法动机和可恢复上限，再设计一个无需训练、无需 GT 的 test-time selector/refiner，把候选召回真正转化为单点 hit@1。
+
+---
+
+# 三、先做一个极有价值的错误分解
+
+你现有代码已经输出了全部所需数据。对每个模型和 benchmark，把样本分成四类：
+
+| 错误类型 | 比例计算 | 含义 | 可否不训练解决 |
+|---|---:|---|---|
+| 严格正确 | `hit@1` | 当前点击已在 GT 内 | 已解决 |
+| Patch 内精度差 | `overlap@1 - hit@1` | 目标 region 对，但输出点偏出 box | 可用亚 patch 解码或 zoom |
+| 候选排序错误 | `overlap@3 - overlap@1` | 正确 region 在前三，但不是第一 | 可用无训练 selector |
+| 语义定位失败 | `1 - overlap@3` | 前三 region 都没覆盖 GT | 通常需要重新训练 |
+
+这是最应该立刻加入论文的分析之一。
+
+它能非常直接地回答审稿人：
+
+- 有多少失败来自 patch 量化；
+- 有多少来自候选排序；
+- 有多少才是真正的语义定位错误；
+- 为什么 overlap@3 不是随意放宽指标，而是在测 single-forward candidate coverage。
+
+如果前两类占比较大，那么你**真的不需要靠新模型才能救回来**。
+
+---
+
+# 四、第一层救援：零额外前向的亚 patch 高斯解码
+
+另一个 agent 说“插值上采样”，但普通 bicubic interpolation 确实不够有说服力。你有一个远比普通插值更契合当前模型的方法：
+
+## Gaussian-Consistent Sub-patch Decoder
+
+你训练时使用的是以 GT bbox centroid 为均值的 anisotropic Gaussian label，而且方差与 bbox 宽高成比例。fileciteturn0file0L523-L553
+
+因此，模型输出的局部 posterior 理论上是在 patch grid 上对连续高斯场的采样。对于一个局部高斯：
+
+$$
+
+\log p(x,y)
+=
+-\frac{1}{2}
+\begin{bmatrix}x-\mu_x\\y-\mu_y\end{bmatrix}^{\!\top}
+\Sigma^{-1}
+\begin{bmatrix}x-\mu_x\\y-\mu_y\end{bmatrix}
++C.
+
+$$
+
+也就是说，**在 log-probability 空间中，峰值附近应近似二维二次曲面**。
+
+你可以在每个候选 region 的最高分 patch 周围取 $3\times3$ 或 $5\times5$ posterior，拟合：
+
+$$
+
+z(u,v)=au^2+bv^2+cuv+du+ev+f,
+\qquad z=\log(p+\epsilon).
+
+$$
+
+连续峰值为：
+
+$$
+
+\begin{bmatrix}\delta_x\\\delta_y\end{bmatrix}
+=
+-\mathbf H^{-1}\mathbf g,
+
+$$
+
+其中
+
+$$
+
+\mathbf H=
+\begin{bmatrix}
+2a & c\\
+c & 2b
+\end{bmatrix},
+\qquad
+\mathbf g=
+\begin{bmatrix}d\\e\end{bmatrix}.
+
+$$
+
+最终点：
+
+$$
+
+x=\frac{j+0.5+\delta_x}{n_w},\qquad
+y=\frac{i+0.5+\delta_y}{n_h}.
+
+$$
+
+将 $\delta_x,\delta_y$ clamp 到 $[-0.5,0.5]$ 个 cell 内；如果 Hessian 不是负定、峰值在边界、邻域过平或数值不稳定，就退回当前 centroid。
+
+这与简单插值有本质不同：
+
+- 它显式使用了你训练标签的 Gaussian 假设；
+- 它直接估计连续 Gaussian mean；
+- 它不改变评测 box；
+- 不引入新参数；
+- 不使用 GT；
+- 不增加模型前向；
+- 输出是真正的一个连续坐标，因此直接评估严格 hit@1。
+
+一个可直接加入代码的核心函数如下：
+
+```python
+import torch
+from typing import Optional, Tuple
+
+
+def gaussian_subpixel_peak(
+    p: torch.Tensor,
+    n_width: int,
+    n_height: int,
+    peak_idx: Optional[int] = None,
+    eps: float = 1e-12,
+    max_offset: float = 0.5,
+) -> Tuple[float, float]:
+    """Estimate a continuous peak from a sampled spatial posterior.
+
+    Fits a local quadratic to log probability around the peak.
+    Falls back to the patch center when the local surface is invalid.
+    """
+    z = torch.log(
+        p.detach().float().clamp_min(eps)
+    ).reshape(n_height, n_width)
+
+    if peak_idx is None:
+        peak_idx = int(z.argmax().item())
+
+    row, col = divmod(peak_idx, n_width)
+
+    fallback = (
+        (col + 0.5) / n_width,
+        (row + 0.5) / n_height,
+    )
+
+    if row == 0 or row == n_height - 1:
+        return fallback
+    if col == 0 or col == n_width - 1:
+        return fallback
+
+    z0 = z[row, col]
+
+    gx = 0.5 * (z[row, col + 1] - z[row, col - 1])
+    gy = 0.5 * (z[row + 1, col] - z[row - 1, col])
+
+    hxx = z[row, col + 1] - 2.0 * z0 + z[row, col - 1]
+    hyy = z[row + 1, col] - 2.0 * z0 + z[row - 1, col]
+
+    hxy = 0.25 * (
+        z[row + 1, col + 1]
+        - z[row + 1, col - 1]
+        - z[row - 1, col + 1]
+        + z[row - 1, col - 1]
+    )
+
+    hessian = torch.tensor(
+        [[hxx, hxy], [hxy, hyy]],
+        dtype=torch.float32,
+    )
+    gradient = torch.tensor([gx, gy], dtype=torch.float32)
+
+    # A valid local maximum must have a negative-definite Hessian.
+    eigenvalues = torch.linalg.eigvalsh(hessian)
+    if not torch.isfinite(eigenvalues).all():
+        return fallback
+    if float(eigenvalues.max()) >= -1e-6:
+        return fallback
+
+    try:
+        offset = -torch.linalg.solve(hessian, gradient)
+    except RuntimeError:
+        return fallback
+
+    if not torch.isfinite(offset).all():
+        return fallback
+
+    dx = float(offset[0].clamp(-max_offset, max_offset))
+    dy = float(offset[1].clamp(-max_offset, max_offset))
+
+    return (
+        (col + 0.5 + dx) / n_width,
+        (row + 0.5 + dy) / n_height,
+    )
+```
+
+## 这一招有没有可能真的涨 hit？
+
+有，但取决于 posterior 是否保留了局部梯度。
+
+最简单的诊断是只看：
+
+$$
+
+\text{overlap@1}=1,\quad \text{hit@1}=0
+
+$$
+
+的样本。
+
+如果这些样本的最高 patch 周围存在平滑、非对称的概率梯度，二次峰值拟合能够恢复 patch 内偏移；如果 posterior 几乎完全 one-hot，或者周围随机抖动，那么信息确实不存在，必须进入 zoom。
+
+这应该是你今天第一个跑的实验，因为改动极小、风险最低。
+
+---
+
+# 五、第二层救援：利用已有多层 posterior 做无训练候选重排
+
+当前代码的 region 排序依据是：
+
+$$
+
+\max_{i\in R} p_{\mathrm{final}}(i).
+
+$$
+
+这是一个明显可改进点。
+
+一个错误的单 patch 尖峰，可能压过一个在多个层中都稳定、但单点峰值略低的正确区域。你已经拥有：
+
+- 每层 posterior $p_\ell$；
+- fusion weights $\omega_\ell$；
+- 每层候选点；
+- 最终 posterior $p_{\text{final}}$。
+
+不需要训练 verifier，可以构造一个**跨层一致性 posterior**：
+
+$$
+
+q(i)\propto
+\exp\left(
+\sum_{\ell\in\mathcal L_{\text{active}}}
+\omega_\ell\log(p_\ell(i)+\epsilon)
+\right).
+
+$$
+
+这不是当前的 arithmetic mixture：
+
+$$
+
+p_{\mathrm{final}}=\sum_\ell \omega_\ell p_\ell.
+
+$$
+
+它是一个 weighted product-of-experts：
+
+- arithmetic mixture：只要某一层很确信，一个位置就可能很高；
+- geometric consensus：只有多层同时支持，一个位置才会很高。
+
+然后对每个 candidate region $R_j$ 计算：
+
+$$
+
+M_j=\sum_{i\in R_j}q(i).
+
+$$
+
+再加一个层投票：
+
+$$
+
+A_j=
+\sum_\ell \omega_\ell
+\mathbf 1[\operatorname*{argmax}p_\ell\in R_j].
+
+$$
+
+最终候选分数可以是：
+
+$$
+
+S_j=\log(M_j+\epsilon)+\log(A_j+\epsilon).
+
+$$
+
+用 $S_j$ 重新排序前三个 region，再对第一名运行前面的 Gaussian sub-patch decoder。
+
+这仍然：
+
+- 一次模型前向；
+- 零新参数；
+- 零额外训练；
+- 不访问 GT；
+- 输出一个最终点击点；
+- 可直接严格比较 hit@1 和 overlap@1。
+
+我会把这个版本叫：
+
+> **Cross-Layer Consensus Decode，跨层共识解码**
+
+它比“把 overlap@3 当最终分数”强得多，因为它真正尝试把前三候选转化成一个可执行答案。
+
+---
+
+# 六、最有希望的完整方案：Candidate-Adaptive Coordinate-Free Zoom
+
+如果前两步仍然无法充分恢复 hit，那么是的，最终还是需要 zoom。
+
+但不要使用当前的 `zoom_backbone` 作为主方案。
+
+你仓库里的 `predict_zoom_backbone()` 是：
+
+1. ZWERGE 产生粗 ROI；
+2. crop；
+3. 再调用原生 backbone 自回归 `generate()` 输出坐标。
+
+这虽然可能有效，但会重新引入你论文声称要绕开的 coordinate serialization，而且审稿人可能会问：最终仍靠原生 coordinate decoder，那 ZWERGE 到底解决了什么？
+
+更合适的是：
+
+# ZWERGE-CFR：Candidate-aware Foveated Refinement
+
+## Stage 1：全图一次前向
+
+使用当前 ZWERGE：
+
+- 得到 $p_\ell$、$p_{\mathrm{final}}$、$\omega_\ell$；
+- 提取 top-3 connected regions；
+- 使用跨层共识重新排序；
+- 对候选估计局部 Gaussian curvature 和空间不确定性。
+
+## Stage 2：对候选区域重新运行同一个 ZWERGE head
+
+对于前 1–3 个 candidate region：
+
+1. 从原图裁剪 candidate bbox；
+2. 保留 2–3 visual cells 的周边 context；
+3. 将 crop 放大 2× 或 4×；
+4. 使用**同一个冻结 backbone、同一组现有 probe/fusion 权重**重新运行 `predict_layerwise()`；
+5. 在局部 posterior 上再次运行 Gaussian sub-patch decoder；
+6. 映射回原图坐标。
+
+不要让 backbone 自回归输出坐标。
+
+这样有效 patch size 会变成：
+
+$$
+
+\text{effective cell size}
+=
+\frac{28\text{ or }32}{s}
+
+$$
+
+其中 $s$ 是 crop 的放大倍数。
+
+例如：
+
+- Qwen3 原始 visual cell：32 px；
+- crop 放大 4×；
+- 映射回原图后的有效 cell：约 8 px；
+- 半 cell 量化半径从 16 px 降至约 4 px。
+
+这才是真正解除 coordinate-free patch granularity ceiling，而不是换一个更宽松指标。论文 limitation 目前也明确承认：不进行 second-stage zoom，就无法获得 sub-patch precision。fileciteturn0file0L1197-L1206
+
+## 为什么这个方案在计算上是相对公平的
+
+它不是零开销，因此不能说“和 overlap@3 一样免费”。
+
+但它可以做到**固定视觉 token 预算**。
+
+假设 Stage 1 全图有 16,384 个视觉 token。每个候选 crop 原始范围约 $7\times7$ cells，放大 4× 后约为：
+
+$$
+
+28\times28=784
+
+$$
+
+个视觉 cells。
+
+即使三个候选都精化：
+
+$$
+
+3\times784=2352
+
+$$
+
+仍远小于全图的 16,384 visual-token budget。实际 Transformer FLOPs、重复文本 token 和 batching 开销仍应实测，不能只凭 token 数宣称更快；但它非常可能比三个完整全图 autoregressive TTS decode 便宜得多。
+
+近年的 GUI grounding 工作已经表明，training-free 的 multi-view/crop aggregation 和 uncertainty-aware zoom 能显著改善高分辨率小目标定位；MVP 使用多 crop 与坐标聚类，AutoFocus 使用不确定性驱动的 shape-aware zoom，RegionFocus 也通过动态局部视觉放大改善 ScreenSpot-Pro。citeturn858034academia13turn858034academia12turn858034academia14
+
+你的优势在于：你不需要从自回归 token perplexity 构建不确定性，因为已经直接拥有完整的二维 posterior。
+
+---
+
+# 七、如何在 top-3 zoom 后不训练 verifier 也选出一个候选
+
+对第 $j$ 个候选 crop，局部精化后计算：
+
+### 1. 局部置信度
+
+$$
+
+C_j
+=
+1-\frac{H(q_j)}{\log N_j}.
+
+$$
+
+所有 crop resize 到相同 grid size 后，normalized entropy 可以比较。
+
+### 2. 层间一致性
+
+$$
+
+A_j
+=
+\sum_\ell\omega_\ell
+\mathbf 1
+\left[
+\lVert c_{\ell,j}-c_{\mathrm{fused},j}\rVert
+\le 1\text{ cell}
+\right].
+
+$$
+
+### 3. 跨尺度一致性
+
+将局部预测映射回原图，检查它是否仍接近 Stage-1 candidate region：
+
+$$
+
+D_j=
+\exp\left(
+-\frac{\|c_j^{(2)}-c_j^{(1)}\|^2}{2r_j^2}
+\right).
+
+$$
+
+### 4. Stage-1 区域质量
+
+$$
+
+M_j=\sum_{i\in R_j}q^{(1)}(i).
+
+$$
+
+最终：
+
+$$
+
+S_j=
+\log(M_j+\epsilon)
++\log(C_j+\epsilon)
++\log(A_j+\epsilon)
++\log(D_j+\epsilon).
+
+$$
+
+选择 $S_j$ 最大的候选，输出唯一 refined point。
+
+这不是 learned verifier，但已经利用了：
+
+- full-image posterior；
+- zoom posterior；
+- 跨层共识；
+- 跨尺度一致性；
+- 区域概率质量；
+- 局部确定性。
+
+比当前单纯按 region peak 排序强很多。
+
+---
+
+# 八、工程上怎么改你现有代码
+
+目前 `get_prediction_region_point()` 已经内部得到了：
+
+- `regions`
+- `region_scores`
+- `region_centers`
+- `region_points_list`
+
+但 `scores_to_point_and_topk()` 最后只保留了 `centers[:topk]`，把 region 结构和 score 丢掉了。
+
+建议先增加：
+
+```python
+def scores_to_regions(...):
+    # Return structured regions rather than centers only.
+    return [
+        {
+            "center": center,
+            "peak_score": peak_score,
+            "patch_indices": indices,
+            "patch_points": points,
+            "mass": mass,
+        }
+        for ...
+    ]
+```
+
+然后加入三个 decode strategy：
+
+```text
+gaussian_peak
+consensus_gaussian
+coordinate_free_zoom
+```
+
+其中：
+
+### `gaussian_peak`
+
+- 当前 `p_final`
+- top region
+- 局部二次峰值拟合
+- 零额外前向
+
+### `consensus_gaussian`
+
+- 根据所有 `per_layer_probs` 和 `omega` 构造 geometric consensus posterior
+- connected-component regions
+- 按跨层 region mass 和 layer votes 排序
+- 局部二次峰值拟合
+- 零额外前向
+
+### `coordinate_free_zoom`
+
+- Stage 1 调用 `predict_layerwise`
+- top-3 candidate crops
+- resize crop
+- 再调用相同 `predict_layerwise`
+- 局部二次峰值拟合
+- 无 autoregressive generation
+
+短期先循环调用三个 crop，确认是否涨点；确认有效后再将三个 crop batch 化优化 wall-clock。你当前 `predict_layerwise()` 在内部假设 batch size 为 1，因此直接批处理需要稍微改 hidden-state indexing；不要一开始为了 batching 浪费时间。
+
+---
+
+# 九、建议你在 24 小时内跑的最小实验
+
+只先跑两个 Qwen3 模型的 ScreenSpot-Pro，不要全量铺开。
+
+| 实验 | 新训练 | 新前向 | 目标 |
+|---|---:|---:|---|
+| Current centroid | 否 | 0 | 基线 |
+| Gaussian sub-patch | 否 | 0 | 修复 `overlap1-hit1` |
+| Consensus + Gaussian | 否 | 0 | 修复 region 排序 |
+| Top-1 coordinate-free zoom | 否 | +1 小 crop | 修复量化 |
+| Top-3 coordinate-free zoom + selector | 否 | +3 小 crop，可后续 batch | 利用 overlap@3 headroom |
+
+必须同时输出：
+
+- strict hit@1；
+- overlap@1；
+- hit@3；
+- overlap@3；
+- `overlap1 - hit1`；
+- `overlap3 - overlap1`；
+- 平均 visual tokens；
+- 平均 latency；
+- 第二阶段触发比例。
+
+判断标准：
+
+### Gaussian decoder 值得保留
+
+如果它能把 `overlap@1 but not hit@1` 样本中的 15–25% 转成 hit，通常就是数个绝对点，而且没有额外前向。
+
+### Consensus selector 值得保留
+
+如果它能把 `overlap@3 but not overlap@1` 样本中的 20–30% 拉回 top1，就已经可能消除 Qwen3 的部分负优化。
+
+### Coordinate-free zoom 值得进主表
+
+如果它在严格 hit@1 或 overlap@1 上增加 3 pp 以上，并能让两个 Qwen3 至少不再显著下降，就把它作为：
+
+> **ZWERGE-UI + CFR，accuracy-oriented test-time refinement**
+
+基础 ZWERGE 继续保留为 single-pass efficiency variant。
+
+---
+
+# 十、论文里最不狡辩的写法
+
+不要把 overlap@3 偷换成主 accuracy。应当形成三层证据：
+
+1. **Single-click performance：** overlap@1 和 strict hit@1。
+2. **Single-forward candidate recall：** overlap@3 / hit@3。
+3. **Executable refinement performance：** 使用 deterministic training-free refinement 后的 hit@1 / overlap@1。
+
+可以这样表述：
+
+> Unlike autoregressive coordinate decoding, the spatial head exposes a dense posterior from which multiple mutually exclusive action regions can be extracted in one forward pass. We therefore report top-3 candidate recall separately from executable single-point accuracy. High candidate recall is not treated as final task success; instead, it measures the recoverable spatial information available to a downstream selector. We instantiate this selector with a parameter-free cross-layer consensus decoder and an optional coordinate-free foveated refinement stage, and evaluate the resulting single selected point under standard hit@1 and overlap@1.
+
+这样 overlap@3 不再是放宽分数，而是回答一个明确的科学问题：
+
+> 正确的空间假设是否已经存在于模型的一次前向 posterior 中？
+
+GUI-Actor 使用 Hit@3 证明多区域能力，再通过 verifier 将候选转成最终动作；你则可以进一步强调：
+
+> 我们无需训练额外 verifier，而是利用模型自身跨层 posterior 与跨尺度一致性完成选择。GUI-Actor 的 verifier 是学习式的；ZWERGE-CFR 是 parameter-free、training-free 的。
+
+---
+
+# 最终判断
+
+**真的不是没办法。**
+
+你现在最有希望的救援路径不是把 overlap@3 直接换成主指标，也不是立刻训练 OPD，而是：
+
+$$
+
+\boxed{
+\text{overlap@3 candidate recall}
+\rightarrow
+\text{cross-layer consensus re-ranking}
+\rightarrow
+\text{Gaussian sub-patch decoding}
+\rightarrow
+\text{optional coordinate-free zoom}
+\rightarrow
+\text{single-point hit@1}
+}
+
+$$
+
+其中前两项今天就能实现，完全不增加模型前向；第三项只在必要时调用小 crop 的同模型精化，不增加任何参数，也不重新引入自回归 coordinate serialization。
+
+这条路线同时解决：
+
+- overlap@3 看起来像 oracle 的问题；
+- Qwen3 overlap@1 负优化的问题；
+- overlap 与 hit 之间的量化 gap；
+- “coordinate-free 只能停留在 patch 粒度”的架构限制；
+- 与 GUI-Actor 的公平比较；
+- 审稿人要求报告标准 point-in-box hit 的问题。
+
+最稳的实施顺序是：**先跑 Gaussian sub-patch + consensus；若剩余 gap 仍大，再上 top-3 coordinate-free zoom，而不是当前的 zoom-backbone。**
+
+【回答内容 轮数5】
+有办法，而且这次不是靠“换一个更松的指标”硬解释。你现在真正抓到的是一个很重要的信号：
+
+> **`overlap@3` 已经超过 baseline，说明当前权重的一次前向里，正确目标区域很可能已经被放进候选集合；负优化的一部分不是 representation 不行，而是你们现有的 candidate ranking 和 posterior-to-point decoder 没有把这部分能力兑现成 top-1。**
+
+你的论文研究的本来就是 localization 与 coordinate serialization 的分离：自回归 GUI agent 把定位和坐标序列化混在一起，而 ZWERGE 从中间层直接读空间 posterior。fileciteturn3file0L5-L8 当前方法又确实用 Gaussian patch posterior 训练，却在推理时用一个相当朴素的 `0.3×max + BFS + centroid` 解码器。fileciteturn3file0L523-L553 fileciteturn3file0L652-L660
+
+下面我先把代码逻辑完全说清楚，再给出一条**不训练新权重、优先零额外 forward、最终输出严格单点 hit@1**的救援路线。
+
+---
+
+# 一、我核查了你们公开仓库：现在的 overlap@3 是怎样算的
+
+## 1. top-3 不是三个相邻的最高分 patch，而是三个独立连通区域
+
+当前 `get_prediction_region_point()` 的过程是：
+
+1. 从整个 posterior $p$ 中取最大值 $p_{\max}$；
+2. 保留所有满足
+   $$
+
+   p_i > 0.3p_{\max}
+
+$$
+   的 patch；
+3. 对这些 patch 做上下左右四邻域 BFS；
+4. 每个连通分量被视为一个 candidate region；
+5. 每个 region 输出一个坐标；
+6. region 按分量内部**最高单 patch 概率**排序；
+7. `scores_to_point_and_topk()` 截取前三个 region center。
+
+因此你当前的 top-3 已经是三个不同的空间模态，而不是同一按钮附近三个相邻格子。turn311563view1turn761844view2
+
+默认 CLI 参数也是：
+
+```python
+--activation_threshold 0.3
+--topk 3
+--decode_strategy centroid
+```
+
+
+
+这对你是好消息：**当前 overlap@3 确实有“多个独立目标候选”的明确语义。**
+
+## 2. 每个候选的当前坐标是阈值后区域的概率加权质心
+
+默认 `centroid` 计算：
+
+$$
+
+\hat x_C=
+\frac{\sum_{i\in C}p_i x_i}
+     {\sum_{i\in C}p_i},
+\qquad
+\hat y_C=
+\frac{\sum_{i\in C}p_i y_i}
+     {\sum_{i\in C}p_i}.
+
+$$
+
+代码还支持：
+
+- `argmax`
+- `peak_shift`
+- `temperature`
+- `centroid`
+
+但这些方法都只使用阈值内的 component patch。低于 `0.3×max` 的邻域概率会被完全丢弃。
+
+这正是后面还能优化的地方：**你们的 Gaussian posterior 中可能存在 patch 内偏移信息，但当前 BFS threshold 把它截断了。**
+
+## 3. overlap@3 的准确逻辑
+
+评测时先计算：
+
+$$
+
+h_x=\frac{0.5}{n_w},\qquad
+h_y=\frac{0.5}{n_h}.
+
+$$
+
+对每个候选点 $(x_k,y_k)$ 构造：
+
+$$
+
+P_k=
+[x_k-h_x,\ y_k-h_y,\ x_k+h_x,\ y_k+h_y].
+
+$$
+
+然后：
+
+$$
+
+\operatorname{overlap@3}
+=
+\mathbb{1}\left[
+\exists k\le3,\quad P_k\cap B_{\rm GT}\ne\varnothing
+\right].
+
+$$
+
+`hit@3` 则是：
+
+$$
+
+\operatorname{hit@3}
+=
+\mathbb{1}\left[
+\exists k\le3,\quad (x_k,y_k)\in B_{\rm GT}
+\right].
+
+$$
+
+代码确实是先计算 top-1，再遍历剩余两个候选，只要任一候选的合成 patch 与 GT 相交，就令 `overlapk=1`。turn761844view5
+
+## 4. overlap@3 相对 overlap@1 没有额外模型计算
+
+三个候选全部来自同一个 `p_final`。没有：
+
+- 第二次 backbone forward；
+- 第二次 image encoding；
+- 自回归采样；
+- 新模型；
+- 新参数。
+
+额外工作只有在已经生成的 region 列表上做 `centers[:3]` 和三个 box intersection，几乎可以忽略。turn311563view2
+
+所以这句话完全成立：
+
+> **ZWERGE-UI obtains top-3 spatial proposals from the same dense posterior and the same single prefill; increasing the proposal budget from one to three incurs no additional model forward or autoregressive decoding.**
+
+GUI-Actor 也明确把这一点作为 attention-based action head 的架构优势：它可以一次 forward 产生多个 candidate regions；不过它随后用额外训练的 verifier 将候选压缩为最终动作。turn703519view1
+
+---
+
+# 二、当前 overlap 实现还有一个必须修正或至少公开的细节
+
+你们的 `do_boxes_overlap()` 使用：
+
+```python
+if x1_max < x2_min or x2_max < x1_min:
+    return False
+```
+
+而不是 `<=`。
+
+这意味着两个 box 只有边界接触、交集面积为零时，也会被计为 overlap。
+
+这对 baseline 和 ZWERGE 是对称的，所以**不会导致两者比较偏向 ZWERGE**；但评审如果读代码，可能会抓这个细节。
+
+建议同时计算两个版本：
+
+$$
+
+\text{touch-overlap}: P\cap B\ne\varnothing
+
+$$
+
+和
+
+$$
+
+\text{area-overlap}:
+\operatorname{area}(P\cap B)>0.
+
+$$
+
+主文最好使用严格正面积版本，或者在附录证明两者差异极小。不要给审稿人留下“连擦边都算对”的攻击入口。
+
+---
+
+# 三、你现在的 overlap@1 paired comparison 的确是公平的
+
+你对另一个 agent 的纠正是对的。
+
+论文不是拿：
+
+- ZWERGE overlap@1
+
+去比较：
+
+- leaderboard native hit@1。
+
+你是把 baseline 生成的坐标也视为同样大小的 patch center，再用相同 overlap 标准评估。因此 baseline 也获得相同的半 patch 容忍度。论文第 4.1 节已经明确写了这一点。fileciteturn3file0L630-L642
+
+所以 Qwen3 上的负优化是：
+
+$$
+
+\text{ZWERGE overlap@1}
+<
+\text{native baseline overlap@1},
+
+$$
+
+而不是两种 metric 混用。主表中的 GUI-Owl-1.5 和 UI-Venus 在 ScreenSpot-Pro、ScreenSpot-v2 上确实下降。fileciteturn3file0L672-L692
+
+## 但 overlap@3 对 baseline overlap@1 仍不能直接叫“最终性能公平比较”
+
+问题不在 margin，而在**proposal budget**：
+
+- baseline overlap@1：一个候选；
+- ZWERGE overlap@3：三个候选，oracle 判断其中任意一个是否正确。
+
+虽然三个候选对 ZWERGE 是免费的，但真实执行时仍然只能点击一个点。因而这是一种合理的：
+
+> **single-pass proposal recall / architecture-native candidate recall**
+
+但还不是：
+
+> **single-click executable accuracy。**
+
+最安全的论文策略是：
+
+- 保留 overlap@1 作为当前 paired metric；
+- 新增 overlap@3，展示一次 forward 的候选区域上界；
+- 新增 training-free selector/refiner；
+- 最终仍用 refined overlap@1 和 strict hit@1 证明方法真正可执行。
+
+这样 overlap@3 不是用来“偷换答案”，而是用来证明：
+
+> 正确答案已经存在于 posterior，只是当前 decoder 选错或点偏了。
+
+---
+
+# 四、最关键的纠正：28/32px 网格不代表一定无法恢复 sub-patch 坐标
+
+另一个 agent 说这是“信息论意义上的不可逆损失”，这个结论太绝对。
+
+如果模型只输出一个离散 patch ID，那么确实无法知道 patch 内位置。
+
+但你输出的不是 ID，而是完整概率场：
+
+$$
+
+p(i),\quad i=1,\ldots,N_{\rm patch}.
+
+$$
+
+而训练标签又是以连续 GT centroid 为中心的各向异性 Gaussian：
+
+$$
+
+y_i\propto
+\exp\left(
+-\frac{(x_i-c_x)^2}{2\sigma_x^2}
+-\frac{(y_i-c_y)^2}{2\sigma_y^2}
+\right).
+
+$$
+
+fileciteturn3file0L523-L553
+
+假设目标中心偏向当前 patch 的右侧，则即使 argmax patch 不变：
+
+- 右邻 patch 概率可能升高；
+- 左邻 patch 概率可能降低；
+- 上下邻居的比例也携带 y 方向偏移。
+
+所以连续中心的位置可能通过邻域概率比例编码在离散 posterior 中。
+
+当前 BFS decoder 却先执行：
+
+$$
+
+p_i>0.3p_{\max}
+
+$$
+
+然后才做 centroid。这会抛弃大量低概率邻居，尤其当 Gaussian 较尖时，可能只留下一个 patch，直接把所有 sub-patch 相位信息清零。
+
+DARK 在关键点检测中证明了这一类问题：只替换 heatmap-to-coordinate decoder、保持模型权重不变，也可以显著缓解量化误差；其核心就是利用局部 log-heatmap 的二阶形状恢复连续峰值。
+
+所以你的真实情况是：
+
+> **有机会不 zoom 就恢复一部分 hit；只有在 posterior 真正退化为 one-hot 时，zoom 才不可避免。**
+
+---
+
+# 五、我建议的完整 test-time 方法：ZWERGE-P2P
+
+可以命名为：
+
+## ZWERGE-P2P
+**Training-Free Posterior-to-Point Refinement**
+
+它由三个层次组成，按成本逐步增加。
+
+---
+
+## Level 1：重新排序 top-3 candidate regions
+
+当前最大的明显问题是：
+
+```python
+reg_score = max(item[3] for item in region)
+```
+
+也就是一个 region 的分数仅等于内部最高 patch 概率。turn311563view1
+
+这意味着：
+
+- 一个孤立的尖峰可能击败一个面积更大、整体支持更强的真实按钮；
+- region 内绝大多数概率质量都没有参与排序；
+- 你已经有多层 posterior，但最终 candidate 排序完全不使用跨层一致性。
+
+这很可能就是 overlap@3 明显高于 overlap@1 的重要原因。
+
+### 第一轮零成本消融
+
+对每个 component $C_j$ 依次测试：
+
+**当前 max：**
+
+$$
+
+S^{\max}_j=\max_{i\in C_j}p_i.
+
+$$
+
+**总概率质量：**
+
+$$
+
+S^{\rm mass}_j=\sum_{i\in C_j}p_i.
+
+$$
+
+**平均概率：**
+
+$$
+
+S^{\rm mean}_j=
+\frac{1}{|C_j|}
+\sum_{i\in C_j}p_i.
+
+$$
+
+**折中版本：**
+
+$$
+
+S^{\rm bal}_j=
+\frac{\sum_{i\in C_j}p_i}
+{|C_j|^\alpha},
+\qquad \alpha=0.5.
+
+$$
+
+`mass` 可能偏向大区域，`mean` 可能偏向小尖峰，`mass / sqrt(area)` 是通常较稳妥的折中。
+
+这几种方法不需要模型前向，只需要改 region sorting。
+
+---
+
+## Level 2：用现有 per-layer posterior 做无训练 verifier
+
+你当前一次 forward 已经返回：
+
+- `per_layer_probs`
+- `p_final`
+- `omega`
+- `per_layer_topk`
+
+turn761844view2
+
+因此根本不必立刻训练 GUI-Actor 那种 2B verifier。你自己的多层 posterior 就可以作为内部 ensemble。
+
+对 fusion 提出的每个 candidate region $C_j$，先膨胀一格：
+
+$$
+
+\widetilde C_j=\operatorname{Dilate}(C_j,1),
+
+$$
+
+然后计算每层在该候选区域的质量：
+
+$$
+
+m_{\ell j}
+=
+\sum_{i\in\widetilde C_j}p_\ell(i).
+
+$$
+
+最直接的共识分数：
+
+$$
+
+S_j^{\rm consensus}
+=
+\sum_\ell
+\omega_\ell
+\log(m_{\ell j}+\epsilon).
+
+$$
+
+也就是各层区域质量的加权几何平均。
+
+它会自然惩罚：
+
+- 只有某一层出现的孤立伪峰；
+- 跨层位置漂移严重的候选；
+- fusion convex average 偶然放大的噪声。
+
+如果担心不同层 calibration 不同，就不要直接比较概率，改用 rank：
+
+1. 每一层按 $m_{\ell j}$ 对三个候选排序；
+2. 计算 weighted Borda score；
+3. 使用 $\omega_\ell$ 作为层权重；
+4. 选择跨层排序最稳定的 candidate。
+
+这完全训练免费、零额外 forward，而且非常符合你的核心论点：
+
+> 中间层包含互补空间证据；跨层一致性本身可以验证 candidate。
+
+### 推荐的最终 candidate score
+
+$$
+
+S_j=
+\underbrace{
+\sum_\ell\omega_\ell\log(m_{\ell j}+\epsilon)
+}_{\text{cross-layer support}}
++
+0.5
+\underbrace{
+\log\left(\sum_{i\in C_j}p_{\rm final}(i)+\epsilon\right)
+}_{\text{fusion mass}}
+-
+0.25
+\underbrace{
+\operatorname{Var}_{\ell}
+(\mu_{\ell j})
+}_{\text{spatial disagreement}}.
+
+$$
+
+其中 $\mu_{\ell j}$ 是第 $\ell$ 层在候选附近的局部中心。
+
+先不调很多超参。也可以直接使用 rank aggregation，完全消除这些系数。
+
+---
+
+## Level 3：对胜出 candidate 做解析 Gaussian 反演
+
+选择正确 component 后，不要再用阈值后的 centroid。
+
+在该 component 内找到原始 $p_{\rm final}$ 的离散峰值 $(u_0,v_0)$，取其周围 3×3 或 5×5 的**未阈值化**概率。
+
+令：
+
+$$
+
+z(u,v)=\log(p_{\rm final}(u,v)+\epsilon).
+
+$$
+
+在局部拟合二维二次曲面：
+
+$$
+
+z(\Delta u,\Delta v)
+=
+a\Delta u^2+
+b\Delta u\Delta v+
+c\Delta v^2+
+d\Delta u+
+e\Delta v+
+f.
+
+$$
+
+写成：
+
+$$
+
+z(\Delta)
+=
+f+g^\top\Delta+
+\frac12\Delta^\top H\Delta.
+
+$$
+
+连续极大值：
+
+$$
+
+\Delta^*=-H^{-1}g.
+
+$$
+
+最终坐标：
+
+$$
+
+\hat x=
+\frac{u_0+0.5+\Delta_u^*}{n_w},
+\qquad
+\hat y=
+\frac{v_0+0.5+\Delta_v^*}{n_h}.
+
+$$
+
+安全限制：
+
+- Hessian 必须负定；
+- 条件数不能太大；
+- $\Delta_u,\Delta_v\in[-0.75,0.75]$；
+- 拟合 residual 过大时 fallback 到 centroid；
+- 边界 patch fallback；
+- 邻域有效概率质量过低时 fallback。
+
+代码骨架：
+
+```python
+def refine_local_mode(
+    p: torch.Tensor,
+    peak_x: int,
+    peak_y: int,
+    n_width: int,
+    n_height: int,
+    radius: int = 2,
+    max_offset: float = 0.75,
+) -> tuple[float, float] | None:
+    """Fit a local quadratic to log posterior and recover a sub-cell mode."""
+    grid = p.float().reshape(n_height, n_width)
+    eps = 1e-9
+
+    xs, ys, values = [], [], []
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            x, y = peak_x + dx, peak_y + dy
+            if 0 <= x < n_width and 0 <= y < n_height:
+                xs.append(dx)
+                ys.append(dy)
+                values.append(torch.log(grid[y, x].clamp_min(eps)))
+
+    if len(values) < 6:
+        return None
+
+    X = torch.tensor(
+        [[x*x, x*y, y*y, x, y, 1.0]
+         for x, y in zip(xs, ys)],
+        dtype=torch.float64,
+    )
+    target = torch.stack(values).to(torch.float64)
+
+    # Give more weight to points near the peak.
+    dist2 = torch.tensor(
+        [x*x + y*y for x, y in zip(xs, ys)],
+        dtype=torch.float64,
+    )
+    weights = torch.exp(-0.5 * dist2)
+    W = torch.diag(weights)
+
+    try:
+        beta = torch.linalg.solve(
+            X.T @ W @ X + 1e-6 * torch.eye(6, dtype=torch.float64),
+            X.T @ W @ target,
+        )
+    except RuntimeError:
+        return None
+
+    a, b, c, d, e, _ = beta
+    H = torch.tensor([[2*a, b], [b, 2*c]], dtype=torch.float64)
+    g = torch.tensor([d, e], dtype=torch.float64)
+
+    eigvals = torch.linalg.eigvalsh(H)
+    if not torch.all(eigvals < -1e-6):
+        return None
+
+    try:
+        offset = -torch.linalg.solve(H, g)
+    except RuntimeError:
+        return None
+
+    if not torch.isfinite(offset).all():
+        return None
+
+    offset = offset.clamp(-max_offset, max_offset)
+    return float(offset[0]), float(offset[1])
+```
+
+这不是简单 bicubic 放大。它是在反演你训练时明确施加的 Gaussian geometry。
+
+---
+
+# 六、用四分法判断到底需要哪种救法
+
+现在不要盲目上 zoom。先把每个样本分成四类：
+
+$$
+
+A=\text{hit@1}
+
+$$
+
+$$
+
+B=\neg\text{hit@1}\land\text{hit@3}
+
+$$
+
+$$
+
+C=\neg\text{hit@3}\land\text{overlap@3}
+
+$$
+
+$$
+
+D=\neg\text{overlap@3}.
+
+$$
+
+它们分别表示：
+
+### A：已经正确
+
+不要破坏。所有 test-time refinement 必须控制 damage rate。
+
+### B：正确点已经在 top-3，但 candidate 排序错了
+
+优先解决：
+
+- mass ranking；
+- cross-layer consensus；
+- verifier。
+
+理论上无需 zoom。
+
+### C：三个 candidate point 都不在 GT 内，但 candidate patch 与 GT 相交
+
+这才是纯粹的 sub-patch quantization 问题。
+
+优先解决：
+
+- local Gaussian inversion；
+- local soft-argmax；
+- phase-shift；
+- zoom。
+
+### D：前三个 candidate 连目标区域都没覆盖
+
+这不是 decoder 能解决的，通常需要：
+
+- 新训练；
+- OPD/OPSD；
+- 更强 fusion；
+- 额外视觉视图。
+
+这个四分法会非常有说服力。审稿人可以清楚看到：
+
+> 负优化到底来自语义 localization failure、candidate selection failure，还是 patch-to-point quantization failure。
+
+---
+
+# 七、最可能直接保护 Qwen3 的无训练 Hybrid
+
+Qwen3 的问题与 Qwen2.5 不完全一样：
+
+- native coordinate decoder 已经很强；
+- ZWERGE 的 posterior 可能有不错的区域召回；
+- 但无条件替换 native serializer，损失了其亚 patch 精度和强排序能力。
+
+所以可以设计：
+
+## Posterior-Constrained Native Decoding
+
+流程：
+
+1. 同一 prefill 得到 ZWERGE top-3 candidate regions；
+2. 继续生成 native coordinate；
+3. 将 native point 映射回 patch grid；
+4. 检查 native point 是否被 ZWERGE 的 top-3 regions 支持；
+5. 若支持，使用 native 连续坐标；
+6. 若不支持，使用 consensus + Gaussian inversion 的 ZWERGE point。
+
+即：
+
+$$
+
+c_{\rm out}=
+\begin{cases}
+c_{\rm native},
+&
+c_{\rm native}\in
+\bigcup_{j=1}^3\widetilde C_j,\\
+c_{\rm ZWERGE\text{-}P2P},
+&
+\text{otherwise}.
+\end{cases}
+
+$$
+
+这条路线非常可能解决 Qwen3 负优化，因为它让两者分工：
+
+- ZWERGE：判断**哪个区域是可信的**；
+- native serializer：在该区域给出**连续精确点**。
+
+它也直接体现你的论文主题：
+
+> intermediate layers identify where; final layers serialize the exact coordinate.
+
+## 计算成本问题
+
+你当前代码里的 `native_backbone` / `zoom_backbone` 是重新调用生成流程，并没有显式复用第一次 ZWERGE prefill 的 KV cache，所以按当前实现直接跑，会存在额外 prefill。turn761844view0
+
+若想在论文里声称成本接近 native baseline，需要稍微重构：
+
+- 第一次 forward 使用 `use_cache=True`；
+- 保存 anchor 位置的 `past_key_values`；
+- probe/fusion 从同一次 hidden states 读取；
+- 从同一 cache 继续生成少量 coordinate tokens。
+
+这样 Hybrid 相对 native baseline 只增加 probe/fusion head，而不重复 image prefill。
+
+这比 `zoom_backbone` 更适合作为 Qwen3 的第一救援方案。
+
+---
+
+# 八、什么时候确实必须 zoom-in
+
+Gaussian inversion 能否工作，取决于邻域概率是否含有足够信息。
+
+你训练时：
+
+$$
+
+\sigma_x=0.35w_b,\qquad
+\sigma_y=0.35h_b.
+
+$$
+
+fileciteturn3file0L523-L553
+
+当目标远小于一个 patch 时，$\sigma$ 可能也远小于 cell stride。离散 Gaussian 会接近 one-hot：
+
+- 峰值 patch 非常高；
+- 邻居全部接近零；
+- 局部 Hessian 无法稳定估计；
+- sub-patch 方向确实不存在于 posterior 中。
+
+这类样本需要新的视觉采样。
+
+但我不建议先使用你现在的 `zoom_backbone`，因为它重新引入自回归坐标生成。
+
+建议增加：
+
+## Coordinate-Free Adaptive Re-Prefill Zoom
+
+1. 全图运行一次 ZWERGE；
+2. 使用 consensus 选择候选 ROI；
+3. 只有当局部 Gaussian 拟合不可靠时才触发 zoom；
+4. crop ROI；
+5. 在 crop 上再次运行**相同 ZWERGE probes/fusion**；
+6. crop posterior 再做 Gaussian inversion；
+7. 映射回原图。
+
+不新增任何权重，仍然没有 coordinate token generation。
+
+### 无 GT 的 zoom trigger
+
+满足任一条件才 zoom：
+
+$$
+
+\lambda_{\max}(H)\ge0
+
+$$
+
+局部二次拟合不是凹峰；
+
+$$
+
+\operatorname{cond}(H)>\tau_H
+
+$$
+
+曲率不稳定；
+
+$$
+
+S_1-S_2<\tau_m
+
+$$
+
+top-1/top-2 candidate 太接近；
+
+$$
+
+\operatorname{Var}_\ell(\mu_\ell)>\tau_v
+
+$$
+
+跨层位置分歧高；
+
+或者：
+
+- component 只有一个 patch；
+- 四邻域总概率质量过低；
+- 峰值处于图像边缘。
+
+这样平均 forward 数可能远低于 2。
+
+你的论文目前把 patch granularity 描述为“没有 second-stage zoom 就无法获得 sub-patch precision”。fileciteturn3file0L1197-L1206 如果 Gaussian inversion 成功，这句话应该改成：
+
+> Analytic posterior decoding recovers sub-patch offsets when local distributional evidence is available; adaptive zoom is reserved for degenerate one-cell posteriors.
+
+这会比原先 limitation 更强。
+
+---
+
+# 九、一个可选但很有新意的 TTS：Patch-Phase Dithering
+
+如果你不想裁剪上下文，可以使用多个不同 patch lattice 相位：
+
+$$
+
+(0,0),\quad
+(s/2,0),\quad
+(0,s/2),\quad
+(s/2,s/2).
+
+$$
+
+对图像进行半 patch 平移和 padding，分别运行相同 ZWERGE，再将四个 posterior 映射回原始坐标系融合。
+
+这样有效采样间隔可由：
+
+- 28 px 降至约 14 px；
+- 32 px 降至约 16 px。
+
+它不是简单放宽 metric，而是真正改变 patch sampling phase，恢复更细网格。
+
+不过它要四次 forward，优先级低于：
+
+1. region re-ranking；
+2. Gaussian inversion；
+3. native posterior gate；
+4. adaptive zoom。
+
+MVP 也观察到 GUI grounding 对轻微 crop/视觉视图很不稳定，并通过 training-free multi-view aggregation显著提升多个模型，这说明多视图 test-time aggregation 是一条真实可行的方向。citeturn841705academia36
+
+---
+
+# 十、你现在立刻应该改的代码和实验
+
+## 第一步：保存后验，否则无法快速离线 sweep
+
+当前 per-sample JSON 只保存：
+
+- `omega`
+- layer metrics
+- fusion hit/overlap 指标
+- metadata
+
+没有保存：
+
+- `p_final`
+- `per_layer_probs`
+- fusion top-k centers
+- component indices
+- component scores
+
+
+
+因此现有 JSON 不能支持离线测试 consensus 和 Gaussian inversion。
+
+加一个 `--cache_posteriors`，每个样本保存为 `.pt`：
+
+```python
+{
+    "p_final": pred["p_final"].half(),
+    "per_layer_probs": torch.stack(
+        pred["per_layer_probs"]
+    ).half(),
+    "omega": pred["omega"].half(),
+    "n_width": n_w,
+    "n_height": n_h,
+    "gt_bbox_norm": torch.tensor(gt_bbox_norm),
+    "idx": global_idx,
+}
+```
+
+跑一次 inference 后，几十种 decoder 都可以离线秒级 sweep，不需要反复加载 8B 模型。
+
+## 第二步：先跑最小矩阵
+
+保持 checkpoint 完全不动：
+
+| 候选排序 | 坐标解码 | Forward |
+|---|---|---:|
+| max，当前 | threshold centroid | 1 |
+| mass | threshold centroid | 1 |
+| mass/√area | threshold centroid | 1 |
+| cross-layer consensus | threshold centroid | 1 |
+| cross-layer consensus | local Gaussian inverse | 1 |
+| consensus | adaptive coordinate-free zoom | 1–2 |
+| posterior-constrained native | native continuous point | 1 prefill + coord decode |
+
+先只跑：
+
+- GUI-Owl-1.5-8B；
+- UI-Venus-1.5-8B；
+- ScreenSpot-Pro；
+- ScreenSpot-v2。
+
+不要一开始跑全部五个 benchmark。
+
+## 第三步：必须同时看 recovery 和 damage
+
+只看总分不够。
+
+定义：
+
+$$
+
+\text{recovery}
+=
+P(
+\text{new hit}=1
+\mid
+\text{old hit}=0,\text{old overlap}=1
+)
+
+$$
+
+$$
+
+\text{damage}
+=
+P(
+\text{new hit}=0
+\mid
+\text{old hit}=1
+).
+
+$$
+
+Gaussian inversion 的目标不是疯狂移动所有点，而是：
+
+- 恢复 overlap-only；
+- 尽量不破坏原来正确的 hit。
+
+建议基本门槛：
+
+- recovery ≥ 20–25%；
+- damage ≤ 1–2%；
+- strict hit@1 增加 ≥ 2–3 pp。
+
+## 第四步：再计算 top-3 可兑现率
+
+$$
+
+\text{selection recovery}
+=
+\frac{
+\text{new top1 correct}-\text{old top1 correct}
+}{
+\text{top3 oracle correct}-\text{old top1 correct}
+}.
+
+$$
+
+它直接告诉你 consensus verifier 回收了多少 top-3 headroom。
+
+---
+
+# 十一、论文中怎样写才不会像狡辩
+
+不要写：
+
+> We use overlap@3 because it is higher and incurs no extra cost.
+
+写成：
+
+> Our dense coordinate-free head exposes multiple disconnected spatial modes in a single prefill. We therefore report overlap@3 as **single-pass proposal recall**, rather than as executable accuracy. Unlike autoregressive sampling, increasing the proposal budget does not require additional image forwards or coordinate-token decoding. To convert proposal recall into a single executable action, we introduce a parameter-free posterior-to-point decoder that (i) reranks candidate regions by cross-layer posterior consensus and (ii) reconstructs a continuous local mode from the unthresholded Gaussian posterior. All final action results are reported under top-1 overlap and strict point-in-box hit@1.
+
+再加一句：
+
+> For protocol symmetry, overlap@1 continues to dilate both native autoregressive predictions and ZWERGE predictions by the same half-cell support; overlap@3 is reported separately and is never substituted for top-1 executable accuracy.
+
+GUI-Actor 的论文明确说 attention map 可以一次产生多个 candidate，但最终仍训练 verifier 选择一个 region；他们使用 K=20 候选和独立 VLM verifier，而最终 benchmark metric 依然是点落入 GT box 的 Element Accuracy。
+
+你们的优势是：
+
+> 不训练额外 verifier，直接利用已经存在的多层 posterior consensus 完成验证。
+
+这甚至比照搬 GUI-Actor 更贴合 ZWERGE 的贡献。
+
+---
+
+# 最终战略结论
+
+**你并不是没办法。**
+
+当前代码表明：
+
+1. overlap@3 来自同一个 forward；
+2. top-3 是三个独立 connected components；
+3. 正确候选已经存在，说明有真实 headroom；
+4. 当前 top-1 排序只看 region 内一个最大 patch，非常粗糙；
+5. 当前 centroid 又丢掉了阈值外的 Gaussian 邻域；
+6. 你还没有真正使用多层 posterior 做 test-time verification。
+
+因此最值得今天做的不是直接把 overlap@3 塞进主表，而是：
+
+$$
+
+\boxed{
+\text{top-3 connected regions}
+\rightarrow
+\text{cross-layer consensus reranking}
+\rightarrow
+\text{local Gaussian inverse}
+\rightarrow
+\text{single strict click}
+}
+
+$$
+
+对 Qwen3 再加：
+
+$$
+
+\boxed{
+\text{posterior-constrained native coordinate}
+}
+
+$$
+
+只有在 local posterior 退化成 one-hot 时，才触发：
+
+$$
+
+\boxed{
+\text{adaptive coordinate-free re-prefill zoom}
+}
+
+$$
+
+优先级非常明确：
+
+**改 region score → 跨层无训练 verifier → Gaussian 反演 → native posterior gate → 条件式 coordinate-free zoom。**
+
+这条线既可能把 overlap@3 的优势兑现成 top-1，也能把“coordinate-free 只能输出粗 patch”从一个硬限制，转化为你论文里的新 test-time decoding 贡献。

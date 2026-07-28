@@ -172,6 +172,421 @@ def scores_to_point_and_topk(
     return best, centers[:topk]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ZWERGE-P2P — Training-Free Posterior-to-Point Refinement
+#
+# Three composable, parameter-free stages (see docs/oracle/...Qwen3负优化与OPD.txt
+# §五, lines 4408–5177):
+#   Level 1  region re-ranking        mass / mean / mass÷√area  (replaces max peak)
+#   Level 2  cross-layer consensus    ω-weighted geometric mean of per-layer mass
+#   Level 3  local Gaussian inversion weighted quadratic fit on log-posterior
+#
+# All functions are pure (operate on CPU float tensors) so the offline sweep
+# (p2p_sweep.py) reuses the *identical* decode path as the GPU eval loop,
+# guaranteeing offline-sweep numbers match a real eval run.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_candidate_regions(
+    p_1d: torch.Tensor,
+    n_width: int,
+    n_height: int,
+    activation_threshold: float = 0.3,
+) -> List[List[Tuple[int, int, int, float]]]:
+    """
+    Threshold (relative to max) + 4-connectivity BFS → connected regions.
+
+    Each region is a list of (y, x, flat_idx, p) tuples. Mirrors the region
+    growing in get_prediction_region_point() but isolated so P2P can reuse it.
+    """
+    scores = p_1d.float().cpu()
+    if scores.dim() == 2:
+        scores = scores.squeeze(0)
+    max_score = scores.max().item()
+    if max_score <= 0:
+        return []
+    threshold = max_score * activation_threshold
+    valid_indices = (scores > threshold).nonzero(as_tuple=False).squeeze(-1)
+    if valid_indices.numel() == 0:
+        return []
+
+    topk_values = scores[valid_indices]
+    topk_coords = []
+    for i, idx in enumerate(valid_indices.tolist()):
+        y = idx // n_width
+        x = idx % n_width
+        topk_coords.append((y, x, idx, topk_values[i].item()))
+
+    regions: List[List[Tuple[int, int, int, float]]] = []
+    visited: set = set()
+    for y, x, idx, val in topk_coords:
+        if idx in visited:
+            continue
+        region = [(y, x, idx, val)]
+        visited.add(idx)
+        queue = [(y, x, idx, val)]
+        while queue:
+            cy, cx, c_idx, c_val = queue.pop(0)
+            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                ny, nx = cy + dy, cx + dx
+                if ny < 0 or ny >= n_height or nx < 0 or nx >= n_width:
+                    continue
+                n_idx = ny * n_width + nx
+                for j, (ty, tx, t_idx, t_val) in enumerate(topk_coords):
+                    if ty == ny and tx == nx and t_idx not in visited:
+                        visited.add(t_idx)
+                        region.append((ny, nx, t_idx, t_val))
+                        queue.append((ny, nx, t_idx, t_val))
+        regions.append(region)
+    return regions
+
+
+def _region_indices_dilated(
+    region: List[Tuple[int, int, int, float]],
+    n_width: int,
+    n_height: int,
+    dilate: int = 1,
+) -> List[int]:
+    """Patch indices in the region expanded by `dilate` cells (Chebyshev)."""
+    cells = {(y, x) for y, x, _, _ in region}
+    if dilate > 0:
+        extra = set()
+        for y, x in cells:
+            for dy in range(-dilate, dilate + 1):
+                for dx in range(-dilate, dilate + 1):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < n_height and 0 <= nx < n_width:
+                        extra.add((ny, nx))
+        cells = cells | extra
+    return [y * n_width + x for y, x in cells]
+
+
+def region_score(
+    region: List[Tuple[int, int, int, float]],
+    kind: str = "mass_sqrt_area",
+    alpha: float = 0.5,
+) -> float:
+    """
+    Level 1 — score a candidate region by its posterior mass, independent of
+    the model. `kind` ∈ {max, mass, mean, mass_sqrt_area, balanced}.
+
+      max             : peak patch probability (current/baseline behaviour)
+      mass            : Σ p_i over the region                  (favours large regions)
+      mean            : (1/|C|) Σ p_i                          (favours sharp peaks)
+      mass_sqrt_area  : Σ p_i / √|C|                           (robust compromise)
+      balanced        : Σ p_i / |C|^α
+    """
+    if not region:
+        return -1e18
+    area = len(region)
+    total = sum(item[3] for item in region)
+    if kind == "max":
+        return max(item[3] for item in region)
+    if kind == "mass":
+        return total
+    if kind == "mean":
+        return total / area
+    if kind == "balanced":
+        return total / (area ** alpha)
+    # default: mass_sqrt_area
+    return total / (math.sqrt(area) + 1e-12)
+
+
+def consensus_score(
+    region: List[Tuple[int, int, int, float]],
+    per_layer_probs_active: List[torch.Tensor],
+    omega: torch.Tensor,
+    n_width: int,
+    n_height: int,
+    dilate: int = 1,
+    eps: float = 1e-9,
+) -> float:
+    """
+    Level 2 — cross-layer posterior consensus for a candidate region.
+
+    S_ℓ = Σ_{i ∈ dilated C} p_ℓ(i)            (per-layer region mass)
+    S   = Σ_ℓ ω_ℓ · log(S_ℓ + ε)              (ω-weighted geometric mean)
+
+    Penalises single-layer spurious peaks: a candidate supported by only one
+    layer scores low under the geometric mean even if its fusion mass is high.
+    """
+    if not per_layer_probs_active:
+        return 0.0
+    idxs = _region_indices_dilated(region, n_width, n_height, dilate)
+    s = 0.0
+    for j, p_l in enumerate(per_layer_probs_active):
+        m = float(p_l.float().cpu().flatten()[idxs].sum())
+        w = float(omega[j]) if j < omega.numel() else 0.0
+        s += w * math.log(m + eps)
+    return s
+
+
+def refine_local_mode(
+    p: torch.Tensor,
+    peak_x: int,
+    peak_y: int,
+    n_width: int,
+    n_height: int,
+    radius: int = 2,
+    max_offset: float = 0.75,
+) -> Optional[Tuple[float, float]]:
+    """
+    Level 3 — analytic sub-patch mode recovery.
+
+    Fit a weighted 2-D quadratic to log p_final over a (2·radius+1)²
+    neighbourhood of the *unthresholded* posterior peak, then solve for the
+    continuous mode Δ* = −H⁻¹g.  Returns (Δx, Δy) in patch-cell units, or
+    None when the fit is degenerate (non-concave Hessian, too few points,
+    ill-conditioned) — callers must fall back to the centroid in that case.
+
+    Reference: docs/oracle/...Qwen3负优化与OPD.txt §五 Level 3 (lines 4574–4712).
+    """
+    grid = p.float().cpu().reshape(n_height, n_width)
+    xs, ys, values = [], [], []
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            x, y = peak_x + dx, peak_y + dy
+            if 0 <= x < n_width and 0 <= y < n_height:
+                xs.append(dx)
+                ys.append(dy)
+                values.append(math.log(max(float(grid[y, x]), 1e-9)))
+
+    if len(values) < 6:
+        return None
+
+    X = torch.tensor(
+        [[x * x, x * y, y * y, x, y, 1.0] for x, y in zip(xs, ys)],
+        dtype=torch.float64,
+    )
+    target = torch.tensor(values, dtype=torch.float64)
+
+    # Weight neighbouring points by a Gaussian centred on the peak so the fit
+    # reflects the local curvature right at the mode rather than the wings.
+    dist2 = torch.tensor([x * x + y * y for x, y in zip(xs, ys)], dtype=torch.float64)
+    weights = torch.exp(-0.5 * dist2)
+    W = torch.diag(weights)
+
+    try:
+        beta = torch.linalg.solve(
+            X.T @ W @ X + 1e-6 * torch.eye(6, dtype=torch.float64),
+            X.T @ W @ target,
+        )
+    except RuntimeError:
+        return None
+
+    a, b, c, d, e, _ = beta.tolist()
+    H = torch.tensor([[2 * a, b], [b, 2 * c]], dtype=torch.float64)
+    g = torch.tensor([d, e], dtype=torch.float64)
+
+    eigvals = torch.linalg.eigvalsh(H)
+    # Hessian must be negative-definite (a genuine concave peak).
+    if not torch.all(eigvals < -1e-6):
+        return None
+
+    try:
+        offset = -torch.linalg.solve(H, g)
+    except RuntimeError:
+        return None
+
+    if not torch.isfinite(offset).all():
+        return None
+
+    offset = offset.clamp(-max_offset, max_offset)
+    return float(offset[0]), float(offset[1])
+
+
+def _region_peak(region: List[Tuple[int, int, int, float]]) -> Tuple[int, int, int, float]:
+    """(y, x, idx, p) of the highest-probability patch in the region."""
+    return max(region, key=lambda item: item[3])
+
+
+def _region_centroid(
+    region: List[Tuple[int, int, int, float]],
+    n_width: int,
+    n_height: int,
+    decode_strategy: str = "centroid",
+    peak_shift_alpha: float = 0.5,
+    temperature: float = 0.5,
+) -> Tuple[float, float]:
+    """Continuous (x_norm, y_norm) for a region via the legacy decode rules."""
+    norm_centers = []
+    weights = []
+    for y, x, _, score in region:
+        norm_centers.append(((x + 0.5) / n_width, (y + 0.5) / n_height))
+        weights.append(score)
+    max_idx_in_region = int(max(range(len(weights)), key=lambda i: weights[i]))
+    argmax_center = norm_centers[max_idx_in_region]
+    total_w = sum(weights)
+    wt_x = sum(nc[0] * w for nc, w in zip(norm_centers, weights)) / total_w
+    wt_y = sum(nc[1] * w for nc, w in zip(norm_centers, weights)) / total_w
+    centroid = (wt_x, wt_y)
+    if decode_strategy == "argmax":
+        return argmax_center
+    if decode_strategy == "peak_shift":
+        a = peak_shift_alpha
+        return (a * argmax_center[0] + (1.0 - a) * centroid[0],
+                a * argmax_center[1] + (1.0 - a) * centroid[1])
+    if decode_strategy == "temperature":
+        T = max(temperature, 1e-6)
+        scaled_w = [w ** (1.0 / T) for w in weights]
+        total_sw = sum(scaled_w) + 1e-12
+        return (sum(nc[0] * sw for nc, sw in zip(norm_centers, scaled_w)) / total_sw,
+                sum(nc[1] * sw for nc, sw in zip(norm_centers, scaled_w)) / total_sw)
+    return centroid
+
+
+def decode_p2p(
+    p_final: torch.Tensor,
+    n_width: int,
+    n_height: int,
+    activation_threshold: float = 0.3,
+    topk: int = 3,
+    # Level 1
+    region_scorer: str = "mass_sqrt_area",
+    # Level 2
+    per_layer_probs: Optional[List[torch.Tensor]] = None,
+    active_probe_indices: Optional[List[int]] = None,
+    omega: Optional[torch.Tensor] = None,
+    use_consensus: bool = True,
+    consensus_dilate: int = 1,
+    consensus_weight: float = 1.0,
+    fusion_mass_weight: float = 0.5,
+    spatial_disagree_weight: float = 0.25,
+    # Level 3
+    use_local_mode: bool = True,
+    local_radius: int = 2,
+    local_max_offset: float = 0.75,
+    # fallback decode
+    fallback_decode: str = "centroid",
+    peak_shift_alpha: float = 0.5,
+    temperature: float = 0.5,
+) -> Tuple[Tuple[float, float], List[Tuple[float, float]], List[float], dict]:
+    """
+    ZWERGE-P2P single-pass decoder.
+
+    Pipeline:  extract regions (BFS) → Level-1 score → optional Level-2
+    consensus re-rank → sort → Level-3 local-mode refinement on the winner →
+    fallback to region centroid if the fit degenerates.
+
+    Returns (best_point, topk_points, region_scores, meta) where meta carries
+    per-region diagnostics (peak idx, local-mode offset, fallback flag) so the
+    four-quadrant A/B/C/D analysis can attribute each sample's error type.
+
+    If per_layer_probs / omega are None OR use_consensus is False, the score
+    reduces to the pure Level-1 region_scorer — enabling a zero-cost Level-1
+    ablation against the legacy `max` baseline.
+    """
+    p = p_final.float().cpu()
+    if p.dim() == 2:
+        p = p.squeeze(0)
+
+    regions = _extract_candidate_regions(p, n_width, n_height, activation_threshold)
+
+    if not regions:
+        # No supra-threshold patch: fall back to the global argmax cell centre.
+        best_idx = int(p.argmax().item())
+        y = best_idx // n_width
+        x = best_idx % n_width
+        pt = ((x + 0.5) / n_width, (y + 0.5) / n_height)
+        return pt, [pt], [float(p[best_idx].item())], {
+            "n_regions": 0, "winner": None, "local_mode_applied": False,
+            "fallback": "global_argmax",
+        }
+
+    # Slice active per-layer probs for consensus (Level 2).
+    plp_active: List[torch.Tensor] = []
+    if use_consensus and per_layer_probs is not None and omega is not None:
+        if active_probe_indices is None:
+            active_probe_indices = list(range(len(per_layer_probs)))
+        plp_active = [per_layer_probs[i] for i in active_probe_indices
+                      if i < len(per_layer_probs)]
+
+    scored = []
+    for region in regions:
+        s1 = region_score(region, kind=region_scorer)
+        meta_r: dict = {"region_score_l1": s1}
+        if plp_active:
+            s_cons = consensus_score(
+                region, plp_active, omega, n_width, n_height,
+                dilate=consensus_dilate,
+            )
+            s_fuse = math.log(region_score(region, kind="mass") + 1e-9)
+            # cross-layer spatial-disagreement penalty: variance of per-layer
+            # local centroids restricted to this region's patches.
+            mus = []
+            for p_l in plp_active:
+                ws = p_l.float().cpu().flatten()[[i[2] for i in region]]
+                wsum = ws.sum()
+                if wsum > 0:
+                    xs = torch.tensor([i[1] for i in region], dtype=torch.float32)
+                    ys = torch.tensor([i[0] for i in region], dtype=torch.float32)
+                    mux = float((ws * xs).sum() / wsum)
+                    muy = float((ws * ys).sum() / wsum)
+                    mus.append((mux, muy))
+            var_term = 0.0
+            if len(mus) >= 2:
+                cxs = torch.tensor([m[0] for m in mus])
+                cys = torch.tensor([m[1] for m in mus])
+                var_term = float(cxs.var() + cys.var())
+            combined = (consensus_weight * s_cons
+                        + fusion_mass_weight * s_fuse
+                        - spatial_disagree_weight * var_term)
+            meta_r.update({
+                "consensus": s_cons, "fusion_mass_log": s_fuse,
+                "spatial_var": var_term, "combined": combined,
+            })
+            s_final = combined
+        else:
+            s_final = s1
+        scored.append((region, s_final, meta_r))
+
+    scored.sort(key=lambda t: t[1], reverse=True)
+    top = scored[:max(topk, 1)]
+
+    centers: List[Tuple[float, float]] = []
+    scores_out: List[float] = []
+    meta_regions: List[dict] = []
+    winner_meta: Optional[dict] = None
+    for rank, (region, s, meta_r) in enumerate(top):
+        py, px, pidx, pval = _region_peak(region)
+        offset = None
+        local_applied = False
+        if use_local_mode:
+            offset = refine_local_mode(
+                p, px, py, n_width, n_height,
+                radius=local_radius, max_offset=local_max_offset,
+            )
+            local_applied = offset is not None
+        if offset is not None:
+            dx, dy = offset
+            cx = (px + 0.5 + dx) / n_width
+            cy = (py + 0.5 + dy) / n_height
+        else:
+            cx, cy = _region_centroid(
+                region, n_width, n_height,
+                decode_strategy=fallback_decode,
+                peak_shift_alpha=peak_shift_alpha, temperature=temperature,
+            )
+        center = (float(cx), float(cy))
+        centers.append(center)
+        scores_out.append(float(s))
+        rm = {
+            "rank": rank, "peak_idx": pidx, "peak_y": py, "peak_x": px,
+            "peak_p": pval, "area": len(region),
+            "local_mode_applied": local_applied,
+            "local_offset": list(offset) if offset is not None else None,
+            **meta_r,
+        }
+        meta_regions.append(rm)
+        if rank == 0:
+            winner_meta = rm
+
+    best_point = centers[0]
+    return best_point, centers[:topk], scores_out[:topk], {
+        "n_regions": len(regions), "winner": winner_meta,
+        "regions": meta_regions,
+    }
+
+
 def get_zoom_crop_box(
     p_final: torch.Tensor,
     n_width: int,

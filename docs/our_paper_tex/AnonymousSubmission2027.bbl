@@ -1,0 +1,430 @@
+\begin{thebibliography}{60}
+\providecommand{\natexlab}[1]{#1}
+
+\bibitem[{Abnar and Zuidema(2020)}]{abnar2020attentionflow}
+Abnar, S.; and Zuidema, W. 2020.
+\newblock Quantifying Attention Flow in Transformers.
+\newblock In \emph{Proceedings of the 58th Annual Meeting of the Association
+  for Computational Linguistics}, 4190--4197.
+
+\bibitem[{Bai et~al.(2023)Bai, Bai, Yang, Wang, Tan, Wang, Lin, Zhou, and
+  Zhou}]{bai2023qwenvl}
+Bai, J.; Bai, S.; Yang, S.; Wang, S.; Tan, S.; Wang, P.; Lin, J.; Zhou, C.; and
+  Zhou, J. 2023.
+\newblock Qwen-VL: A Versatile Vision-Language Model for Understanding,
+  Localization, Text Reading, and Beyond.
+\newblock \emph{arXiv preprint arXiv:2308.12966}.
+
+\bibitem[{Bai et~al.(2025)Bai, Chen, Liu, Wang, Ge, Song, Dang, Wang, Wang,
+  Tang et~al.}]{bai2025qwen25vl}
+Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.;
+  Wang, S.; Tang, J.; et~al. 2025.
+\newblock Qwen2.5-VL Technical Report.
+\newblock \emph{arXiv preprint arXiv:2502.13923}.
+
+\bibitem[{Cao, Paranjape, and Hajishirzi(2023)}]{cao2023pumer}
+Cao, Q.; Paranjape, B.; and Hajishirzi, H. 2023.
+\newblock PuMer: Pruning and Merging Tokens for Efficient Vision Language
+  Models.
+\newblock \emph{arXiv preprint arXiv:2305.17530}.
+
+\bibitem[{Carion et~al.(2020)Carion, Massa, Synnaeve, Usunier, Kirillov, and
+  Zagoruyko}]{carion2020detr}
+Carion, N.; Massa, F.; Synnaeve, G.; Usunier, N.; Kirillov, A.; and Zagoruyko,
+  S. 2020.
+\newblock End-to-End Object Detection with Transformers.
+\newblock In \emph{European Conference on Computer Vision}, 213--229.
+
+\bibitem[{Chefer, Gur, and Wolf(2021)}]{chefer2021transformer}
+Chefer, H.; Gur, S.; and Wolf, L. 2021.
+\newblock Transformer Interpretability Beyond Attention Visualization.
+\newblock In \emph{CVPR}, 782--791.
+
+\bibitem[{Chen et~al.(2025)Chen, Lin, Chen, Fan, Jin, Su, Dong, Fu, and
+  Shen}]{chen2025rethinking}
+Chen, H.; Lin, J.; Chen, X.; Fan, Y.; Jin, X.; Su, H.; Dong, J.; Fu, J.; and
+  Shen, X. 2025.
+\newblock Rethinking visual layer selection in multimodal llms.
+\newblock \emph{arXiv e-prints}, arXiv--2504.
+
+\bibitem[{Chen et~al.(2023)Chen, Zhang, Zeng, Zhang, Zhu, and
+  Zhao}]{chen2023shikra}
+Chen, K.; Zhang, Z.; Zeng, W.; Zhang, R.; Zhu, F.; and Zhao, R. 2023.
+\newblock Shikra: Unleashing Multimodal LLM's Referential Dialogue Magic.
+\newblock \emph{arXiv preprint arXiv:2306.15195}.
+
+\bibitem[{Chen et~al.(2024)Chen, Zhao, Liu, Bai, Lin, Zhou, and
+  Chang}]{chen2024fastv}
+Chen, L.; Zhao, H.; Liu, T.; Bai, S.; Lin, J.; Zhou, C.; and Chang, B. 2024.
+\newblock An Image is Worth 1/2 Tokens After Layer 2: Plug-and-Play Inference
+  Acceleration for Large Vision-Language Models.
+\newblock In \emph{European Conference on Computer Vision}.
+
+\bibitem[{Cheng et~al.(2024)Cheng, Sun, Chu, Xu, YanTao, Zhang, and
+  Wu}]{cheng2024seeclick}
+Cheng, K.; Sun, Q.; Chu, Y.; Xu, F.; YanTao, L.; Zhang, J.; and Wu, Z. 2024.
+\newblock Seeclick: Harnessing gui grounding for advanced visual gui agents.
+\newblock In \emph{Proceedings of the 62nd Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, 9313--9332.
+
+\bibitem[{Darcet et~al.(2024)Darcet, Oquab, Mairal, and
+  Bojanowski}]{darcet2024registers}
+Darcet, T.; Oquab, M.; Mairal, J.; and Bojanowski, P. 2024.
+\newblock Vision Transformers Need Registers.
+\newblock In \emph{ICLR}.
+
+\bibitem[{Dosovitskiy et~al.(2021)Dosovitskiy, Beyer, Kolesnikov, Weissenborn,
+  Zhai, Unterthiner, Dehghani, Minderer, Heigold, Gelly
+  et~al.}]{dosovitskiy2021vit}
+Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn, D.; Zhai, X.;
+  Unterthiner, T.; Dehghani, M.; Minderer, M.; Heigold, G.; Gelly, S.; et~al.
+  2021.
+\newblock An Image is Worth 16x16 Words: Transformers for Image Recognition at
+  Scale.
+\newblock In \emph{ICLR}.
+
+\bibitem[{Fan et~al.(2024)Fan, Ding, Kuo, Jiang, Zhao, Guan, Yang, Zhang, and
+  Wang}]{fan2024readpointed}
+Fan, Y.; Ding, L.; Kuo, C.-C.; Jiang, S.; Zhao, Y.; Guan, X.; Yang, J.; Zhang,
+  Y.; and Wang, X.~E. 2024.
+\newblock Read Anywhere Pointed: Layout-aware {GUI} Screen Reading with
+  Tree-of-Lens Grounding.
+\newblock In \emph{Proceedings of the 2024 Conference on Empirical Methods in
+  Natural Language Processing}, 9503--9522. Miami, Florida, USA: Association
+  for Computational Linguistics.
+
+\bibitem[{Gou et~al.(2025)Gou, Wang, Zheng, Xie, Chang, Shu, Sun, and
+  Su}]{gou2024navigating}
+Gou, B.; Wang, R.; Zheng, B.; Xie, Y.; Chang, C.; Shu, Y.; Sun, H.; and Su, Y.
+  2025.
+\newblock Navigating the digital world as humans do: Universal visual grounding
+  for gui agents.
+\newblock In \emph{ICLR}.
+
+\bibitem[{Gu et~al.(2025)Gu, Zeng, Xu, Zhou, Shen, Liu, Zhou, Meng, Xia, Chen
+  et~al.}]{gu2025uivenus}
+Gu, Z.; Zeng, Z.; Xu, Z.; Zhou, X.; Shen, S.; Liu, Y.; Zhou, B.; Meng, C.; Xia,
+  T.; Chen, W.; et~al. 2025.
+\newblock Ui-venus technical report: Building high-performance ui agents with
+  rft.
+\newblock \emph{arXiv preprint arXiv:2508.10833}.
+
+\bibitem[{Hong et~al.(2024)Hong, Wang, Lv, Xu, Yu, Ji, Wang, Wang, Dong, Ding
+  et~al.}]{hong2024cogagent}
+Hong, W.; Wang, W.; Lv, Q.; Xu, J.; Yu, W.; Ji, J.; Wang, Y.; Wang, Z.; Dong,
+  Y.; Ding, M.; et~al. 2024.
+\newblock Cogagent: A visual language model for gui agents.
+\newblock In \emph{CVPR}, 14281--14290.
+
+\bibitem[{Kamath et~al.(2021)Kamath, Singh, LeCun, Synnaeve, Misra, and
+  Carion}]{kamath2021mdetr}
+Kamath, A.; Singh, M.; LeCun, Y.; Synnaeve, G.; Misra, I.; and Carion, N. 2021.
+\newblock MDETR: Modulated Detection for End-to-End Multi-Modal Understanding.
+\newblock In \emph{Proceedings of the IEEE/CVF International Conference on
+  Computer Vision}, 1780--1790.
+
+\bibitem[{Kang et~al.(2025)Kang, Kim, Kim, and Hwang}]{kang2025visualsink}
+Kang, S.; Kim, J.; Kim, J.; and Hwang, S.~J. 2025.
+\newblock See What You Are Told: Visual Attention Sink in Large Multimodal
+  Models.
+\newblock In \emph{ICLR}.
+
+\bibitem[{Kim, Son, and Kim(2021)}]{kim2021vilt}
+Kim, W.; Son, B.; and Kim, I. 2021.
+\newblock ViLT: Vision-and-Language Transformer Without Convolution or Region
+  Supervision.
+\newblock In \emph{International Conference on Machine Learning}, 5583--5594.
+
+\bibitem[{Kirillov et~al.(2023)Kirillov, Mintun, Ravi, Mao, Rolland, Gustafson,
+  Xiao, Whitehead, Berg, Lo et~al.}]{kirillov2023sam}
+Kirillov, A.; Mintun, E.; Ravi, N.; Mao, H.; Rolland, C.; Gustafson, L.; Xiao,
+  T.; Whitehead, S.; Berg, A.~C.; Lo, W.-Y.; et~al. 2023.
+\newblock Segment Anything.
+\newblock In \emph{Proceedings of the IEEE/CVF International Conference on
+  Computer Vision}, 4015--4026.
+
+\bibitem[{Lan et~al.(2024)Lan, Chen, Ke, Wang, Feng, and
+  Zhang}]{lan2024clearclip}
+Lan, M.; Chen, C.; Ke, Y.; Wang, X.; Feng, L.; and Zhang, W. 2024.
+\newblock Clearclip: Decomposing clip representations for dense vision-language
+  inference.
+\newblock In \emph{ECCV}, 143--160. Springer.
+
+\bibitem[{Li et~al.(2025)Li, Meng, Lin, Luo, Tian, Ma, Huang, and
+  Chua}]{screenspotpro}
+Li, K.; Meng, Z.; Lin, H.; Luo, Z.; Tian, Y.; Ma, J.; Huang, Z.; and Chua,
+  T.-S. 2025.
+\newblock Screenspot-pro: Gui grounding for professional high-resolution
+  computer use.
+\newblock In \emph{ACM MM}, 8778--8786.
+
+\bibitem[{Li et~al.(2022)Li, Zhang, Zhang, Yang, Li, Zhong, Wang, Yuan, Zhang,
+  Hwang et~al.}]{li2022glip}
+Li, L.~H.; Zhang, P.; Zhang, H.; Yang, J.; Li, C.; Zhong, Y.; Wang, L.; Yuan,
+  L.; Zhang, L.; Hwang, J.-N.; et~al. 2022.
+\newblock Grounded Language-Image Pre-training.
+\newblock In \emph{CVPR}, 10965--10975.
+
+\bibitem[{Li et~al.(2024)Li, Yuan, Liu, Tang, Wang, Qin, Zhu, and
+  Zhang}]{li2024tokenpacker}
+Li, W.; Yuan, Y.; Liu, J.; Tang, D.; Wang, S.; Qin, J.; Zhu, J.; and Zhang, L.
+  2024.
+\newblock TokenPacker: Efficient Visual Projector for Multimodal LLM.
+\newblock \emph{arXiv preprint arXiv:2407.02392}.
+
+\bibitem[{Lin et~al.(2026)Lin, Shen, Li, Nie, Yu, Li, and Li}]{lin2026happens}
+Lin, J.; Shen, F.; Li, J.; Nie, P.; Yu, F.; Li, M.; and Li, H. 2026.
+\newblock What Happens Before Decoding? Prefill Determines GUI Grounding in
+  VLMs.
+\newblock \emph{arXiv preprint arXiv:2605.12549}.
+
+\bibitem[{Lin et~al.(2025)Lin, Li, Gao, Yang, Wu, Bai, Lei, Wang, and
+  Shou}]{lin2025showui}
+Lin, K.~Q.; Li, L.; Gao, D.; Yang, Z.; Wu, S.; Bai, Z.; Lei, S.~W.; Wang, L.;
+  and Shou, M.~Z. 2025.
+\newblock Showui: One vision-language-action model for gui visual agent.
+\newblock In \emph{CVPR}, 19498--19508.
+
+\bibitem[{Liu et~al.(2024)Liu, Zeng, Ren, Li, Zhang, Yang, Jiang, Li, Yang, Su
+  et~al.}]{liu2023groundingdino}
+Liu, S.; Zeng, Z.; Ren, T.; Li, F.; Zhang, H.; Yang, J.; Jiang, Q.; Li, C.;
+  Yang, J.; Su, H.; et~al. 2024.
+\newblock Grounding DINO: Marrying DINO with Grounded Pre-Training for Open-Set
+  Object Detection.
+\newblock In \emph{European Conference on Computer Vision}.
+
+\bibitem[{Liu et~al.(2025)Liu, Li, Xie, Hu, Han, Zhang, Yang, and
+  Wu}]{liu2025infigui}
+Liu, Y.; Li, P.; Xie, C.; Hu, X.; Han, X.; Zhang, S.; Yang, H.; and Wu, F.
+  2025.
+\newblock Infigui-r1: Advancing multimodal gui agents from reactive actors to
+  deliberative reasoners.
+\newblock \emph{arXiv preprint arXiv:2504.14239}.
+
+\bibitem[{Liu et~al.(2026)Liu, Liu, Zhu, Li, Xie, Wang, Hu, Han, Yuan, Wang
+  et~al.}]{liu2026infigui}
+Liu, Y.; Liu, Z.; Zhu, S.; Li, P.; Xie, C.; Wang, J.; Hu, X.; Han, X.; Yuan,
+  J.; Wang, X.; et~al. 2026.
+\newblock Infigui-g1: Advancing gui grounding with adaptive exploration policy
+  optimization.
+\newblock In \emph{AAAI}, 38, 32267--32275.
+
+\bibitem[{Lu et~al.(2024)Lu, Yang, Shen, and Awadallah}]{lu2024omniparser}
+Lu, Y.; Yang, J.; Shen, Y.; and Awadallah, A. 2024.
+\newblock Omniparser for pure vision based gui agent.
+\newblock \emph{arXiv preprint arXiv:2408.00203}.
+
+\bibitem[{Lu et~al.(2025)Lu, Chai, Guo, Yin, Liu, Wang, Xiao, Ren, Xiong, and
+  Li}]{lu2025ui}
+Lu, Z.; Chai, Y.; Guo, Y.; Yin, X.; Liu, L.; Wang, H.; Xiao, H.; Ren, S.;
+  Xiong, G.; and Li, H. 2025.
+\newblock UI-R1: Enhancing Efficient Action Prediction of GUI Agents by
+  Reinforcement Learning.
+\newblock \emph{arXiv preprint arXiv:2503.21620}.
+
+\bibitem[{Luo et~al.(2025{\natexlab{a}})Luo, Wang, He, Chen, Li, and
+  Xia}]{luo2025gui}
+Luo, R.; Wang, L.; He, W.; Chen, L.; Li, J.; and Xia, X. 2025{\natexlab{a}}.
+\newblock Gui-r1: A generalist r1-style vision-language action model for gui
+  agents.
+\newblock \emph{arXiv preprint arXiv:2504.10458}.
+
+\bibitem[{Luo et~al.(2025{\natexlab{b}})Luo, Logeswaran, Johnson, and
+  Lee}]{luo2025regionfocus}
+Luo, T.; Logeswaran, L.; Johnson, J.; and Lee, H. 2025{\natexlab{b}}.
+\newblock Visual Test-time Scaling for GUI Agent Grounding.
+\newblock In \emph{Proceedings of the IEEE/CVF International Conference on
+  Computer Vision}.
+
+\bibitem[{Minderer et~al.(2022)Minderer, Gritsenko, Stone, Neumann,
+  Weissenborn, Dosovitskiy, Mahendran, Arnab, Dehghani, Shen
+  et~al.}]{minderer2022owlvit}
+Minderer, M.; Gritsenko, A.; Stone, A.; Neumann, M.; Weissenborn, D.;
+  Dosovitskiy, A.; Mahendran, A.; Arnab, A.; Dehghani, M.; Shen, Z.; et~al.
+  2022.
+\newblock Simple Open-Vocabulary Object Detection with Vision Transformers.
+\newblock In \emph{European Conference on Computer Vision}.
+
+\bibitem[{Nayak et~al.(2025)Nayak, Jian, Lin, Rodriguez, Kalsi, Awal, Chapados,
+  {\"O}zsu, Agrawal, Vazquez et~al.}]{ui-vision}
+Nayak, S.; Jian, X.; Lin, K.~Q.; Rodriguez, J.~A.; Kalsi, M.; Awal, R.;
+  Chapados, N.; {\"O}zsu, M.~T.; Agrawal, A.; Vazquez, D.; et~al. 2025.
+\newblock Ui-vision: A desktop-centric gui benchmark for visual perception and
+  interaction.
+\newblock In \emph{ICML}.
+
+\bibitem[{Ouyang et~al.(2026)Ouyang, Lin, Shou, and Ng}]{ouyang2026focusui}
+Ouyang, M.; Lin, K.~Q.; Shou, M.~Z.; and Ng, H.~T. 2026.
+\newblock FocusUI: Efficient UI Grounding via Position-Preserving Visual Token
+  Selection.
+\newblock \emph{arXiv preprint arXiv:2601.03928}.
+
+\bibitem[{Peng et~al.(2023)Peng, Wang, Dong, Hao, Huang, Ma, and
+  Wei}]{peng2023kosmos2}
+Peng, Z.; Wang, W.; Dong, L.; Hao, Y.; Huang, S.; Ma, S.; and Wei, F. 2023.
+\newblock Kosmos-2: Grounding Multimodal Large Language Models to the World.
+\newblock \emph{arXiv preprint arXiv:2306.14824}.
+
+\bibitem[{Qin et~al.(2025)Qin, Ye, Fang, Wang, Liang, Tian, Zhang, Li, Li,
+  Huang et~al.}]{qin2025uitars}
+Qin, Y.; Ye, Y.; Fang, J.; Wang, H.; Liang, S.; Tian, S.; Zhang, J.; Li, J.;
+  Li, Y.; Huang, S.; et~al. 2025.
+\newblock UI-TARS: Pioneering automated gui interaction with native agents.
+\newblock \emph{arXiv preprint arXiv:2501.12326}.
+
+\bibitem[{{Qwen Team}(2025{\natexlab{a}})}]{qwen25vl}
+{Qwen Team}. 2025{\natexlab{a}}.
+\newblock Qwen2.5-VL technical report.
+\newblock \emph{arXiv preprint arXiv:2502.13923}.
+
+\bibitem[{{Qwen Team}(2025{\natexlab{b}})}]{qwen3vl}
+{Qwen Team}. 2025{\natexlab{b}}.
+\newblock Qwen3-VL Technical Report.
+\newblock \emph{arXiv preprint arXiv:2511.21631}.
+
+\bibitem[{Radford et~al.(2021)Radford, Kim, Hallacy, Ramesh, Goh, Agarwal,
+  Sastry, Askell, Mishkin, Clark et~al.}]{radford2021clip}
+Radford, A.; Kim, J.~W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry,
+  G.; Askell, A.; Mishkin, P.; Clark, J.; et~al. 2021.
+\newblock Learning Transferable Visual Models From Natural Language
+  Supervision.
+\newblock In \emph{International Conference on Machine Learning}, 8748--8763.
+
+\bibitem[{Sun et~al.(2022)Sun, Chen, Chen, Dai, Zhu, and Yu}]{sun2022metagui}
+Sun, L.; Chen, X.; Chen, L.; Dai, T.; Zhu, Z.; and Yu, K. 2022.
+\newblock {META}-{GUI}: Towards Multi-modal Conversational Agents on Mobile
+  {GUI}.
+\newblock In \emph{Proceedings of the 2022 Conference on Empirical Methods in
+  Natural Language Processing}, 6699--6712. Abu Dhabi, United Arab Emirates:
+  Association for Computational Linguistics.
+
+\bibitem[{Team et~al.(2026)Team, Gao, Gu, Liu, Qiu, Shen, Wen, Xia, Xu, Zeng
+  et~al.}]{team2026ui}
+Team, V.; Gao, C.; Gu, Z.; Liu, Y.; Qiu, X.; Shen, S.; Wen, Y.; Xia, T.; Xu,
+  Z.; Zeng, Z.; et~al. 2026.
+\newblock Ui-venus-1.5 technical report.
+\newblock \emph{arXiv preprint arXiv:2602.09082}.
+
+\bibitem[{Wang et~al.(2025)Wang, Wu, Xie, Ding, Yang, Li, Liu, Li, Dong, Chen
+  et~al.}]{mmbench}
+Wang, X.; Wu, Z.; Xie, J.; Ding, Z.; Yang, B.; Li, Z.; Liu, Z.; Li, Q.; Dong,
+  X.; Chen, Z.; et~al. 2025.
+\newblock Mmbench-gui: Hierarchical multi-platform evaluation framework for gui
+  agents.
+\newblock \emph{arXiv preprint arXiv:2507.19478}.
+
+\bibitem[{Wu et~al.(2025{\natexlab{a}})Wu, Chen, Cai, Liu, Ye, Yang, and
+  Wang}]{wu2025dimogui}
+Wu, H.; Chen, H.; Cai, Y.; Liu, C.; Ye, Q.; Yang, M.-H.; and Wang, Y.
+  2025{\natexlab{a}}.
+\newblock DiMo-GUI: Advancing Test-time Scaling in GUI Grounding via
+  Modality-Aware Visual Reasoning.
+\newblock In \emph{Proceedings of the 2025 Conference on Empirical Methods in
+  Natural Language Processing}, 26246--26256.
+
+\bibitem[{Wu et~al.(2025{\natexlab{b}})Wu, Cheng, Yang, Zhang, Yang, Jiang, Mu,
+  Peng, Qiao, Tan et~al.}]{wu2025gui}
+Wu, Q.; Cheng, K.; Yang, R.; Zhang, C.; Yang, J.; Jiang, H.; Mu, J.; Peng, B.;
+  Qiao, B.; Tan, R.; et~al. 2025{\natexlab{b}}.
+\newblock Gui-actor: Coordinate-free visual grounding for gui agents.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[{Wu et~al.(2025{\natexlab{c}})Wu, Wu, Xu, Wang, Sun, Jia, Cheng, Ding,
+  Chen, Liang et~al.}]{Os-atlas}
+Wu, Z.; Wu, Z.; Xu, F.; Wang, Y.; Sun, Q.; Jia, C.; Cheng, K.; Ding, Z.; Chen,
+  L.; Liang, P.~P.; et~al. 2025{\natexlab{c}}.
+\newblock Os-atlas: A foundation action model for generalist gui agents.
+\newblock In \emph{ICLR}.
+
+\bibitem[{Wu et~al.(2025{\natexlab{d}})Wu, Wu, Xu, Wang, Sun, Jia, Cheng, Ding,
+  Chen, Liang et~al.}]{wu2025atlas}
+Wu, Z.; Wu, Z.; Xu, F.; Wang, Y.; Sun, Q.; Jia, C.; Cheng, K.; Ding, Z.; Chen,
+  L.; Liang, P.~P.; et~al. 2025{\natexlab{d}}.
+\newblock OS-ATLAS: Foundation Action Model for Generalist GUI Agents.
+\newblock In \emph{ICLR}.
+
+\bibitem[{Xiao et~al.(2024)Xiao, Tian, Chen, Han, and
+  Lewis}]{xiao2023streamingllm}
+Xiao, G.; Tian, Y.; Chen, B.; Han, S.; and Lewis, M. 2024.
+\newblock Efficient Streaming Language Models with Attention Sinks.
+\newblock In \emph{ICLR}.
+
+\bibitem[{Xie et~al.(2025)Xie, Deng, Li, Yang, Wu, Chen, Hu, Wang, Xu, Wang
+  et~al.}]{xie2025scaling}
+Xie, T.; Deng, J.; Li, X.; Yang, J.; Wu, H.; Chen, J.; Hu, W.; Wang, X.; Xu,
+  Y.; Wang, Z.; et~al. 2025.
+\newblock Scaling computer-use grounding via user interface decomposition and
+  synthesis.
+\newblock In \emph{NeurIPS}.
+
+\bibitem[{Xu et~al.(2026)Xu, Zhang, Liu, Wang, Zhu, Zhou, Hu, Gao, Cao, Wang
+  et~al.}]{xu2026mobile}
+Xu, H.; Zhang, X.; Liu, H.; Wang, J.; Zhu, Z.; Zhou, S.; Hu, X.; Gao, F.; Cao,
+  J.; Wang, Z.; et~al. 2026.
+\newblock Mobile-agent-v3. 5: Multi-platform fundamental gui agents.
+\newblock \emph{arXiv preprint arXiv:2602.16855}.
+
+\bibitem[{Xu et~al.(2025{\natexlab{a}})Xu, Chen, Wang, and
+  Liu}]{xu2025attention}
+Xu, H.-M.; Chen, Q.; Wang, L.; and Liu, L. 2025{\natexlab{a}}.
+\newblock Attention-driven gui grounding: Leveraging pretrained multimodal
+  large language models without fine-tuning.
+\newblock In \emph{AAAI}, volume~39, 8851--8859.
+
+\bibitem[{Xu et~al.(2025{\natexlab{b}})Xu, Wang, Wang, Lu, Xie, Saha, Sahoo,
+  Yu, and Xiong}]{xu2024aguvis}
+Xu, Y.; Wang, Z.; Wang, J.; Lu, D.; Xie, T.; Saha, A.; Sahoo, D.; Yu, T.; and
+  Xiong, C. 2025{\natexlab{b}}.
+\newblock Aguvis: Unified pure vision agents for autonomous gui interaction.
+\newblock \emph{ICML}.
+
+\bibitem[{Yang et~al.(2026)Yang, Wu, Wang, Chen, Yang, Cheng, Yao, Peng, Zhang,
+  Gao et~al.}]{yang2026gui}
+Yang, R.; Wu, Q.; Wang, Z.; Chen, H.; Yang, K.; Cheng, H.; Yao, H.; Peng, B.;
+  Zhang, H.; Gao, J.; et~al. 2026.
+\newblock Gui-libra: Training native gui agents to reason and act with
+  action-aware supervision and partially verifiable rl.
+\newblock \emph{arXiv preprint arXiv:2602.22190}.
+
+\bibitem[{Ye et~al.(2025)Ye, Zhang, Xu, Liu, Wang, Zhu, Zheng, Gao, Cao, Lu
+  et~al.}]{ye2025guiowl}
+Ye, J.; Zhang, X.; Xu, H.; Liu, H.; Wang, J.; Zhu, Z.; Zheng, Z.; Gao, F.; Cao,
+  J.; Lu, Z.; et~al. 2025.
+\newblock Mobile-Agent-V3: Fundamental Agents for GUI Automation.
+\newblock \emph{arXiv preprint arXiv:2508.15144}.
+
+\bibitem[{You et~al.(2024{\natexlab{a}})You, Zhang, Gan, Du, Zhang, Wang, Cao,
+  Chang, and Yang}]{you2023ferret}
+You, H.; Zhang, H.; Gan, Z.; Du, X.; Zhang, B.; Wang, Z.; Cao, L.; Chang,
+  S.-F.; and Yang, Y. 2024{\natexlab{a}}.
+\newblock Ferret: Refer and Ground Anything Anywhere at Any Granularity.
+\newblock In \emph{ICLR}.
+
+\bibitem[{You et~al.(2024{\natexlab{b}})You, Zhang, Schoop, Weers, Swearngin,
+  Nichols, Yang, and Gan}]{you2024ferretui}
+You, K.; Zhang, H.; Schoop, E.; Weers, F.; Swearngin, A.; Nichols, J.; Yang,
+  Y.; and Gan, Z. 2024{\natexlab{b}}.
+\newblock Ferret-UI: Grounded Mobile UI Understanding with Multimodal LLMs.
+\newblock In \emph{European Conference on Computer Vision}.
+
+\bibitem[{Zhang, Gao, and Xu(2025)}]{zhang2025does}
+Zhang, L.; Gao, L.; and Xu, M. 2025.
+\newblock Does chain-of-thought reasoning help mobile gui agent? an empirical
+  study.
+\newblock \emph{arXiv preprint arXiv:2503.16788}.
+
+\bibitem[{Zhang et~al.(2026)Zhang, Xiao, Lu, Cao, Zhao, Zhou, An, Feng, Sha,
+  Shi et~al.}]{zhang2026omegause}
+Zhang, L.; Xiao, Y.; Lu, X.; Cao, J.; Zhao, Y.; Zhou, J.; An, L.; Feng, Z.;
+  Sha, W.; Shi, Y.; et~al. 2026.
+\newblock OmegaUse: Building a General-Purpose GUI Agent for Autonomous Task
+  Execution.
+\newblock \emph{arXiv preprint arXiv:2601.20380}.
+
+\bibitem[{Zhou et~al.(2025)Zhou, Dai, Wang, Zhou, Jia, and Xu}]{zhou2025gui}
+Zhou, Y.; Dai, S.; Wang, S.; Zhou, K.; Jia, Q.; and Xu, J. 2025.
+\newblock Gui-g1: Understanding r1-zero-like training for visual grounding in
+  gui agents.
+\newblock In \emph{NeurIPS}.
+
+\end{thebibliography}
