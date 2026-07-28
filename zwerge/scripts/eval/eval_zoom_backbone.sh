@@ -107,12 +107,25 @@ SKIP_VIS="${SKIP_VIS:-1}"
 EXTRA_FLAGS=""
 [[ "${SKIP_VIS}" == "1" ]] && EXTRA_FLAGS="${EXTRA_FLAGS} --skip_vis"
 
+# ── Posterior cache (for offline P2P sweeps) ──────────────────
+# CACHE_POSTERIORS=1 → save p_final/per_layer_probs/omega per sample to .pt
+# so p2p_sweep.py can sweep decode configs without reloading the 8B model.
+[[ "${CACHE_POSTERIORS:-0}" == "1" ]] && EXTRA_FLAGS="${EXTRA_FLAGS} --cache_posteriors"
+
+# ── Optional P2P config overrides (DECODE_STRATEGY=p2p/p2p_native) ──
+# e.g. P2P_FLAGS="--p2p_region_scorer mass --no-p2p_use_local_mode"
+P2P_FLAGS="${P2P_FLAGS:-}"
+[[ -n "${P2P_FLAGS}" ]] && EXTRA_FLAGS="${EXTRA_FLAGS} ${P2P_FLAGS}"
+
 echo "[zoom_eval] MODEL_TYPE          = ${MODEL_TYPE}"
 echo "[zoom_eval] CKPT                = ${CKPT}"
 echo "[zoom_eval] BENCH               = ${BENCH}"
+echo "[zoom_eval] DECODE_STRATEGY     = ${DECODE_STRATEGY}"
 echo "[zoom_eval] ZOOM_PADDING_CELLS  = ${ZOOM_PADDING_CELLS}"
 echo "[zoom_eval] ZOOM_MAX_NEW_TOKENS = ${ZOOM_MAX_NEW_TOKENS}"
 echo "[zoom_eval] SKIP_VIS            = ${SKIP_VIS}"
+echo "[zoom_eval] CACHE_POSTERIORS    = ${CACHE_POSTERIORS:-0}"
+echo "[zoom_eval] P2P_FLAGS           = ${P2P_FLAGS}"
 echo "[zoom_eval] CONDA_ENV           = ${CONDA_ENV}"
 
 conda run --no-capture-output -n "${CONDA_ENV}" \

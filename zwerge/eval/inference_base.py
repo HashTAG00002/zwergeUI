@@ -455,6 +455,7 @@ def decode_p2p(
     use_local_mode: bool = True,
     local_radius: int = 2,
     local_max_offset: float = 0.75,
+    local_max_area: int = 0,
     # fallback decode
     fallback_decode: str = "centroid",
     peak_shift_alpha: float = 0.5,
@@ -550,7 +551,7 @@ def decode_p2p(
         py, px, pidx, pval = _region_peak(region)
         offset = None
         local_applied = False
-        if use_local_mode:
+        if use_local_mode and (local_max_area <= 0 or len(region) <= local_max_area):
             offset = refine_local_mode(
                 p, px, py, n_width, n_height,
                 radius=local_radius, max_offset=local_max_offset,
@@ -572,6 +573,7 @@ def decode_p2p(
         rm = {
             "rank": rank, "peak_idx": pidx, "peak_y": py, "peak_x": px,
             "peak_p": pval, "area": len(region),
+            "patch_idxs": [item[2] for item in region],
             "local_mode_applied": local_applied,
             "local_offset": list(offset) if offset is not None else None,
             **meta_r,

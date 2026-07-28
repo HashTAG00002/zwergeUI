@@ -36,9 +36,9 @@ Backbone parameters are completely frozen throughout.
   Comparing ckpt-800 (blue) to the last checkpoint (red), the largest absolute gains appear in the middle of the probed range.
   Shallow probes improve less because spatial features at early layers are coarser; deep probes improve less because the layers are increasingly occupied by serialization signal that the probe cannot redirect.
 
-  \item \textbf{Fusion consistently outperforms the best single layer.}
-  The fusion dotted line lies above the peak of the per-layer curve in nearly all panels.
-  This confirms that the learned cross-layer aggregation in \textsc{ContextLoRACosMetaFusion} recovers information not captured by any individual probe.
+  \item \textbf{Fusion tracks the (unknown) per-sample best layer.}
+  The fusion dotted line stays within $1$--$3$\,pp of the peak of the per-layer curve on 16 of the 20 (model, benchmark) cells and exceeds it on the remaining 4; on ScreenSpot-Pro and ScreenSpot-v2 it falls $0.8$--$2.7$\,pp below the oracle peak.
+  This is the intended behaviour: fusion is a single, sample-adaptive, deployable predictor that does not require per-benchmark layer selection, which the layerwise analysis (\S\ref{sec:analysis:layerwise}) shows to be non-monotonic and backbone-dependent.
 
   \item \textbf{Qwen3-VL probes cover a wider band.}
   GUI-Owl-1.5-8B and UI-Venus-1.5-8B (36-layer Qwen3-VL, probes at L18--L35) show a broader and flatter peak compared to the 28-layer models (probes at L14--L27).
@@ -58,7 +58,7 @@ Backbone parameters are completely frozen throughout.
     \textbf{Blue dashed}: ckpt-800 (early training); \textbf{red solid}: last checkpoint (ckpt-3129 / ckpt-3130).
     \textbf{Horizontal dotted lines}: corresponding fusion head accuracy (the final \textsc{ZwerGe-UI} output).
     All four models exhibit an inverted-U spatial profile: accuracy peaks at intermediate layers and declines at the deepest layers, consistent with the coordinate serialization bottleneck (\S\ref{sec:analysis}).
-    The fusion head (dotted) consistently exceeds the best single-layer probe, confirming the benefit of learned cross-layer aggregation.
+    The fusion head (dotted) tracks the best single-layer probe within $1$--$3$\,pp across nearly all panels (and exceeds it on a few), providing a deployable, sample-adaptive readout that does not require per-benchmark layer selection.
   }
   \label{fig:app_perlayer_combined}
 \end{figure*}

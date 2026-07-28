@@ -40,5 +40,5 @@ In summary, our contributions are as follows:
 
   \item We introduce two complementary diagnostic lenses---a frozen-backbone \emph{spatial lens} and a parameter-free \emph{serialization lens}---and use them to show a robust depth mismatch between spatial grounding and coordinate serialization across four GUI agents.
 
-  \item We present \textsc{ZwerGe-UI}, a lightweight frozen-backbone retrofit that recovers intermediate-layer spatial signals through cross-attention probes and improves GUI grounding across five benchmarks without modifying the underlying agent backbone.
+  \item We present \textsc{ZwerGe-UI}, a lightweight frozen-backbone retrofit that recovers intermediate-layer spatial signals through cross-attention probes. It substantially helps Qwen2.5-VL-based agents and spatial/layout tasks, while its benefit on Qwen3-VL coordinate-trained backbones is smaller --- an outcome predicted by the per-backbone severity of the bottleneck (\S\ref{sec:experiments:main}).
 \end{itemize}

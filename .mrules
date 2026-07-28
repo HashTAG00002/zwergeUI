@@ -2447,4 +2447,133 @@
     experiments/A8_uitars_1.5_cosmeta_context.yaml（新增）：uitars 版 A8 配置
     experiments/A8_guiowl_7b_cosmeta_context.yaml（新增）：guiowl7b 版 A8 配置
 
+  - [2026-07-28] 【EMNLP→AAAI 24h 冲刺：ZWERGE-P2P 训练-free 后验→点解码器 + 公平协议修复 + Qwen3 负优化重新框定】
+
+    ─── 一、背景与决策 ─────────────────────────────────────────────────────
+
+    正文截止仅剩 24h，正文阶段完全放弃继续训练（只能基于现有 A8 checkpoint-2800 做 training-free 后处理）。
+    三份审稿意见（docs/reviews/Reviewer-4KeN/eKpD/4sok）已逐条核实。
+    关键决策（回应 eKpD #17）：论文定位 **analysis-primary, method-secondary**。
+    明确 **不用 OPD**（On-Policy Distillation）解决 Qwen3 负优化——OPD 是给自回归 token rollout 设计的，
+    ZwerGe probe/fusion head 是单次 prefill 输出 patch posterior 分类，无 rollout 概念，架构不匹配，
+    且 UI-Venus 没有更大同系列 teacher（论证见 docs/oracle/chatgpt-export_Qwen3负优化与OPD.txt 第630-645行）。
+    真正的方案：实现 **ZWERGE-P2P (Training-Free Posterior-to-Point Refinement)**（oracle 第4340-5177行），
+    把 overlap@3 proposal-recall 上界兑现成 strict overlap@1/hit@1，修复主表 baseline(ov@1) vs +ZwerGe(ov@3)
+    的不对称协议公平性问题（eKpD #7 / 4KeN #6），并把 Qwen3 负优化重新框定为"符合假设的预期 null 结果"。
+
+    ─── 二、新增代码（zwerge/eval/）─────────────────────────────────────
+
+    1. inference_base.py — P2P 核心纯函数（CPU float tensor，离线 sweep 与 GPU eval 共用同一 decode 路径，数字一致）：
+       - _extract_candidate_regions(): 阈值(max×0.3) + 4-连通 BFS 候选区域（镜像原 get_prediction_region_point 但独立）
+       - region_score(region, kind): Level-1 区域打分 max/mass/mean/mass_sqrt_area/balanced（替换原 line 99 的 `max(item[3])` bug）
+       - consensus_score(): Level-2 跨层共识 = ω 加权几何平均 Σω_ℓ log(m_ℓj+ε)（惩罚单层伪峰，已验证）
+       - refine_local_mode(): Level-3 局部 Gaussian 反演——对 log(p_final) 5×5 邻域加权二次拟合，Δ*=−H⁻¹g
+         安全约束：Hessian 负定、offset clamp ±0.75(默认)/±0.25(小目标)、拟合失败 fallback centroid
+         （单元测试：对称峰→offset≈1e-17；真实 +0.3 sub-patch 偏移→恢复 0.30000013，4位精度）
+       - decode_p2p(): 统一入口 = 提取区域→L1打分→可选L2共识重排→排序→L3局部mode精化→fallback centroid
+         返回 (best_point, topk_centers, scores, meta)，meta 含每区域 peak_idx/area/patch_idxs/local_offset
+         新增 local_max_area 门控（≤2 才做 L3，针对 C-quadrant 单 patch 尖峰，把 damage 从 16% 降到 5-6%）
+
+    2. eval_retrofit.py — 接线 P2P 到评测主循环：
+       - 新增 --cache_posteriors：每样本存 .pt（p_final/per_layer_probs(stack)/omega/active_probe_indices/
+         n_width/n_height/gt_bbox_norm/idx/instruction + p2p_meta + native_point），使离线 sweep 无需重载 8B 模型
+       - 新增 --decode_strategy p2p / p2p_native 两个解码策略
+         p2p = ZwerGe-only training-free decode（无 backbone generate）
+         p2p_native = Posterior-Constrained Native Decoding：同一 prefill 拿 ZwerGe top-k 区域 + backbone 原生坐标，
+                      native 落在 ZwerGe 区域内则用 native 连续坐标，否则 fallback P2P（专攻 Qwen3）
+       - 新增全套 --p2p_* CLI 参数（region_scorer/use_consensus/consensus_dilate/consensus_weight/
+         fusion_mass_weight/spatial_disagree_weight/use_local_mode/local_radius/local_max_offset/
+         fallback_decode/gate_dilate），BooleanOptionalAction 开关
+       - run_p2p_from_pred() / run_p2p_native_gate() / save_posterior_cache() 三个 helper
+
+    3. p2p_sweep.py — 离线 decode-config sweep + 误差分解：
+       - 从 .pt cache 扫几十种 decode 配置（baseline/mass/mean/bal/msqrt/cons/local/local_o25/local_o25_a2/...）
+       - 计算 strict hit@1/overlap@1 + top-k proposal recall hit@k/overlap@k
+       - 四分法 A/B/C/D（oracle §六）：A=已hit, B=top3有GT但排序错, C=patch相交但点不在框内(sub-patch量化), D=top3未覆盖GT(定位失败)
+       - recovery = P(new_hit=1 | old_hit=0, old_ov3=1)，damage = P(new_hit=0 | old_hit=1)，
+         selection_recovery = (new_top1 - old_top1)/(top3_oracle - old_top1)
+
+    4. run_all_sweeps.py — 跨所有 cache+native 目录的汇总 sweep，输出 /tmp/p2p_all_summary.json
+    5. submit_p2p_jobs.py — hope job 提交（复用 eval_daemon.generate_hope_file/hope_run，
+       --skip_existing 跳过已完成，--only cache|native|both）
+    6. bottleneck_severity_plot.py — Qwen3 负优化重新框定图
+    7. quadrant_plot.py — 四分法误差分解图
+
+    ─── 三、GPU 作业（hope 集群，8×A100/node，全部完成）────────────────────
+
+    提交 12 个 hope job（4 模型 × {ss_pro,ss_v2} cache + 2 Qwen3模型 × {ss_pro,ss_v2} p2p_native），全部跑完。
+    关键技术点：posteriors (p_final/per_layer_probs/omega) 与 decode_strategy 无关（来自 model forward），
+    所以 **cache 一次（centroid，快，无 backbone generate）→ 离线秒级 sweep 几十种 decode 配置**，无需反复重载 8B 模型。
+    cache 落地：.../data/results/p2p_cache/{model}_{bench}/details/{bench}/posteriors/idx*.pt
+    native-gate 落地：.../data/results/p2p_p2p_native/{model}_{bench}/...
+    注意：flash_attention_2 有 ~0.5pp run-to-run nondeterminism，cache job 与 native job 是独立 hope run →
+          baseline 略有差异；within-sweep 比较（baseline→P2P→native 同 posteriors）一致，跨源绝对值 ≤0.5pp。
+
+    ─── 四、关键实验结果（A8 checkpoint-2800，真实数据）────────────────────
+
+    【公平协议下 Qwen3 确实负优化（之前被 overlap@3 掩盖）】
+      strict overlap@1（与 baseline 同协议）delta：
+        GUI-Owl-7B(Qwen2.5) SS-Pro: +7.91;  UI-TARS-1.5-7B: +1.39   ← Qwen2.5 正
+        GUI-Owl-1.5-8B(Qwen3) SS-Pro: −6.08; UI-Venus-1.5-8B: −4.17  ← Qwen3 负
+      而 overlap@3 显示 GUI-Owl-1.5 SS-Pro +1.96、UI-Venus +4.05——overlap@3 把 6-8pp 负优化掩成正的。
+
+    【Qwen3 负优化的正确解释：retrofit headroom 为负】
+      x 轴 = peak-probe overlap@1 − native baseline overlap@1（NOT peak−final，oracle 原文写 peak−final 是错的）：
+        Qwen2.5: +0.47 ~ +25.45（正 headroom，retrofit 有空间）
+        Qwen3: −1.10 ~ −4.91（负 headroom，native 已超越 best probe，retrofit 无空间可挖）
+      → Qwen3 负优化 = 符合假设的预期 null，不是方法失败（散点图 figs/bottleneck_severity.pdf）
+
+    【native gate 回收 Qwen3 负优化 + 回收 strict hit@1】
+      +Z-P2P-native（native 坐标落在 ZwerGe top-k 区域内才用 native，否则 P2P）：
+        GUI-Owl-1.5-8B SS-Pro:  −6.08 → −2.03 (ov@1)；hit@1 52.6 → 66.6
+        UI-Venus-1.5-8B SS-Pro: −4.17 → +0.51 (ov@1，从有害翻成中性偏正)；hit@1 48.9 → 66.2
+      → 直接修复 hit@1<<overlap@1 的 patch 量化 gap（4sok #5 / eKpD #7）
+
+    【四分法误差分解（baseline fusion decode）】
+      SS-Pro: A(已hit)=48-53% B(排序错)=6-8% C(sub-patch量化)=9-21% D(定位失败)=21-36%
+      → P2P 能修 B+C；D 需 multi-view/zoom（future work）
+
+    【P2P levels 效果】
+      Level-1(msqrt): 安全预算配置，SS-Pro +0.44 hit@1, damage 1.58%；SS-v2 damage <1%
+      Level-3(local, area-gated, offset≤0.25): SS-Pro +1.0 hit@1, recovery 17-29%, damage 5-6%(小目标固有)
+      → 论文以 Level-1+2(consensus) 为主推，Level-3 作为 analysis 的 recovery/damage trade-off
+
+    ─── 五、论文修改（docs/our_paper_tex/secs/）──────────────────────────
+
+    4_method.tex:
+      - Stage-2 loss 矛盾修复（eKpD #3）：line 102 "all backbone and probe weights frozen" + line 121 "Only fusion
+        parameters are updated" 改为"backbone + inactive probe frozen; fusion head + active-subset probes 可训练"，
+        与代码对齐（active probe 接收 loss_fuse 经 p_final 的间接梯度 + loss_layer 直接梯度）
+      - 新增 \subsection{Training-Free Posterior-to-Point Decoding} (label sec:method:p2p)：
+        Level1 region re-ranking / Level2 cross-layer consensus / Level3 local Gaussian inversion / native gate
+    5_experiment.tex:
+      - Metric 段重写（oracle 第5106-5120行措辞）：overlap@3 = single-pass proposal recall（非 executable accuracy）；
+        P2P decoder 把 proposal recall 兑现成 strict top-1；所有最终结果用 strict overlap@1/hit@1（与 baseline 同协议）
+      - 新增 tab:proposal_recall（strict-protocol + proposal-recall 对照表，每 model×bench: base ov@1/+Z ov@1/hit@1/+Z ov@3）
+      - 新增 \subsection{Bottleneck Severity Predicts the Retrofit Gain} (label sec:experiments:severity) + fig:bottleneck_severity
+      - 新增 tab:p2p_results（P2P decoder strict 协议结果：base/+Z/+Z-P2P/+Z-P2P-native，含 Δ 列）
+      - 新增 fig:error_quadrants（四分法误差分解）
+      - "Qwen2.5 benefits more" 段重写：点明 overlap@3 over-state、strict 下 Qwen3 负、指向 severity 分析 + native gate
+    a_appendix.tex:
+      - fusion claim 修正（eKpD #4）："consistently outperforms best single layer" → "tracks within 1-3pp on 16/20 cells,
+        exceeds on 4; SS-Pro/SS-v2 落后 oracle peak 0.8-2.7pp"（用核实过的 20-cell 数据）
+    1_intro.tex / 6_conclusion.tex:
+      - abstract/conclusion 软化（eKpD #1）："improves across five benchmarks" → "substantially helps Qwen2.5-VL +
+        spatial/layout; Qwen3-VL benefit smaller, predicted by bottleneck severity"
+
+    ─── 六、验收 ──────────────────────────────────────────────────────────
+
+    LaTeX 编译通过（AnonymousSubmission2027.pdf，26 页，无 undefined reference；exit=1 是 txfonts 警告，非致命）。
+    所有新表/图 \label-\ref 闭环。figure 文件：figs/bottleneck_severity.pdf + figs/error_quadrants.pdf 已生成
+    （matplotlib 装在 base python --user）。memory 写了 zwerge-p2p-workflow + zwerge-eval-job-submission。
+    未 git commit（按规则仅在用户要求时提交）。
+
+    ─── 七、未尽事项 / 后续 ───────────────────────────────────────────────
+
+    - 主表（tab:main_sspro 等）仍保留 overlap@3 数字（与 strict 表 tab:proposal_recall 并存）；如要把主表
+      +ZwerGe 行从 ov@3 改成 strict ov@1，需用户确认（Qwen3 行会显示负，由 severity 图 + native gate 收回）。
+    - guiowl_ss_pro native-gate 仍 −2.03（未完全翻正），完全回收需 adaptive coordinate-free re-prefill zoom（oracle §八）。
+    - Level-3 damage 在 SS-Pro 小目标上 5-6%（SS-v2 <1%），论文以 analysis trade-off 呈现，非 free lunch。
+    - bottleneck plot 的 P2P overlay 只画了 ss_pro/ss_v2（其余 3 bench 未跑 native-gate）。
+
 

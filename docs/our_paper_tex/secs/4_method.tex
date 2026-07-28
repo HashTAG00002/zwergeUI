@@ -99,7 +99,7 @@ Gradients from $\ell$ affect only $\phi_\ell$; the backbone receives zero gradie
 
 Stage~1 produces independent per-layer posteriors whose quality varies non-monotonically across depth (Finding 1), and the optimal layer differs by sample.
 A static average is suboptimal.
-Stage~2 trains a cross-layer fusion head to \emph{select and weight} per-layer posteriors conditioned on their content, with all backbone and probe weights frozen. As illustrated in the right part of Figure~\ref{fig:zwerge_pipeline}, these layerwise heatmaps are not averaged uniformly; instead, the fusion module assigns input-dependent weights to recover the most reliable spatial posterior.
+Stage~2 trains a cross-layer fusion head to \emph{select and weight} per-layer posteriors conditioned on their content, with the backbone and the inactive probe layers frozen; the fusion head and the active-subset probes (the spatial-plateau layers) remain trainable. As illustrated in the right part of Figure~\ref{fig:zwerge_pipeline}, these layerwise heatmaps are not averaged uniformly; instead, the fusion module assigns input-dependent weights to recover the most reliable spatial posterior.
 
 \paragraph{Active probe layers.}
 We use a subset $\mathcal{L}_{\mathrm{active}} \subset \mathcal{L}_{\mathrm{probe}}$ drawn from the spatial plateau identified in \S\ref{sec:analysis:layerwise} as inputs to fusion; the remaining probe layers are retained in the checkpoint but not fused.
@@ -119,11 +119,32 @@ All fusion parameters initialize so that weights are uniform at the start of tra
 The cross-layer LoRA contributes ${\approx}200$K parameters in total, two orders of magnitude fewer than a single probe.
 
 \paragraph{Stage 2 training.}
-Only fusion parameters are updated.
+Stage~2 loads the Stage-1 checkpoint. The backbone and the inactive probe layers are frozen; the fusion head and the active-subset probes in $\mathcal{L}_{\mathrm{active}}$ remain trainable.
 The loss combines a top-level KL term on $p_{\mathrm{final}}$ with a per-layer auxiliary:
 \begin{equation}
   \mathcal{L}_{\mathrm{S2}} = D_{\mathrm{KL}}(\mathbf{y} \| p_{\mathrm{final}}) + \frac{\lambda}{|\mathcal{L}_{\mathrm{active}}|}\sum_\ell D_{\mathrm{KL}}(\mathbf{y} \| p_\ell),
   \label{eq:loss_s2}
 \end{equation}
 with $\lambda{=}0.2$.
-The auxiliary term prevents fusion from collapsing onto a single dominant layer by keeping all active probe posteriors individually calibrated.
+Each active probe receives a direct gradient from the auxiliary term in addition to the indirect gradient it receives via $p_{\mathrm{final}}$ in the fusion loss, so no single probe is neglected merely because the fusion scorer assigns it a low $\omega_\ell$; this prevents collapse onto a single dominant layer while keeping all active probe posteriors individually calibrated.
+
+
+% ------------------------------------------------------------------------------
+\subsection{Training-Free Posterior-to-Point Decoding}
+\label{sec:method:p2p}
+% ------------------------------------------------------------------------------
+
+The fusion head outputs a patch posterior $p_{\mathrm{final}}(i)$ over visual tokens, not a coordinate; the legacy decoder --- pick the connected component with the largest single-patch probability and take its weighted centroid --- both ranks regions by a single peak (ignoring most of the posterior mass) and discards the sub-patch information encoded in the unthresholded Gaussian neighbourhood.
+We convert $p_{\mathrm{final}}$ into a single strict click with a parameter-free, training-free posterior-to-point (P2P) decoder built from three composable stages.
+
+\paragraph{Level 1: region re-ranking.}
+Thresholding $p_{\mathrm{final}}$ at $0.3\max$ and 4-connectivity BFS yields candidate regions $\{C_j\}$. We score each by its total posterior mass normalised by $\sqrt{|C_j|}$, $S_j = \sum_{i\in C_j} p_{\mathrm{final}}(i)/\sqrt{|C_j|}$, a compromise between mass (which favours large regions) and mean (which favours isolated spikes), replacing the peak-only score used previously.
+
+\paragraph{Level 2: cross-layer consensus.}
+The same forward pass already exposes $\{p_\ell\}$ and fusion weights $\omega_\ell$. For each dilated candidate $\widetilde C_j$, we compute the per-layer region mass $m_{\ell j}=\sum_{i\in\widetilde C_j} p_\ell(i)$ and the $\omega$-weighted geometric mean $S_j^{\rm cons}=\sum_\ell \omega_\ell\log(m_{\ell j}{+}\epsilon)$, which penalises peaks supported by only one layer --- exactly the fusion-noise artefacts a convex average can amplify.
+
+\paragraph{Level 3: local Gaussian inversion.}
+For the winning region we recover a sub-patch mode by fitting a weighted quadratic to $z=\log(p_{\mathrm{final}}{+}\epsilon)$ on a $5{\times}5$ neighbourhood of the peak and solving $\Delta^{*}=-H^{-1}g$; this inverts the anisotropic Gaussian geometry the probes were trained to emit. We apply it only to small ($|C|{\le}2$) regions --- the sub-patch-quantization regime --- and fall back to the centroid whenever the Hessian is not negative-definite, the fit is ill-conditioned, or the offset exceeds a $0.25$-cell clamp, bounding the damage rate on already-correct samples.
+
+\paragraph{Posterior-constrained native decoding.}
+For backbones whose own coordinate serializer is already precise, we additionally gate the native autoregressive coordinate: we emit it iff it lands inside a ZwerGe top-$k$ region, otherwise we emit the P2P point. This assigns each component its strongest role --- the intermediate posterior decides \emph{which} region is trustworthy, the native decoder supplies the \emph{continuous} point --- and instantiates the paper's central claim that intermediate layers identify \emph{where} while final layers serialize \emph{how to say} it.

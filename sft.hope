@@ -41,7 +41,6 @@ afo.conda.env.name = qwen3
 afo.conda.env.path = viewfs://hadoop-meituan/zw03mlnn01/user/conda/yangwenkui03/default/qwen3.tar.gz
 afo.conda.store.type = hdfs
 
-
 [others]
 afo.app.env.YARN_CONTAINER_RUNTIME_DOCKER_SHM_SIZE_BYTES = 32768000000
 afo.xm.notice.receivers.account = yangwenkui03

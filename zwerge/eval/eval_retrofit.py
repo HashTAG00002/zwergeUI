@@ -45,7 +45,157 @@ from inference_base import (
     BENCH_CONFIGS, MAIN_BENCH_KEYS,
     scores_to_point_and_topk, point_in_bbox, do_boxes_overlap,
     _get_group_key, _get_domain_key, _print_layerwise_summary,
+    decode_p2p,
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ZWERGE-P2P helpers (training-free posterior-to-point refinement)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def default_p2p_cfg(args) -> dict:
+    """Build the P2P config dict from CLI args (shared by eval + sweep)."""
+    return {
+        "activation_threshold": args.activation_threshold,
+        "topk": args.topk,
+        "region_scorer": args.p2p_region_scorer,
+        "use_consensus": args.p2p_use_consensus,
+        "consensus_dilate": args.p2p_consensus_dilate,
+        "consensus_weight": args.p2p_consensus_weight,
+        "fusion_mass_weight": args.p2p_fusion_mass_weight,
+        "spatial_disagree_weight": args.p2p_spatial_disagree_weight,
+        "use_local_mode": args.p2p_use_local_mode,
+        "local_radius": args.p2p_local_radius,
+        "local_max_offset": args.p2p_local_max_offset,
+        "fallback_decode": args.p2p_fallback_decode,
+        "peak_shift_alpha": args.peak_shift_alpha,
+        "temperature": args.temperature,
+        "gate_dilate": args.p2p_gate_dilate,
+    }
+
+
+def _dilate_idxset(idxs: set, n_width: int, n_height: int, dilate: int) -> set:
+    """Chebyshev dilation of a set of flat patch indices."""
+    if dilate <= 0:
+        return set(idxs)
+    out = set()
+    for i in idxs:
+        y, x = i // n_width, i % n_width
+        for dy in range(-dilate, dilate + 1):
+            for dx in range(-dilate, dilate + 1):
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < n_height and 0 <= nx < n_width:
+                    out.add(ny * n_width + nx)
+    return out
+
+
+def run_p2p_from_pred(pred: dict, head, p2p_cfg: dict):
+    """decode_p2p wrapper that pulls active indices off the grounding head."""
+    best, centers, scores, meta = decode_p2p(
+        p_final=pred["p_final"],
+        n_width=pred["n_width"], n_height=pred["n_height"],
+        activation_threshold=p2p_cfg["activation_threshold"],
+        topk=p2p_cfg["topk"],
+        region_scorer=p2p_cfg["region_scorer"],
+        per_layer_probs=pred["per_layer_probs"],
+        active_probe_indices=list(head.active_probe_indices),
+        omega=pred["omega"],
+        use_consensus=p2p_cfg["use_consensus"],
+        consensus_dilate=p2p_cfg["consensus_dilate"],
+        consensus_weight=p2p_cfg["consensus_weight"],
+        fusion_mass_weight=p2p_cfg["fusion_mass_weight"],
+        spatial_disagree_weight=p2p_cfg["spatial_disagree_weight"],
+        use_local_mode=p2p_cfg["use_local_mode"],
+        local_radius=p2p_cfg["local_radius"],
+        local_max_offset=p2p_cfg["local_max_offset"],
+        fallback_decode=p2p_cfg["fallback_decode"],
+        peak_shift_alpha=p2p_cfg["peak_shift_alpha"],
+        temperature=p2p_cfg["temperature"],
+    )
+    return best, centers, meta
+
+
+def run_p2p_native_gate(pred: dict, head, native_point, p2p_cfg: dict):
+    """
+    Posterior-Constrained Native Decoding (oracle §七).
+
+    Map the backbone's native continuous coordinate onto the patch grid; if it
+    lands inside any of the ZwerGe top-k candidate regions (optionally dilated),
+    emit the native point, otherwise fall back to the ZwerGe-P2P point.
+
+    Returns (out_point, f_centers, meta) where f_centers is [out_point] + the
+    P2P candidates so overlap@k can still register the alternative regions.
+    """
+    best, centers, meta = run_p2p_from_pred(pred, head, p2p_cfg)
+    n_w, n_h = pred["n_width"], pred["n_height"]
+    px = int(min(n_w - 1, max(0, native_point[0] * n_w)))
+    py = int(min(n_h - 1, max(0, native_point[1] * n_h)))
+    patch_idx = py * n_w + px
+    dilate = p2p_cfg["gate_dilate"]
+    supported = False
+    for rm in meta["regions"][:p2p_cfg["topk"]]:
+        idxs = _dilate_idxset(set(rm["patch_idxs"]), n_w, n_h, dilate)
+        if patch_idx in idxs:
+            supported = True
+            break
+    meta["native_used"] = bool(supported)
+    if supported:
+        out_point = (float(native_point[0]), float(native_point[1]))
+        f_centers = [out_point] + list(centers)
+    else:
+        out_point = best
+        f_centers = list(centers)
+    return out_point, f_centers, meta
+
+
+def save_posterior_cache(
+    cache_dir: str, global_idx: int, pred: dict, head,
+    gt_bbox_norm, example: dict, p2p_cfg: Optional[dict] = None,
+    p2p_meta: Optional[dict] = None, decode_strategy: str = "",
+    native_point=None,
+) -> None:
+    """
+    Persist per-sample posteriors to a .pt so p2p_sweep.py can sweep dozens of
+    decode configs offline without reloading the 8B model (oracle §十 第一步).
+
+    Stores: p_final, per_layer_probs (stacked), omega, active_probe_indices,
+    n_width/n_height, gt_bbox_norm, idx, probe/active layers, instruction,
+    image_path, group/domain, and (if P2P ran) the decode meta + chosen point.
+    """
+    os.makedirs(cache_dir, exist_ok=True)
+    rec = {
+        "p_final": pred["p_final"].float().cpu(),
+        "per_layer_probs": torch.stack([
+            p.float().cpu() for p in pred["per_layer_probs"]
+        ]),
+        "omega": pred["omega"].float().cpu(),
+        "active_probe_indices": torch.tensor(list(head.active_probe_indices), dtype=torch.long),
+        "probe_layers": list(head.probe_layers),
+        "active_probe_layers": list(head.active_probe_layers),
+        "n_width": pred["n_width"],
+        "n_height": pred["n_height"],
+        "gt_bbox_norm": torch.tensor(list(gt_bbox_norm), dtype=torch.float32),
+        "idx": global_idx,
+        "instruction": example.get("instruction", ""),
+        "image_path": example.get("image_path", ""),
+        "anchor_strategy": pred.get("anchor_strategy", ""),
+    }
+    for extra in ["id", "ui_type", "group", "platform", "application",
+                  "data_type", "data_source", "split", "grounding_type",
+                  "task_type", "GUI_types", "category", "element_type", "domain"]:
+        if extra in example:
+            rec[extra] = example[extra]
+    if p2p_meta is not None:
+        rec["p2p_meta"] = p2p_meta
+        rec["decode_strategy"] = decode_strategy
+    if native_point is not None:
+        rec["native_point"] = list(native_point)
+    if p2p_cfg is not None:
+        rec["p2p_cfg"] = p2p_cfg
+    out_path = os.path.join(cache_dir, f"idx{global_idx:05d}.pt")
+    torch.save(rec, out_path)
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +256,11 @@ def _worker(
     model_type: str = "uitars",
     zoom_padding_cells: int = 3,
     zoom_max_new_tokens: int = 256,
+    p2p_cfg: Optional[dict] = None,
+    cache_posteriors: bool = False,
+    cache_dir: str = "",
 ):
+    _p2p_active = p2p_cfg is not None
     import torch as _torch
     _device = _torch.device(f"cuda:{gpu_id}")
 
@@ -168,6 +322,8 @@ def _worker(
             skip_total += 1
             continue
 
+        p2p_meta = None
+        native_point = None
         try:
             if decode_strategy == "zoom_backbone":
                 pred = grounder.predict_zoom_backbone(
@@ -181,9 +337,10 @@ def _worker(
                     temperature=temperature,
                     full_image=False,
                 )
-            elif decode_strategy == "native_backbone":
+            elif decode_strategy in ("native_backbone", "p2p_native"):
                 # Full image → backbone generate (no ZwerGe-guided crop).
-                # Stage 1 ZwerGe metrics still computed; only fusion/final from backbone.
+                # p2p_native: backbone's native continuous coordinate is gated
+                # against the ZwerGe top-k regions (run_p2p_native_gate below).
                 pred = grounder.predict_zoom_backbone(
                     image=orig_img, instruction=example["instruction"],
                     device=_device,
@@ -191,6 +348,20 @@ def _worker(
                     topk=topk,
                     max_new_tokens=zoom_max_new_tokens,
                     full_image=True,   # ← KEY: no crop, use original image
+                )
+                if decode_strategy == "p2p_native" and "zoom_point" in pred:
+                    native_point = (float(pred["zoom_point"][0]),
+                                    float(pred["zoom_point"][1]))
+            elif decode_strategy == "p2p":
+                # ZwerGe-only training-free decode (no backbone generate).
+                pred = grounder.predict_layerwise(
+                    image=orig_img, instruction=example["instruction"],
+                    device=_device,
+                    activation_threshold=activation_threshold,
+                    topk=topk,
+                    decode_strategy="centroid",
+                    peak_shift_alpha=peak_shift_alpha,
+                    temperature=temperature,
                 )
             else:
                 pred = grounder.predict_layerwise(
@@ -242,9 +413,18 @@ def _worker(
             })
 
         # Fusion / final metrics
-        # zoom_backbone: use backbone-refined point directly (no scores_to_point_and_topk)
-        # other strategies: derive final point from p_final distribution
-        if decode_strategy in ("zoom_backbone", "native_backbone") and "zoom_point" in pred:
+        # p2p / p2p_native: training-free posterior-to-point decoder (no backbone
+        #   generate for p2p; backbone-native coordinate gated by ZwerGe regions for
+        #   p2p_native). All other strategies derive the final point from p_final.
+        if decode_strategy == "p2p":
+            f_best, f_centers, p2p_meta = run_p2p_from_pred(pred, _head, p2p_cfg)
+            fpx, fpy = float(f_best[0]), float(f_best[1])
+        elif decode_strategy == "p2p_native":
+            out_point, f_centers, p2p_meta = run_p2p_native_gate(
+                pred, _head, native_point, p2p_cfg,
+            )
+            fpx, fpy = float(out_point[0]), float(out_point[1])
+        elif decode_strategy in ("zoom_backbone", "native_backbone") and "zoom_point" in pred:
             fpx, fpy  = float(pred["zoom_point"][0]), float(pred["zoom_point"][1])
             f_centers = [(fpx, fpy)]   # single refined point
         else:
@@ -329,7 +509,12 @@ def _worker(
             "layer_metrics": layer_metrics,
             "fusion_hit1": fhit1, "fusion_overlap1": fov1,
             "fusion_hitk": fhitk, "fusion_overlapk": fovk,
+            "decode_strategy": decode_strategy,
         }
+        if p2p_meta is not None:
+            rec["p2p_meta"] = p2p_meta
+            if native_point is not None:
+                rec["native_point"] = list(native_point)
         for extra in ["id", "ui_type", "group", "platform", "application",
                       "data_type", "data_source", "split", "grounding_type", "task_type",
                       "GUI_types", "category", "element_type"]:
@@ -338,6 +523,18 @@ def _worker(
         # Attach resolved domain label for easy downstream analysis
         if _domain_cfg_active:
             rec["domain"] = _get_domain_key(example, cfg, eval_root)
+        # Cache posteriors for offline P2P sweeps (no model reload needed)
+        if cache_posteriors and cache_dir:
+            try:
+                save_posterior_cache(
+                    cache_dir=cache_dir, global_idx=global_idx, pred=pred, head=_head,
+                    gt_bbox_norm=gt_bbox_norm, example=example,
+                    p2p_cfg=p2p_cfg if _p2p_active else None,
+                    p2p_meta=p2p_meta, decode_strategy=decode_strategy,
+                    native_point=native_point,
+                )
+            except Exception as e:
+                warnings.warn(f"Posterior cache failed for #{global_idx}: {e}")
         results.append(rec)
 
         valid_so_far = idx + 1 - skip_total
@@ -576,6 +773,9 @@ def run_bench_parallel(
     model_type: str = "uitars",
     zoom_padding_cells: int = 3,
     zoom_max_new_tokens: int = 256,
+    p2p_cfg: Optional[dict] = None,
+    cache_posteriors: bool = False,
+    cache_dir: str = "",
 ) -> Dict:
     import multiprocessing as mp
 
@@ -588,6 +788,11 @@ def run_bench_parallel(
         N = len(json.load(f))
     print(f"[ZwerGe] {bench_key}: {N} samples, {n_gpu} GPU(s), model_type={model_type}, skip_vis={skip_vis}")
 
+    if cache_posteriors and not cache_dir:
+        cache_dir = os.path.join(output_dir, "details", bench_key, "posteriors")
+        os.makedirs(cache_dir, exist_ok=True)
+        print(f"[ZwerGe] caching posteriors → {cache_dir}")
+
     worker_kwargs = dict(
         ckpt_path=ckpt_path, bench_key=bench_key, eval_root=eval_root,
         output_dir=output_dir, attn_impl=attn_impl, max_pixels=max_pixels,
@@ -597,6 +802,7 @@ def run_bench_parallel(
         alpha=alpha, group_stats=group_stats, model_type=model_type,
         zoom_padding_cells=zoom_padding_cells,
         zoom_max_new_tokens=zoom_max_new_tokens,
+        p2p_cfg=p2p_cfg, cache_posteriors=cache_posteriors, cache_dir=cache_dir,
     )
 
     chunk  = (N + n_gpu - 1) // n_gpu
@@ -670,12 +876,16 @@ def parse_args():
     parser.add_argument(
         "--decode_strategy", default="centroid",
         choices=["centroid", "argmax", "peak_shift", "temperature",
-                 "zoom_backbone", "native_backbone"],
+                 "zoom_backbone", "native_backbone", "p2p", "p2p_native"],
         help=(
             "centroid/argmax/peak_shift/temperature: extract coordinate from p_final distribution. "
             "zoom_backbone: Stage1=ZwerGe ROI selection, Stage2=backbone generate on zoomed crop. "
             "native_backbone: Stage1=ZwerGe (for per-layer metrics), Stage2=backbone on FULL image "
-            "(reproduces vanilla model accuracy; use to verify eval code and establish baseline)."
+            "(reproduces vanilla model accuracy; use to verify eval code and establish baseline). "
+            "p2p: ZWERGE-P2P training-free posterior-to-point decoder (Level1 region re-rank + "
+            "Level2 cross-layer consensus + Level3 local Gaussian inversion); strict top-1. "
+            "p2p_native: posterior-constrained native decoding — backbone's native coordinate is "
+            "emitted iff it lands in a ZwerGe top-k region, else falls back to P2P (Qwen3 gate)."
         ),
     )
     parser.add_argument("--peak_shift_alpha", type=float, default=0.5)
@@ -685,6 +895,32 @@ def parse_args():
                         help="Extra patch cells of context around the selected region (zoom_backbone only)")
     parser.add_argument("--zoom_max_new_tokens",  type=int, default=256,
                         help="Max tokens for backbone generate in zoom_backbone strategy")
+    # ── ZWERGE-P2P options (decode_strategy=p2p / p2p_native) ──────────────────
+    parser.add_argument("--cache_posteriors", action="store_true",
+                        help="Save p_final/per_layer_probs/omega per sample to .pt for offline P2P sweeps")
+    parser.add_argument("--p2p_region_scorer", default="mass_sqrt_area",
+                        choices=["max", "mass", "mean", "mass_sqrt_area", "balanced"],
+                        help="Level-1 candidate-region scoring (max = legacy baseline)")
+    parser.add_argument("--p2p_use_consensus", dest="p2p_use_consensus",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="Level-2: re-rank candidates by ω-weighted cross-layer posterior consensus")
+    parser.add_argument("--p2p_consensus_dilate", type=int, default=1,
+                        help="Dilation (patch cells) of each candidate region for cross-layer mass")
+    parser.add_argument("--p2p_consensus_weight", type=float, default=1.0)
+    parser.add_argument("--p2p_fusion_mass_weight", type=float, default=0.5)
+    parser.add_argument("--p2p_spatial_disagree_weight", type=float, default=0.25)
+    parser.add_argument("--p2p_use_local_mode", dest="p2p_use_local_mode",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="Level-3: analytic sub-patch mode via local quadratic fit on log-posterior")
+    parser.add_argument("--p2p_local_radius", type=int, default=2,
+                        help="Neighbourhood half-width (radius=2 → 5×5) for the local-mode fit")
+    parser.add_argument("--p2p_local_max_offset", type=float, default=0.75,
+                        help="Clamp on the recovered sub-patch offset (patch-cell units)")
+    parser.add_argument("--p2p_fallback_decode", default="centroid",
+                        choices=["centroid", "argmax", "peak_shift", "temperature"],
+                        help="Region decode used when the local-mode fit degenerates")
+    parser.add_argument("--p2p_gate_dilate", type=int, default=1,
+                        help="Dilation of ZwerGe regions for the p2p_native membership test")
     # Visualization options
     parser.add_argument(
         "--skip_vis", action="store_true",
@@ -742,6 +978,8 @@ def main():
             group_stats=not args.no_group_stats, model_type=args.model_type,
             zoom_padding_cells=args.zoom_padding_cells,
             zoom_max_new_tokens=args.zoom_max_new_tokens,
+            p2p_cfg=default_p2p_cfg(args),
+            cache_posteriors=args.cache_posteriors,
         )
         elapsed = time.time() - t0
         summary["elapsed_s"] = round(elapsed, 1)
