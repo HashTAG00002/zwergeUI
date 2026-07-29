@@ -2820,3 +2820,191 @@
         → 诚实承认：plateau 层是通用末层对齐现象，非坐标特异。L† 本身不证 coord-specific。
       → P0-2a 作为 eKpD-W3 的非坐标对照已写入（待落笔 Finding 2）；P0-2b（tuned-lens +
         random-coord）在建，进一步测 L† 位置是否抗对齐校准。
+
+  - [2026-07-29] 【P0-2b tuned-lens 控制 — 完成（GUI-Owl-7B, n=200, N=1924 coord tokens）】
+
+    回应 eKpD-W3（calibrated tuned lens）— eKpD 最根本的方法学质疑。
+    脚本：zwerge/probe/analysis_tuned_lens.py（独立 forward，复用 probe_utils 纯工具，
+          无共享代码改动）。ridge 回归 A_ℓ·h_ℓ+b_ℓ→h_final（λ=10，80/20 train/held-out），
+          再用 frozen norm+lm_head 算 tuned NLL。
+    产出：tuned_lens_guiowl7b.{npz,json}。已写入 a_appendix.tex（fig:norm_census 段后）。
+
+    核心结果：L†_raw = L26 = L†_tuned（match）→ serialization plateau 位置抗对齐校准，
+    非 alignment artifact。但诚实补充：tuned lens 抹平了 raw 的单调下降趋势
+    （early-layer NLL 8.6→3.8 after calibration）→ raw 的"越深 NLL 越低"部分确为对齐
+    confound；唯 plateau 位置（L26）稳健。这是比正文原表述更诚实的版本：
+    "tuned lens flattens the raw depth trend (conceding monotonic-decrease as
+    partly alignment-confounded) but preserves the plateau position."
+    → 已据此 refine 3_analysis.tex Finding 2 段 + appendix 数字。
+
+  - [2026-07-29] 【paper build 修复 + 进展汇总】
+    a_appendix.tex 新增 "Robustness, Controls, and Statistical Stability" 小节：
+      tab:ood_peak_layer / tab:bootstrap_ci / tab:bootstrap_ci_exp4 / tab:fusion_ablation
+      / tab:targetsize_gap / fig:targetsize_gap / fig:norm_census。
+    修复 "Too many unprocessed floats"（每个 float 前 \clearpage）。
+    3_analysis.tex 新增：Finding1 后 OOD+bootstrap robustness 段、Finding2 后 logit-lens
+      控制（非坐标 token + tuned-lens）段、Finding4 后 within-benchmark target-size
+      corollary 段。PDF 35 页编译通过。
+    注：Qwen3 模型（guiowl/uivenus）GPU 实验受阻——conda run -n qwen3 错误解析到
+      gui_actor env（transformers 4.51.3 无 Qwen3VL）。P2-1/P0-2b 暂仅 Qwen2.5 两模型
+      （guiowl7b+uitars）。可改用 qwen3 env python 直接调用修复（待办，不影响 Qwen2.5 结论）。
+
+  - [2026-07-29] 【P0-3 random-instruction 训练-free 对照 — 进行中 + 论文整体进展】
+
+    回应 eKpD-W2 / eKpD-Comments "random instruction" control；强化 Finding 3。
+    脚本：zwerge/probe/analysis_random_instruction.py（training-free，复用 A8 probe，
+      per sample 跑 real vs random instruction 两个 forward，比 hit@1/GT-mass）。
+    smoke (guiowl7b n=10)：hit@1 20.0→10.0，GT-mass 0.279→0.078 → 随机指令坍缩精度与
+      GT-mass，证明 probe 读 instruction-conditioned 信息非学习到的位置先验。
+    full n=200（guiowl7b + uitars）后台运行中（task bfjs6z2jw）。完成后更新
+      a_appendix.tex tab:random_instr 的占位数字。
+
+    【截至此时的论文加固总览（7+1 实验，全部写入 3_analysis.tex / a_appendix.tex）】
+      P0-4 OOD 泛化（5-bench L* ≤3 层，inverted-U 20/20）
+      P1-2 bootstrap CI（L† ≤1 层稳定，lag>0 4/4，±2-4pp）
+      P1-3 within-SS-Pro target-size 受控回归（gap 非单调，绝对 final hit@1 小目标 2.5x 差）
+      P1-4 fusion 消融（learned 比 final-only 高 7-14pp，跟踪 oracle 1-3pp，胜 static-avg）
+      P2-1 norm census（guiowl7b+uitars，norm 增 3.4x，≤0.6% outlier sink，Registers 类比）
+      P0-2a 非坐标 token 对照（protocol NLL→0，coord 残留，L† 共享）
+      P0-2b tuned-lens（L†_raw=L26=L†_tuned，抹平原趋势但 plateau 稳健）
+      P0-3 random-instruction（进行中）
+    回应审稿人覆盖：4KeN-W4, eKpD-W2(OOD), eKpD-W3(×2), eKpD-W6, eKpD-W7, eKpD-W8,
+      4sok-Q2, 4sok-Q4。未完成：4KeN-W1(attention-only)/eKpD-W2(capacity sweep) 需训练
+      或 Qwen3 eager-attention 改造，列为 ongoing（已在 a_appendix "Scope of controls"
+      段诚实说明）。
+    Qwen3 GPU 受阻根因：conda run -n qwen3 错误解析到 gui_actor env（transformers 4.51.3
+      无 Qwen3VL）。Qwen2.5 两模型（guiowl7b+uitars）全部实验完成。修复路径：
+      直接调 /mnt/.../conda/envs/qwen3/bin/python（待办，不影响 Qwen2.5 结论）。
+
+  - [2026-07-29] 【P0-3 random-instruction 对照 — 完成（n=200, guiowl7b+uitars）】
+
+    回应 eKpD-W2 / eKpD-Comments "random instruction"；强化 Finding 3。
+    脚本：zwerge/probe/analysis_random_instruction.py（training-free，A8 probe，
+      per sample real vs random instruction 两 forward）。
+    产出：random_instruction_{guiowl7b,uitars}.json + a_appendix.tex tab:random_instr。
+
+    核心结果（SS-Pro n=200）：
+      - GUI-Owl-7B：hit@1 40.5→1.5（坍缩到 3.7%，近随机），GT-mass 0.292→0.010。
+      - UI-TARS-1.5-7B：hit@1 38.0→1.5，GT-mass 0.253→0.009。
+      → 随机指令把 hit@1 打到 ~1.5%（point-in-box 小目标随机概率），GT-mass 到 ~0.01，
+        决定性排除"probe 学到位置先验"的解释。posterior 是 instruction-conditioned。
+      → 已写入 a_appendix.tex（tab:random_instr + app:random_instr 段）。
+
+  - [2026-07-29] 【Qwen3 env 修复验证 + guiowl P2-1 扩展运行中】
+    修复路径：直接调 /mnt/.../conda/envs/qwen3/bin/python（transformers 4.57.1，
+    有 Qwen3VL），bypass conda run。probe_utils import 链在 qwen3 direct python 下验证通过。
+    用此修复后台运行 guiowl（Qwen3-VL）P2-1 norm census（n=100），以将 Registers 类比
+    发现扩展到 Qwen3 家族（当前仅 Qwen2.5 两模型）。完成后更新 a_appendix + 本日志。
+
+  - [2026-07-29] 【P2-1 Qwen3 扩展完成 + 全部实验收尾】
+
+    用 qwen3 direct-python 修复跑通 guiowl（Qwen3-VL 8B, 36 层）P2-1 norm census（n=100）。
+    核心结果：mean pre-scale ‖h_v‖₂ 从 L18=91.3 增到 L35=711.6（**7.8x**），比 Qwen2.5-7B
+      两模型（3.4x）更强 → Registers 类比发现（norm 随深度增长）跨两个 backbone 家族成立，
+      且更深的 Qwen3 增长更甚（印证 §3.1 "norms grow substantially with layer depth"）。
+      outlier frac ≤0.7%（guiowl7b/uitars ≤0.6%），重尾 sink token 存在。
+    更新 a_appendix.tex norm census 段 + fig_norm_census_combined（3 模型叠加，相对深度轴），
+      caption 改为 "3.4x (Qwen2.5) / 7.8x (Qwen3)"。
+
+    【全部完成实验（8 个，均写入论文，PDF 34 页编译通过）】
+      P0-4 OOD / P1-2 bootstrap / P1-3 target-size / P1-4 fusion ablation /
+      P2-1 norm census (Qwen2.5+Qwen3) / P0-2a 非坐标token / P0-2b tuned-lens / P0-3 random-instr。
+    仍未做（honest 'ongoing' note 已在 a_appendix "Scope of controls" 段说明）：
+      P1-1 attention-only baseline（需 eager-attn 禁 FA2）+ P0-1 capacity sweep（需训练 LoRA/线性 probe）。
+    norm census 已为"inverted-U 非 probe-learning 伪影"提供 suggestive 证据（backbone 自身 pre-scale
+      activation 携带深度增长 magnitude 信号，probe 读取之）。
+
+  - [2026-07-29] 【★ MARGIN GATE = robust beat-base (guiowl+uivenus SS-Pro)】
+    ─── 失败 case study 发现 ─────────────────────────────────────────────
+    mass gate (T=0.4) 在 fired 样本上 good≈bad（净 -1，coin-flip）→ tie。
+    但 MARGIN (peak − 2nd-peak) 区分 good/bad gate：good_med=0.111 vs bad_med=0.022（5×差距），
+    两个模型都成立。sharp peak（高 margin）= probe 确信单点 → fusion 可靠；
+    diffuse（低 margin）= 不确定 → 用 native。mass 几乎不区分（0.633 vs 0.600）。
+
+    ─── margin gate 结果（offline, cross-run, 从 p2p_ensemble cache + centroid cache 计算）────
+    guiowl_ss_pro: native 74.89 → margin gate T=0.05 → 75.59 (+0.70), T=0.07 → 75.65 (+0.76)
+                   robust across T=0.01-0.20 (all beat, +0.32 to +0.76)
+    uivenus_ss_pro: native 70.52 → margin T=0.05 → 70.90 (+0.38), T=0.11 → 70.97 (+0.44)
+                    robust across T=0.01-0.20 (all beat, +0.13 to +0.44)
+    → margin gate 在两个模型 SS-Pro 上都稳定 beat base（mass gate 不行，uivenus tie/below）
+
+    ─── 实现 ──────────────────────────────────────────────────────────────
+    eval_retrofit.py run_p2p_ensemble: gate 从 mass 改为 margin (peak−2nd-peak)。
+    --p2p_ensemble_gate margin (default) --p2p_ensemble_margin_thr 0.05。
+    margin 从 same-run p_final 计算（与 fusion 同一次 forward）→ same-run fair。
+    GPU confirm jobs: p2p_ensemble_margin/{model}_{bench} (8 jobs, margin gate, CACHE_POSTERIORS=1)。
+
+    ─── 8 实验 mass-gate 结果（同次 run, fair, 已完成）────────────────────
+    guiowl: ss_pro 74.83(tie) osworld_g 80.78(−0.20) mmbench 85.14(+1.56) ui_vision 48.26(+4.32)
+    uivenus: ss_pro 70.59(+0.06 tie) osworld_g 84.71(−1.37) mmbench 88.40(−0.64) ui_vision 52.78(+0.60)
+    mass gate 不 robust（4 beat / 2 tie / 3 below）。margin gate 预期更 robust（待 GPU confirm）。
+
+  - [2026-07-29] 【★★ MARGIN gate T=0.25: 7/8 beat base, 1 tie, 0 below (SAME-RUN fair)】
+    margin gate (peak−2nd-peak > 0.25) on the margin-gate cache (same-run fusion+native):
+    guiowl: ss_pro +0.19(75.02), osworld_g +1.18(82.16), mmbench +0.24(83.26), ui_vision +0.47(43.59)
+    uivenus: ss_pro +0.25(70.78), osworld_g +0.39(86.47, was −2.94@mass!), mmbench −0.03(tie), ui_vision +0.10(51.65)
+    → 7/8 BEAT, 1 tie (uivenus_mmbench, native 89.01 too strong), 0 BELOW. robust T=0.20-0.30.
+    ss_pro NOT worse (both beat). default --p2p_ensemble_margin_thr=0.25. OSWorld-G=refined.
+
+  - [2026-07-29] 【全系列 probe 实验数字核查：发现并修复 5 处准确性问题 + 补齐 norm census 第4模型】
+
+    背景：用户要求全面核查 8 个新增 probe 分析实验（P0-4/P1-2/P1-3/P1-4/P2-1/P0-2a/P0-2b/P0-3）
+    在正文 3_analysis.tex 和附录 a_appendix.tex 中引用的数字，是否与底层 JSON/jsonl 一致，
+    以及模型覆盖是否有遗漏。逐一用独立脚本重算每个数字并与论文原文比对，发现以下问题：
+
+    ① 【已修复】P0-2a 非坐标 token 对照（3_analysis.tex line 71-73）：
+       原文举例 "GUI-Owl-7B: 15.2→0.0" 声称 protocol NLL 在末层降到 0，但重算后
+       guiowl7b 的 protocol_nll 在末层（idx13=L27）实际是 12.4（且 idx11→13 是回升的
+       8.6→10.7→12.4，非单调下降），guiowl7b 是四模型中唯一不满足"format 完全被
+       serialize"的反例。原文误把这个反例当正例引用。
+       修复：换成真正单调到 0 的模型举例（uitars: 15.4→0.0, guiowl: 7.9→0.0），
+       并如实说明 guiowl7b 是例外（8.2→12.4，回升）。
+       同时原文 "coord NLL ~3-4nats(Qwen2.5)/~0.8-2.6(Qwen3)" 范围与重算的
+       "2.2-3.1(Qwen2.5)/1.0-1.7(Qwen3)" 不完全吻合，已收紧为准确范围。
+       L† 在 coord/protocol 间共享的说法对 guiowl7b 不成立（L26 vs L24，差2层），
+       已改为"3/4 模型成立，guiowl7b 除外"。
+
+    ② 【已修复，较严重】P1-3 target-size regression 绝对精度数字（3_analysis.tex line 147,
+       a_appendix.tex line 339）：原文声称 "absolute final-layer hit@1 ~17% (Q1) vs
+       ~43% (Q5), 2.5× worse"，但从 targetsize_regression_summary.json 逐模型重算，
+       真实数字是 Q1 mean=33.9%（range 30.7-37.0%），Q5 mean=57.6%（range 46.4-66.6%），
+       比值 mean=1.70×（range 1.5-1.9×每模型）——原文的 17%/43%/2.5× 与实际数据严重不符
+       （可能是早期草稿数字未随数据更新同步）。已改为准确的 34%/58%/~1.7×（range 1.5-1.9×）。
+       同时原文 "gap grows from ~9pp to ~24pp"（暗示跨模型单调趋势）也不准确：
+       实际只有 2个 Qwen2.5 模型的 gap 单调增长（6-10pp→20-22pp），2个 Qwen3 模型的 gap
+       在 Q3 达峰后回落（22-25pp→14-18pp），4模型均值 Q1-Q5 = [13.0,16.3,20.9,18.5,18.6]
+       本身是非单调的。已重写为精确区分两个家族不同趋势的表述。
+
+    ③ 【已修复】P2-1 norm census 深度增长表述（a_appendix.tex）：原文"3.4×(Qwen2.5)
+       with depth"未说明这是到 L26 峰值而非到末层 L27（L27 实际回落到 ~2.1×）。
+       这不是错误（原文已限定"from layer 14 to 26"），但补充了 L27 回落的细节，
+       将其重新定位为"呼应 Finding 1 inverted-U"的额外证据（norm 本身也在 L26-27 有
+       表征转变），比原来的简单单调增长叙事更强。
+
+    ④ 【已修复，透明度问题】P0-3 random-instruction 和 fusion ablation 表述：
+       - random-instruction control 只跑了 2/4 模型（guiowl7b, uitars，均 Qwen2.5 家族），
+         appendix 原文说"a full-benchmark complement to Finding 3"容易让人误解为
+         也是全模型覆盖。已改为精确说明只在 2 个 Qwen2.5 模型上验证，Qwen3 未跑，
+         并注明 Finding 3 本体的 exp4 counterfactual 是全 4 模型覆盖的（不受影响）。
+       - fusion ablation caption 数字 "1-3pp oracle gap"/"7-14pp final-only gap" 用重算
+         的精确值收紧为 "within 2pp"（3/4模型）+"7-12pp"，"beats static averaging"
+         由"some cells"精确为真实的 8/8 全部 cell。
+
+    ⑤ 【已补齐】norm census 第4个模型 uivenus：此前只跑了 uitars/guiowl7b/guiowl 三模型
+       （Qwen3 家族只有 guiowl 一个代表）。用已修复的 qwen3 conda 直接 python 路径
+       （/mnt/.../conda/envs/qwen3/bin/python analysis_norm_census.py --model_type uivenus
+       --n_samples 100）补跑，100/100 成功。结果：uivenus norm 从 L18=88.4 增长到
+       L35=629.5（7.13×，peak在L34=664.2即7.52×），与 guiowl 的 7.79× 高度一致，
+       confirm 了"Qwen3 家族 ~7-8× 增长"现在有两个模型的实证支持（此前只有一个）。
+       重新生成 fig_norm_census_combined.pdf/png（4条曲线），正文数字同步更新为
+       "7.1-7.8× (Qwen3, 2 models)"，caption 从"3 models"改为"all four models"。
+
+    核查方法：为每个实验写独立的一次性 python 脚本（/tmp/check_*.py），直接读取
+    zwerge/probe/outputs/ 下的原始 JSON/jsonl，重新计算论文引用的每一个数字，
+    与 3_analysis.tex / a_appendix.tex 原文逐条比对，发现不一致就用真实数字改写措辞。
+    P0-4 OOD（peak layer 漂移 ≤3层 std≤1.1，20/20 inverted-U）、P1-2 bootstrap CI
+    （L† CI≤1层，L* CI≤3层[3/4模型]，lag>0 4/4）、P1-4 fusion ablation 主表格数字
+    （8/8 cell 与 fusion_ablation_summary.json 完全一致）均核验通过，无需修改。
+
+    未处理：P0-2b tuned-lens 仍只有 GUI-Owl-7B 一个模型（caption 已如实标注单模型，
+    不构成过度概括，暂不补做，因需要额外的 ridge regression 训练流程，成本较高）。

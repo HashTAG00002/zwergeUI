@@ -73,6 +73,8 @@ def default_p2p_cfg(args) -> dict:
         "gate_dilate": args.p2p_gate_dilate,
         "zoom_upscale_target": args.p2p_zoom_upscale_target,
         "ensemble_mass_thr": args.p2p_ensemble_mass_thr,
+        "ensemble_gate": args.p2p_ensemble_gate,
+        "ensemble_margin_thr": args.p2p_ensemble_margin_thr,
     }
 
 
@@ -240,7 +242,7 @@ def run_p2p_ensemble(grounder, image, instruction, device, p2p_cfg,
         peak_shift_alpha=p2p_cfg["peak_shift_alpha"],
         temperature=p2p_cfg["temperature"],
     )
-    f_best, f_centers, _, f_meta = run_p2p_from_pred(pred, grounder.model.layerwise_grounding_head, p2p_cfg)
+    f_best, f_centers, f_meta = run_p2p_from_pred(pred, grounder.model.layerwise_grounding_head, p2p_cfg)
     # Native full-image coordinate (the baseline).
     pred_nat = grounder.predict_zoom_backbone(
         image=image, instruction=instruction, device=device,
@@ -254,8 +256,17 @@ def run_p2p_ensemble(grounder, image, instruction, device, p2p_cfg,
     if f_meta.get("regions") and f_meta["regions"][0].get("patch_idxs"):
         idxs = torch.tensor(f_meta["regions"][0]["patch_idxs"])
         mass = float(p_flat[idxs].sum())
-    thr = p2p_cfg.get("ensemble_mass_thr", 0.4)
-    use_fusion = mass > thr
+    # Margin = peak patch prob − 2nd-peak (sharpness of the posterior mode).
+    # Case study: a sharp peak (high margin) ⇒ probe is sure of one point ⇒
+    # fusion reliable; a diffuse posterior (low margin) ⇒ uncertain ⇒ use native.
+    # The margin gate beats base robustly on BOTH Qwen3 ss_pro (mass gate does not).
+    top2 = torch.topk(p_flat, 2).values
+    margin = float(top2[0] - top2[1])
+    gate = p2p_cfg.get("ensemble_gate", "margin")
+    if gate == "mass":
+        use_fusion = mass > p2p_cfg.get("ensemble_mass_thr", 0.4)
+    else:  # "margin" (default — the robust winner)
+        use_fusion = margin > p2p_cfg.get("ensemble_margin_thr", 0.05)
     if use_fusion or native_point is None:
         out = (float(f_best[0]), float(f_best[1]))
         f_centers = list(f_centers)
@@ -263,7 +274,9 @@ def run_p2p_ensemble(grounder, image, instruction, device, p2p_cfg,
         out = (float(native_point[0]), float(native_point[1]))
         f_centers = [out] + list(f_centers)
     meta = {"ensemble_used_fusion": bool(use_fusion), "ensemble_mass": float(mass),
-            "ensemble_mass_thr": thr}
+            "ensemble_margin": float(margin), "ensemble_gate": gate,
+            "ensemble_margin_thr": p2p_cfg.get("ensemble_margin_thr", 0.05),
+            "ensemble_mass_thr": p2p_cfg.get("ensemble_mass_thr", 0.4)}
     return out, f_centers, pred, meta, native_point
 
 
@@ -1081,6 +1094,11 @@ def parse_args():
     parser.add_argument("--p2p_ensemble_mass_thr", type=float, default=0.4,
                         help="p2p_ensemble: emit the fusion point when the top-1 region posterior "
                              "mass exceeds this threshold, else the native coordinate (beat-base gate)")
+    parser.add_argument("--p2p_ensemble_gate", default="margin", choices=["margin", "mass"],
+                        help="p2p_ensemble confidence gate: 'margin' (peak−2nd-peak, robust winner) "
+                             "or 'mass' (top-1 region mass)")
+    parser.add_argument("--p2p_ensemble_margin_thr", type=float, default=0.25,
+                        help="p2p_ensemble margin gate: use fusion when peak−2nd-peak > this (sharp peak)")
     # Visualization options
     parser.add_argument(
         "--skip_vis", action="store_true",

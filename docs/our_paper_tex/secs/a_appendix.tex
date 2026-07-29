@@ -242,7 +242,8 @@ Table~\ref{tab:ood_peak_layer} reports the spatial-peak layer $L^*$ for each
 (model, benchmark) cell. $L^*$ varies by at most $3$ layers within each model
 across the five benchmarks (std $\le 1.1$), including the distribution-shifted
 UI-Vision and MMBench-GUI. The inverted-U (peak $>$ final) holds in $20/20$ cells.
-\begin{table}[t]
+\clearpage
+\begin{table}[!htbp]
 \centering\small
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{lcccccccc}
@@ -268,7 +269,8 @@ layers for three of four ($\le 7$ for GUI-Owl-7B); the lag
 $L^\dagger - L^* > 0$ holds in $4/4$ models. Absolute hit@1 carries
 $\pm$2--4\,pp 95\% CI, matching the few-pp discrepancy between the $n{=}200$
 lens curves and the full $n{=}1581$ per-layer summaries.
-\begin{table}[t]
+\clearpage
+\begin{table}[!htbp]
 \centering\small
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{lcccccc}
@@ -284,7 +286,8 @@ UI-Venus-1.5-8B & 23 [22, 24] & 34 [34, 34] & +11 & 55.0 [48.5, 61.5] & 22.3 [15
 \caption{\textbf{Bootstrap 95\% CIs (Exp.~3, $n{=}200$).} $L^\dagger$ (serialization plateau) is stable within one layer; the bottleneck ordering $L^* < L^\dagger$ is robust.}
 \label{tab:bootstrap_ci}
 \end{table}
-\begin{table}[t]
+\clearpage
+\begin{table}[!htbp]
 \centering\small
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{lcccc}
@@ -305,11 +308,12 @@ UI-Venus-1.5-8B & 31 [31, 31] & 0.629 [0.611, 0.646] & 0.514 [0.498, 0.529] & 15
 Table~\ref{tab:fusion_ablation} compares four read-out strategies on the same A8
 CrossAttn probes: final-layer-only, oracle best-single layer (upper bound, not
 deployable), static uniform averaging of active-layer predictions, and the
-learned CosMeta fusion. Learned fusion improves over final-only by 7--14\,pp
-overlap@1 on SS-Pro, tracks the oracle within 1--3\,pp (and exceeds it on some
-cells), and beats static averaging---quantitatively motivating both
+learned CosMeta fusion. Learned fusion improves over final-only by 7--12\,pp
+overlap@1 on SS-Pro, tracks the oracle within 2\,pp (and exceeds it on one
+model), and beats static averaging---quantitatively motivating both
 intermediate-layer readout and learned per-sample depth selection.
-\begin{table}[t]
+\clearpage
+\begin{table}[!htbp]
 \centering\small
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{lcccccccc}
@@ -324,18 +328,22 @@ GUI-Owl-1.5-8B-Instruct & 57.2 & 70.8 & 58.1 & 68.8 & 89.7 & 93.1 & 90.0 & 92.6\
 UI-Venus-1.5-8B & 56.9 & 66.9 & 56.4 & 66.3 & 92.5 & 94.4 & 92.8 & 94.0\\
 \bottomrule
 \end{tabular}
-\caption{\textbf{Inference-time fusion ablation (overlap@1, A8 ckpt-2800).} $^\star$=oracle best single layer (per-benchmark, not deployable). Learned CosMeta fusion tracks the oracle within 1--3\,pp and beats static averaging; both dominate final-layer-only.}
+\caption{\textbf{Inference-time fusion ablation (overlap@1, A8 ckpt-2800).} $^\star$=oracle best single layer (per-benchmark, not deployable). On SS-Pro, learned CosMeta fusion is within $2$\,pp of the oracle for three of four models and exceeds it for GUI-Owl-7B (+0.5); it beats static averaging on all $8/8$ (model, benchmark) cells and dominates final-layer-only throughout.}
 \label{tab:fusion_ablation}
 \end{table}
 
 \paragraph{Controlled within-benchmark target-size regression (4KeN-W4, 4sok-Q2).}
 Figure~\ref{fig:targetsize_gap} and Table~\ref{tab:targetsize_gap} hold the
 benchmark fixed (ScreenSpot-Pro, $n{=}1581$) and bin by target bbox area. The
-peak--final gap does \emph{not} increase as targets shrink (it grows with size,
-floored by peak accuracy); the absolute final-layer hit@1 is $2.5\times$ worse
-on the smallest quintile, so the bottleneck is most damaging in absolute terms
-on small targets.
-\begin{table}[t]
+peak--final gap does \emph{not} increase monotonically as targets shrink for all models
+(it rises monotonically with size for the two Qwen2.5-7B models, but peaks at
+intermediate sizes and falls back for the two Qwen3-8B models; averaged over all
+four models it is floored by peak accuracy rather than target size); the absolute
+final-layer hit@1 (mean over models) is $\sim$1.7$\times$ worse (range $1.5$--$1.9\times$)
+on the smallest quintile than on the largest, so the bottleneck is most damaging
+in absolute terms on small targets.
+\clearpage
+\begin{table}[!htbp]
 \centering\small
 \begin{tabular}{lccccc}
 \toprule
@@ -350,7 +358,8 @@ UI-Venus-1.5-8B & 14.2 & 20.9 & 27.2 & 15.8 & 13.9\\
 \caption{\textbf{Within-SS-Pro collapse gap (pp) by target-area quintile (hit@1).} The gap is not monotone-decreasing in target size; it is floored by peak-layer accuracy on the hardest (sub-patch) targets.}
 \label{tab:targetsize_gap}
 \end{table}
-\begin{figure}[t]
+\clearpage
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.92\columnwidth]{figs/fig_targetsize_gap.pdf}
 \caption{\textbf{Collapse gap vs target-area quintile within ScreenSpot-Pro (hit@1).} The gap does not grow as targets shrink; the absolute final-layer accuracy (not the gap) is the cleaner severity measure and is worst on the smallest targets.}
@@ -360,15 +369,68 @@ UI-Venus-1.5-8B & 14.2 & 20.9 & 27.2 & 15.8 & 13.9\\
 \paragraph{Pre-scale visual-token norm census (4sok-Q4; cf.\ Vision Transformers Need Registers).}
 Figure~\ref{fig:norm_census} measures the $\ell_2$-norm of the visual-patch
 hidden states \emph{before} the RMSNorm pre-scale, i.e.\ the magnitude
-information the pre-scale discards. The mean norm grows $\sim$3.4$\times$ from
-layer 14 to layer 26 in both GUI-Owl-7B and UI-TARS-1.5-7B (Qwen2.5-VL),
-directly confirming the depth-growth claim of \S\ref{sec:method:stage1}; a small
-($\le 0.6\%$) but heavy-tailed set of outlier patches carries very high norm,
-consistent with the attention-sink / register-token phenomenon---information
-the pre-scale normalizes away but which a magnitude-aware variant could exploit.
-\begin{figure}[t]
+information the pre-scale discards, for all four models. The mean norm grows with depth in \emph{both} backbone families:
+$\sim$3.4$\times$ from layer 14 to its within-probe-range peak at layer 26 in the
+two Qwen2.5-VL 7B models (GUI-Owl-7B: $112\to382$; UI-TARS-1.5-7B: $110\to371$) and
+$\sim$7.1--7.8$\times$ from layer 18 to the final probed layer 35 in the two Qwen3-VL 8B
+models (GUI-Owl-1.5-8B: $91\to712$; UI-Venus-1.5-8B: $88\to630$). Intriguingly, for the Qwen2.5 models the norm itself
+peaks at L26 and drops back at the final layer L27 ($382\to233$ and $371\to241$
+respectively)---an echo, at the level of raw activation magnitude, of the same
+inverted-U depth profile we observe for spatial grounding quality (Finding~1),
+suggestive of a broader representational transition around the last one to two
+layers rather than a norm-specific artifact.
+This directly confirms the depth-growth claim of \S\ref{sec:method:stage1} (the deeper
+network grows more); a small ($\le 0.7\%$) but heavy-tailed set of outlier patches
+carries very high norm, consistent with the attention-sink / register-token
+phenomenon---information the pre-scale normalizes away but which a magnitude-aware
+variant could exploit.
+\clearpage
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.95\columnwidth]{figs/fig_norm_census_guiowl7b.pdf}
-\caption{\textbf{Pre-scale visual-patch norm census (GUI-Owl-7B, $n{=}100$).} (a) high-norm sink fraction vs depth; (b) mean $\|h_v\|_2$ grows $\sim$3.4$\times$ across depth; (c) norm distribution at early/mid/late layers (heavy-tailed).}
+\includegraphics[width=0.95\columnwidth]{figs/fig_norm_census_combined.pdf}
+\caption{\textbf{Pre-scale visual-patch norm census (all four models across both backbone families, $n{=}100$ each).} (a) mean $\|h_v\|_2$ grows $\sim$3.4$\times$ (Qwen2.5, 2 models) and $\sim$7.1--7.8$\times$ (Qwen3, 2 models) with depth; (b) high-norm sink fraction stays small ($\le 0.7\%$) but present in all four.}
 \label{fig:norm_census}
 \end{figure}
+
+\paragraph{Tuned-lens control for the serialization lens (eKpD-W3).}
+\label{app:tuned_lens}
+The raw serialization lens applies the frozen norm+LM-head to each layer's hidden state; late layers align better with the output space, which can lower their NLL for reasons unrelated to coordinates.
+Following Belrose et al.\ (tuned lens), we learn per layer a lightweight affine $\hat h_\ell = A_\ell h_\ell + b_\ell$ mapping the intermediate state to the final-layer representation (ridge regression, $\lambda{=}10$, $80/20$ train/held-out split, $N{=}1924$ coordinate tokens from $n{=}200$ ScreenSpot-Pro samples), then apply the \emph{frozen} norm+LM-head.
+Table~\ref{tab:tuned_lens} reports raw vs.\ tuned NLL per layer.
+The tuned lens flattens the raw monotonic depth trend (early-layer NLL falls from $8.6$ to $3.8$ after calibration---part of the raw decrease is indeed an alignment artifact), yet the plateau position is unchanged: $L^\dagger_{\mathrm{raw}} = L^\dagger_{\mathrm{tuned}} = \mathrm{L26}$.
+The bottleneck's locus is thus robust to alignment calibration, even though the raw curve's slope is partly confounded.
+\begin{table}[!htbp]
+\centering\small
+\begin{tabular}{lcccccccccccccc}
+\toprule
+Layer & 14 & 15 & 16 & 17 & 18 & 19 & 20 & 21 & 22 & 23 & 24 & 25 & 26 & 27\\
+\midrule
+Raw NLL   & 8.63 & 9.23 & 9.02 & 8.03 & 7.98 & 7.39 & 7.07 & 6.87 & 7.13 & 7.04 & 6.98 & 4.75 & \textbf{2.79} & 3.27\\
+Tuned NLL & 3.80 & 3.73 & 3.65 & 3.76 & 3.69 & 3.94 & 3.92 & 3.66 & 3.55 & 3.52 & 3.40 & 3.29 & \textbf{3.14} & 3.25\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Tuned-lens control (GUI-Owl-7B).} Per-layer coordinate-token NLL: raw logit lens vs.\ calibrated tuned lens (held-out). Both plateau at L26 ($\mathbf{L^\dagger}$, bold). The tuned lens flattens the raw depth trend (conceding part of the raw decrease as alignment confound) while preserving the plateau position.}
+\label{tab:tuned_lens}
+\end{table}
+
+\paragraph{Random-instruction control (eKpD-W2, eKpD-Comments).}
+\label{app:random_instr}
+A training-free control: we run the frozen A8 probe on the same ScreenSpot-Pro images with the \emph{real} instruction replaced by an unrelated sample's instruction (shuffled across the batch). If the probe merely learned a position prior (``always click the most salient icon''), randomizing the instruction would not hurt. It does: hit@1 and target-region probability mass both collapse (Table~\ref{tab:random_instr}) for both Qwen2.5-VL models tested, confirming the posterior is instruction-conditioned at inference time---an $n{=}200$, single-instruction-pass complement to the paired $n{=}150$ instruction-\emph{switch} counterfactual (Finding~3), which is run on all four models (Table~\ref{tab:bootstrap_ci_exp4}). We have not yet run this specific control on the two Qwen3-VL models; given that Finding~3's paired counterfactual already holds for Qwen3-VL, we expect---but have not verified---the same qualitative collapse here.
+\begin{table}[!htbp]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Model & hit@1 real & hit@1 rand & GT-mass real & GT-mass rand \\
+\midrule
+GUI-Owl-7B & 40.5 & 1.5 & 0.292 & 0.010 \\
+UI-TARS-1.5-7B & 38.0 & 1.5 & 0.253 & 0.009 \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Random-instruction control (ScreenSpot-Pro, $n{=}200$).} Replacing the instruction with an unrelated sample's collapses hit@1 to $\sim$1.5\% (near chance) and target-region mass to $\sim$0.01, ruling out a learned position prior.}
+\label{tab:random_instr}
+\end{table}
+
+\paragraph{Scope of controls and ongoing work.}
+The controls above address the sampling (eKpD-W6), alignment-confound (eKpD-W3), dataset-conflation (4KeN-W4), and instruction-prior (eKpD-W2) concerns directly.
+Two further controls requested by reviewers---a zero-parameter attention-only baseline (4KeN-W1) and a probe-capacity sweep with lower-capacity linear/shared probes (eKpD-W2, eKpD-W8)---are natural next steps: the former requires extracting native anchor-to-visual attention with eager attention (disabling FlashAttention-2), and the latter requires training LoRA/linear probe variants.
+Our norm census (Fig.~\ref{fig:norm_census}) already shows the backbone's own pre-scale activations carry the depth-growing magnitude signal the probe reads, which is suggestive evidence that the inverted-U is not purely a probe-learning artifact.

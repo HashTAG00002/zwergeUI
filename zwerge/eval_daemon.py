@@ -119,7 +119,11 @@ def generate_hope_file(
     """
     if bash_script is None:
         bash_script = _extract_bash_script(template_path)
-    env_prefix = " ".join(f"{k}={v}" for k, v in env_vars.items())
+    # Quote env values so spaces (e.g. P2P_FLAGS="--p2p_ensemble_mass_thr 0.4")
+    # survive the env-prefix `VAR=value bash script` form — without quoting the
+    # space word-splits and the value's second token becomes a stray command.
+    import shlex as _shlex
+    env_prefix = " ".join(f"{k}={_shlex.quote(v)}" for k, v in env_vars.items())
     new_worker_script = f"{env_prefix} bash {bash_script}"
     if positional_args:
         new_worker_script += f" {positional_args}"
