@@ -1,154 +1,45 @@
 % ==============================================================================
-% Section 4: Method — ZwerGe-UI
+% Section 4: ZwerGe-UI
 % ==============================================================================
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.95\textwidth]{figs/pipeline.pdf}
-\caption{
-\textbf{Overview of ZwerGe-UI.} Given a GUI screenshot, instruction, and prefill anchor, a frozen backbone exposes layerwise hidden states; independent probes decode intermediate-layer spatial posteriors, which are dynamically weighted by a cross-layer LoRA and cosine-meta scorer to produce the final coordinate-free grounding heatmap.
-}
-\label{fig:zwerge_pipeline}
-\vspace{-0.4cm} 
-\end{figure*}
 
 \section{\textsc{ZwerGe-UI}}
 \label{sec:method}
 
-The analysis in \S\ref{sec:analysis} reveals that the richest spatial representations reside at intermediate transformer layers, where the instruction-conditioned spatial posterior peaks before being overwritten by coordinate serialization.
-\textsc{ZwerGe-UI} retrofits existing GUI agents to read this intermediate-layer signal without modifying the backbone.
-The Stage~1 per-layer probes trained here also serve as the readout heads used in all probe experiments in \S\ref{sec:analysis}.
-Figure~\ref{fig:zwerge_pipeline} provides an overview of this retrofit pipeline, connecting the prefill-time layerwise readout, per-layer spatial posteriors, and cross-layer fusion used in the following subsections.
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{figs/pipeline.pdf}
+\caption{\textbf{Overview of \textsc{ZwerGe-UI}.} A frozen backbone exposes layerwise hidden states from a single prefill; independent probes decode intermediate-layer spatial posteriors, a cross-layer fusion head selects the reliable depth per sample, and a training-free confidence gate routes each sample between the fused point and the native autoregressive coordinate.}
+\label{fig:zwerge_pipeline}
+\end{figure*}
 
-
-% ------------------------------------------------------------------------------
-\subsection{Design Rationale}
-\label{sec:method:rationale}
-% ------------------------------------------------------------------------------
-\paragraph{A dedicated readout head.}
-The raw hidden states at intermediate layers \emph{contain} spatial information (Finding 1) but are not calibrated for direct readout.
-A full-rank cross-attention probe trained on grounding examples with the backbone frozen is sufficient to decode this latent signal; it introduces no new spatial knowledge into the backbone.
-
-\paragraph{Prefill-forced inference.}
-Coordinate generation serializes location into up to eight individual number tokens, but the spatial intent is already encoded before decoding begins (Finding 2).
-Because the backbone is frozen, we prefill a fixed template ending in an anchor token:
-\begin{equation*}
-  \texttt{click(}
-  \underbrace{\texttt{<|ground|>}}_{\text{anchor}}
-  \underbrace{\texttt{<|pointer\_start|>}\cdots}_{\text{coord}}
-\end{equation*}
-and run a \textbf{single forward pass}.
-At the anchor position, the model has processed the full screenshot and instruction but no coordinate value, so there is zero label leakage.
-
-\paragraph{RMSNorm pre-scale.}
-Hidden-state $\ell_2$ norms grow substantially with layer depth due to the geometrically misaligned activation spaces across layers.
-We apply a pre-scale $\mathbf{h} \leftarrow \mathbf{h} / (\|\mathbf{h}\|_2 / \sqrt{d})$ before each LayerNorm, bounding the input norm to ${\approx}\sqrt{d}$ regardless of depth and preventing numerical overflow in \texttt{bfloat16}. This also explains the heterogeneity of the semantic spaces handled by different layers from the perspective of activation norm.
-
-\paragraph{Two training stages.}
-Stage~1 trains one independent probe per layer with the backbone frozen, sufficient both for the probe experiments in \S\ref{sec:analysis} and as a standalone grounding system.
-Stage~2 loads the Stage~1 checkpoint and trains a lightweight cross-layer fusion head on top of the frozen probes.
+The per-layer probes of \S\ref{sec:probe} are independent, and the best layer varies by sample (\S\ref{sec:analysis}, Finding~1). We add two lightweight components on top of the frozen probes, shown in Figure~\ref{fig:zwerge_pipeline}: a cross-layer fusion head that selects the reliable depth per sample, and a training-free confidence gate that decides when to trust the fused point over the backbone's own decoder. Both reuse the single prefill of \S\ref{sec:probe}, so the retrofit adds negligible compute over the native baseline.
 
 % ------------------------------------------------------------------------------
-\subsection{Stage 1: Independent Per-Layer Probes}
-\label{sec:method:stage1}
-% ------------------------------------------------------------------------------
-
-\paragraph{Setup.}
-Let $f_\theta$ be a frozen backbone with $L$ layers.
-Given input $\mathbf{x}$ (screenshot $+$ instruction $+$ prefill template), we extract per-layer hidden states via forward hooks.
-For each probe layer $\ell \in \mathcal{L}_{\mathrm{probe}}$ (the deeper half of the backbone, where spatial signal concentrates), we read the anchor query $\mathbf{h}^{(\ell)}_{t^*} \in \mathbb{R}^d$ at the \texttt{<|ground|>} position and visual keys $\mathbf{H}^{(\ell)}_v \in \mathbb{R}^{N_v \times d}$ over the $N_v$ patch tokens. This corresponds to the layerwise branches in Figure~\ref{fig:zwerge_pipeline}, where each selected transformer layer independently maps the anchor token and visual patch tokens into a spatial heatmap over the screen.
-
-\paragraph{Cross-attention probe.}
-Each probe $\phi_\ell$ computes a patch-level spatial posterior via multi-head cross-attention:
-\begin{equation}
-\begin{aligned}
-  \mathbf{Q}_\ell 
-  &= W_q^{(\ell)}\,\mathrm{Norm}\!\left(\mathbf{h}^{(\ell)}_{t^*}\right), \\
-  \mathbf{K}_\ell 
-  &= W_k^{(\ell)}\,\mathrm{Norm}\!\left(\mathbf{H}^{(\ell)}_v\right),
-\end{aligned}
-\end{equation}
-where $\mathrm{Norm}(\cdot)$ denotes the RMS pre-scale followed by LayerNorm, and $W_q^{(\ell)}, W_k^{(\ell)}$ are full-rank projections (no bottleneck), letting each probe learn a fresh geometry suited to its layer.
-Let $\sigma(\cdot)$ denote the softmax operation. Per-head scores are combined via a learnable gate $\boldsymbol{\alpha}$:
-\begin{equation}
-  p_\ell = \sigma\!\left(\sum_h \sigma(\boldsymbol{\alpha})_h \cdot \frac{\mathbf{Q}_{\ell,h}^\top \mathbf{K}_{\ell,h}}{\sqrt{d_h}}\right) \in \Delta^{N_v-1}.
-  \label{eq:probe}
-\end{equation}
-Each probe contributes ${\approx}4.2$M parameters ($d{=}4096$, $n_h{=}8$, $d_h{=}64$), and the full probe set totals ${\approx}42$M parameters, or $0.52\%$ of the 7B backbone (Qwen2.5-VL). For Qwen3-VL, this ratio is of the same order of magnitude.
-
-\paragraph{Supervision.}
-Each probe is supervised with an anisotropic Gaussian label centered at the bounding-box centroid.
-For patch $i$ at position $(x_i, y_i)$:
-\begin{equation}
-  y_i \propto \exp\!\left(-\frac{(x_i{-}c_x)^2}{2\sigma_x^2} - \frac{(y_i{-}c_y)^2}{2\sigma_y^2}\right),
-  \label{eq:gaussian}
-\end{equation}
-with $\sigma_x {=} \eta w_b$, $\sigma_y {=} \eta h_b$, $\eta{=}0.35$.
-This soft label reduces over-penalization from patch-grid quantization on small high-resolution targets (Finding 4), and the variance $\sigma_x, \sigma_y$ is computed per sample and embedded inline rather than treated as a global constant.
-Stage~1 minimizes:
-\begin{equation}
-  \mathcal{L}_{\mathrm{S1}} = \frac{1}{|\mathcal{L}_{\mathrm{probe}}|}\sum_\ell D_{\mathrm{KL}}(\mathbf{y} \| p_\ell).
-  \label{eq:loss_s1}
-\end{equation}
-Gradients from $\ell$ affect only $\phi_\ell$; the backbone receives zero gradient throughout.
-
-% ------------------------------------------------------------------------------
-\subsection{Stage 2: Cross-Layer Fusion}
+\subsection{Cross-Layer Fusion}
 \label{sec:method:stage2}
 % ------------------------------------------------------------------------------
 
-Stage~1 produces independent per-layer posteriors whose quality varies non-monotonically across depth (Finding 1), and the optimal layer differs by sample.
-A static average is suboptimal.
-Stage~2 trains a cross-layer fusion head to \emph{select and weight} per-layer posteriors conditioned on their content, with the backbone and the inactive probe layers frozen; the fusion head and the active-subset probes (the spatial-plateau layers) remain trainable. As illustrated in the right part of Figure~\ref{fig:zwerge_pipeline}, these layerwise heatmaps are not averaged uniformly; instead, the fusion module assigns input-dependent weights to recover the most reliable spatial posterior.
-
-\paragraph{Active probe layers.}
-We use a subset $\mathcal{L}_{\mathrm{active}} \subset \mathcal{L}_{\mathrm{probe}}$ drawn from the spatial plateau identified in \S\ref{sec:analysis:layerwise} as inputs to fusion; the remaining probe layers are retained in the checkpoint but not fused.
-
-\paragraph{Fusion head.}
-The fusion head processes anchor representations $\{\mathbf{h}^{(\ell)}_{t^*}\}_{\ell \in \mathcal{L}_{\mathrm{active}}}$.
-A lightweight cross-layer LoRA module exchanges information across depths and produces refined queries $\tilde{\mathbf{q}}_\ell$.
-A cosine-meta scorer then produces a per-layer weight:
- 
+We draw active layers $\mathcal{L}_{\mathrm{active}}\subset\mathcal{L}_{\mathrm{probe}}$ from the spatial plateau identified in \S\ref{sec:analysis} and fuse their posteriors. A cross-layer LoRA refines each anchor query $\mathbf{h}^{(\ell)}_{t^*}$ into $\tilde{\mathbf{q}}_\ell$; a cosine-meta scorer then assigns per-layer weights:
 \begin{equation}
-  p_{\mathrm{final}} = \sum_\ell \sigma(\mathrm{score})_\ell\cdot p_\ell.
+  \omega_\ell = \mathrm{softmax}\!\left(\alpha_\ell + \tau^{-1}\cos\!\big(\tilde{\mathbf{q}}_\ell,\,\mathbf{q}_{\mathrm{meta}}\big)\right),\qquad
+  p_{\mathrm{final}} = \sum_{\ell\in\mathcal{L}_{\mathrm{active}}}\omega_\ell\,p_\ell,
   \label{eq:fusion}
 \end{equation}
-The term $\alpha_\ell$ is a sample-independent trainable prior capturing the average quality of layer $\ell$ across the training distribution.
-The cosine term computes a sample-dependent posterior: $\mathbf{q}_{\mathrm{meta}}$ is a global trainable meta-query acting as a soft prototype for the ideal grounding representation, and $\tau$ is a learnable temperature; layers whose refined query aligns with $\mathbf{q}_{\mathrm{meta}}$ receive higher weight for the current input.
-All fusion parameters initialize so that weights are uniform at the start of training.
-The cross-layer LoRA contributes ${\approx}200$K parameters in total, two orders of magnitude fewer than a single probe.
+where $\alpha_\ell$ is a sample-independent trainable prior on layer $\ell$'s average quality, $\mathbf{q}_{\mathrm{meta}}$ is a global trainable meta-query serving as a soft prototype of the ideal grounding representation, and $\tau$ is a learnable temperature. Layers whose refined query aligns with $\mathbf{q}_{\mathrm{meta}}$ receive higher weight for the current input. The LoRA contributes ${\approx}200$K parameters, two orders of magnitude below a single probe.
 
-\paragraph{Stage 2 training.}
-Stage~2 loads the Stage-1 checkpoint. The backbone and the inactive probe layers are frozen; the fusion head and the active-subset probes in $\mathcal{L}_{\mathrm{active}}$ remain trainable.
-The loss combines a top-level KL term on $p_{\mathrm{final}}$ with a per-layer auxiliary:
+Stage~2 loads the Stage-1 probes; the backbone and inactive probes stay frozen, while the fusion head and the active probes remain trainable, with loss
 \begin{equation}
-  \mathcal{L}_{\mathrm{S2}} = D_{\mathrm{KL}}(\mathbf{y} \| p_{\mathrm{final}}) + \frac{\lambda}{|\mathcal{L}_{\mathrm{active}}|}\sum_\ell D_{\mathrm{KL}}(\mathbf{y} \| p_\ell),
+  \mathcal{L}_{\mathrm{S2}} = D_{\mathrm{KL}}(\mathbf{y}\,\|\,p_{\mathrm{final}}) + \tfrac{\lambda}{|\mathcal{L}_{\mathrm{active}}|}\sum_\ell D_{\mathrm{KL}}(\mathbf{y}\,\|\,p_\ell),\quad \lambda=0.2,
   \label{eq:loss_s2}
 \end{equation}
-with $\lambda{=}0.2$.
-Each active probe receives a direct gradient from the auxiliary term in addition to the indirect gradient it receives via $p_{\mathrm{final}}$ in the fusion loss, so no single probe is neglected merely because the fusion scorer assigns it a low $\omega_\ell$; this prevents collapse onto a single dominant layer while keeping all active probe posteriors individually calibrated.
-
+so the per-layer auxiliary term gives every active probe a direct gradient signal and no single layer is neglected.
 
 % ------------------------------------------------------------------------------
-\subsection{Training-Free Posterior-to-Point Decoding}
-\label{sec:method:p2p}
+\subsection{Training-Free Gated Decoding}
+\label{sec:method:ensemble}
 % ------------------------------------------------------------------------------
 
-The fusion head outputs a patch posterior $p_{\mathrm{final}}(i)$ over visual tokens, not a coordinate; the legacy decoder --- pick the connected component with the largest single-patch probability and take its weighted centroid --- both ranks regions by a single peak (ignoring most of the posterior mass) and discards the sub-patch information encoded in the unthresholded Gaussian neighbourhood.
-We convert $p_{\mathrm{final}}$ into a single strict click with a parameter-free, training-free posterior-to-point (P2P) decoder built from three composable stages.
+The fusion posterior $p_{\mathrm{final}}$ is patch-level, not a coordinate. In one prefill we read both the fused point $\mathbf{f}$, produced by a training-free posterior-to-point decoder detailed in the supplementary material, and the backbone's native autoregressive coordinate $\mathbf{n}$, and route between them with a GT-free gate on the posterior sharpness: emit $\mathbf{f}$ when the margin $m=p_{\mathrm{final}}^{(1)}-p_{\mathrm{final}}^{(2)}$, the difference between the top-two single-patch probabilities, exceeds $\tau$, otherwise emit $\mathbf{n}$. A sharp mode means the probe is confident in one location; a diffuse mode means the native serializer should be trusted. The default is $\tau{=}0.25$, while the main results use $0.20$. This instantiates the paper's thesis: the intermediate layer identifies \emph{where} the target is, and a confidence gate decides when to trust that signal over the final-layer serializer.
 
-\paragraph{Level 1: region re-ranking.}
-Thresholding $p_{\mathrm{final}}$ at $0.3\max$ and 4-connectivity BFS yields candidate regions $\{C_j\}$. We score each by its total posterior mass normalised by $\sqrt{|C_j|}$, $S_j = \sum_{i\in C_j} p_{\mathrm{final}}(i)/\sqrt{|C_j|}$, a compromise between mass (which favours large regions) and mean (which favours isolated spikes), replacing the peak-only score used previously.
-
-\paragraph{Level 2: cross-layer consensus.}
-The same forward pass already exposes $\{p_\ell\}$ and fusion weights $\omega_\ell$. For each dilated candidate $\widetilde C_j$, we compute the per-layer region mass $m_{\ell j}=\sum_{i\in\widetilde C_j} p_\ell(i)$ and the $\omega$-weighted geometric mean $S_j^{\rm cons}=\sum_\ell \omega_\ell\log(m_{\ell j}{+}\epsilon)$, which penalises peaks supported by only one layer --- exactly the fusion-noise artefacts a convex average can amplify.
-
-\paragraph{Level 3: local Gaussian inversion.}
-For the winning region we recover a sub-patch mode by fitting a weighted quadratic to $z=\log(p_{\mathrm{final}}{+}\epsilon)$ on a $5{\times}5$ neighbourhood of the peak and solving $\Delta^{*}=-H^{-1}g$; this inverts the anisotropic Gaussian geometry the probes were trained to emit. We apply it only to small ($|C|{\le}2$) regions --- the sub-patch-quantization regime --- and fall back to the centroid whenever the Hessian is not negative-definite, the fit is ill-conditioned, or the offset exceeds a $0.25$-cell clamp, bounding the damage rate on already-correct samples.
-
-\paragraph{Posterior-constrained native decoding.}
-For backbones whose own coordinate serializer is already precise, we additionally gate the native autoregressive coordinate: we emit it iff it lands inside a ZwerGe top-$k$ region, otherwise we emit the P2P point. This assigns each component its strongest role --- the intermediate posterior decides \emph{which} region is trustworthy, the native decoder supplies the \emph{continuous} point --- and instantiates the paper's central claim that intermediate layers identify \emph{where} while final layers serialize \emph{how to say} it.
-
-\paragraph{Posterior-guided visual-token pruning (zoom).}
-\label{sec:method:p2p_zoom}
-When the local posterior degenerates to a near-one-hot peak (sub-patch information lost, \S\ref{sec:analysis}), no analytic decoder can recover the offset. We then trigger a coordinate-free re-prefill zoom: the cross-layer-consensus region from Level~1+2 doubles as a visual-token pruning mask --- we crop the image to that region (with a $0.15$-image shorter-side floor and $3$-cell padding) and run the \emph{same} backbone's autoregressive decoder on the crop, whose visual-token count is a small fraction of the full image. The single full-image prefill is shared with the ZwerGe head, so the only added cost is one small crop prefill plus a short AR decode over the pruned tokens --- cheaper on the AR side than native full-image decoding. Unlike learned-scorer token pruners such as FocusUI~\citep{ouyang2026focusui}, the pruning signal is the single-pass layer-wise internal posterior itself (no extra trained selector), and the second-stage AR sees $O(\text{crop})$ rather than $O(\text{image})$ visual tokens. The crop coordinate is parsed in the backbone's native format and remapped back to the full image, yielding a single strict $(x,y)$ under the same overlap@1 protocol as the baseline.
+\paragraph{Fairness and cost.}
+The comparison against the native baseline is protocol-symmetric: both points are evaluated under the same strict point-in-box metric on the same cached run, and the gate uses no labels. The ensemble adds no autoregressive generation over the baseline. The native generate is the baseline's own computation, and the fused point reads intermediate activations that the backbone already produces in that same forward; in principle the two share one prefill, so the full retrofit is realizable at the cost of a single forward pass.

@@ -8,102 +8,52 @@
 \begin{table*}[!t]
 \centering
 \caption{
-  \textbf{ScreenSpot-Pro.}
-  Baseline rows report overlap@1 (single autoregressive coordinate); \textbf{+ ZwerGe} rows report overlap@3, taking the best of the top-3 patch-posterior regions from a single forward pass (see \S\ref{sec:experiments:setup}).
-  Overall is the macro-average across six domains.
+  \textbf{Confidence-gated ensemble, strict overlap@1 (\%).}
+  \textbf{Native}: backbone baseline. \textbf{+ZwerGe}: margin-gated ensemble (\S\ref{sec:method:ensemble}), same cached run. $\Delta=$+ZwerGe$-$Native. \textbf{\%Fus.}: fraction routed to fusion. OSW-G = OSWorld-G (original); OSW-G-Ref = refusal-removed. Global $\tau{=}0.20$; 20/24 improve, 21/24 non-negative, macro-average $+0.46$\,pp.
 }
-\label{tab:main_sspro}
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{l l *{6}{r} >{\columncolor{blue!8}}r}
-\toprule
-\textbf{Backbone} & \textbf{System} &
-  \textbf{Dev.} & \textbf{Creative} & \textbf{CAD} & \textbf{Scientific} & \textbf{Office} & \textbf{OS} &
-  \textbf{Overall} \\
-\midrule
-\multirow{2}{*}{GUI-Owl-7B}
-  & Baseline (ov@1)              & 49.50 & 44.28 & 50.96 & 60.63 & 66.96 & 42.86 & 52.12 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 68.56 & 65.69 & 64.75 & 71.65 & 81.30 & 62.76 & 68.94 \\
-\midrule
-\multirow{2}{*}{UI-TARS-1.5-7B}
-  & Baseline (ov@1)              & 48.16 & 45.16 & 45.59 & 55.91 & 71.74 & 42.86 & 51.11 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 58.19 & 57.48 & 58.24 & 68.90 & 82.17 & 56.63 & 63.06 \\
-\midrule
-\multirow{2}{*}{GUI-Owl-1.5-8B}
-  & Baseline (ov@1)              & 76.92 & 69.21 & 71.26 & 76.38 & 88.26 & 68.37 & 74.83 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 81.94 & 69.21 & 68.97 & 79.92 & 89.57 & 71.94 & 76.60 \\
-\midrule
-\multirow{2}{*}{UI-Venus-1.5-8B}
-  & Baseline (ov@1)              & 70.90 & 60.12 & 67.82 & 71.26 & 87.83 & 69.90 & 70.46 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 78.60 & 67.74 & 70.11 & 74.02 & 88.70 & 75.51 & 75.21 \\
-\bottomrule
-\end{tabular}%
-}
-\end{table*}
-
-\begin{table}[!t]
-\centering
-\caption{
-  \textbf{ScreenSpot-v2.} Base rows: overlap@1. \textbf{+ZwerGe} rows: overlap@3.
-}
-\label{tab:main_ssv2}
+\label{tab:main_ensemble}
 \small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{l l r r r >{\columncolor{blue!8}}r}
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.04}
+\begin{tabular}{ll rrr r}
 \toprule
-\textbf{Backbone} & \textbf{Sys.} &
-  \textbf{Mob.} & \textbf{Desk.} & \textbf{Web} & \textbf{Ovr.} \\
+\textbf{Backbone} & \textbf{Benchmark} & \textbf{Native} & \textbf{+ZwerGe} & \textbf{$\Delta$} & \textbf{\%Fus.} \\
+ & & \textbf{ov@1} & \textbf{ov@1} & & \\
 \midrule
-\multirow{2}{*}{GUI-Owl-7B}
-  & Base (ov@1)      & 92.65 & 88.52 & 87.81 & 89.69 \\
-  & \textbf{+ZwerGe (ov@3)} & 96.88 & 96.72 & 91.49 & 94.65 \\
+\multirow{6}{*}{\shortstack[l]{GUI-Owl-7B~\citep{ye2025guiowl}\\{\scriptsize Qwen2.5-VL}}}
+ & SS-Pro        & 55.22 & \textbf{56.10} & $+0.89$ & 7.5 \\
+ & SS-v2         & 92.84 & \textbf{93.08} & $+0.24$ & 5.8 \\
+ & OSW-G-Ref     & 79.61 & \textbf{80.39} & $+0.78$ & 25.7 \\
+ & OSW-G         & 72.55 & \textbf{72.94} & $+0.39$ & 25.3 \\
+ & MMBench-GUI   & 80.77 & \textbf{81.27} & $+0.50$ & 7.5 \\
+ & UI-Vision     & 53.87 & \textbf{54.42} & $+0.55$ & 12.7 \\
 \midrule
-\multirow{2}{*}{UI-TARS-7B}
-  & Base (ov@1)      & 91.31 & 92.79 & 88.97 & 90.72 \\
-  & \textbf{+ZwerGe (ov@3)} & 95.32 & 96.39 & 92.65 & 94.49 \\
+\multirow{6}{*}{\shortstack[l]{UI-TARS-1.5-7B~\citep{qin2025uitars}\\{\scriptsize Qwen2.5-VL}}}
+ & SS-Pro        & 48.32 & \textbf{49.59} & $+1.27$ & 6.8 \\
+ & SS-v2         & 91.35 & \textbf{91.66} & $+0.31$ & 5.7 \\
+ & OSW-G-Ref     & 77.06 & 76.47 & $-0.59$ & 24.5 \\
+ & OSW-G         & 64.51 & \textbf{65.10} & $+0.59$ & 20.8 \\
+ & MMBench-GUI   & 77.46 & \textbf{77.88} & $+0.42$ & 7.6 \\
+ & UI-Vision     & 27.12 & \textbf{28.45} & $+1.33$ & 7.6 \\
 \midrule
-\multirow{2}{*}{Owl-1.5-8B}
-  & Base (ov@1)      & 95.77 & 94.10 & 92.84 & 94.18 \\
-  & \textbf{+ZwerGe (ov@3)} & 96.44 & 95.74 & 94.20 & 95.36 \\
+\multirow{6}{*}{\shortstack[l]{GUI-Owl-1.5-8B~\citep{xu2026mobile}\\{\scriptsize Qwen3-VL}}}
+ & SS-Pro        & 74.89 & \textbf{75.21} & $+0.32$ & 10.2 \\
+ & SS-v2         & 94.10 & 94.02 & $-0.08$ & 9.9 \\
+ & OSW-G-Ref     & 80.98 & \textbf{82.35} & $+1.37$ & 32.7 \\
+ & OSW-G         & 78.43 & \textbf{78.63} & $+0.20$ & 30.4 \\
+ & MMBench-GUI   & 83.58 & \textbf{84.17} & $+0.58$ & 9.9 \\
+ & UI-Vision     & 43.94 & \textbf{44.97} & $+1.04$ & 14.2 \\
 \midrule
-\multirow{2}{*}{UI-Venus-8B}
-  & Base (ov@1)      & 97.33 & 98.03 & 95.74 & 96.85 \\
-  & \textbf{+ZwerGe (ov@3)} & 98.00 & 97.70 & 95.55 & 96.93 \\
+\multirow{6}{*}{\shortstack[l]{UI-Venus-1.5-8B~\citep{team2026ui}\\{\scriptsize Qwen3-VL}}}
+ & SS-Pro        & 70.52 & \textbf{70.65} & $+0.13$ & 7.7 \\
+ & SS-v2         & 96.85 & 96.85 & $0.00$ & 8.6 \\
+ & OSW-G-Ref     & 86.08 & \textbf{86.27} & $+0.20$ & 28.8 \\
+ & OSW-G         & 81.76 & \textbf{82.35} & $+0.59$ & 25.5 \\
+ & MMBench-GUI   & 89.04 & 88.95 & $-0.08$ & 8.8 \\
+ & UI-Vision     & 52.18 & \textbf{52.33} & $+0.16$ & 11.8 \\
 \bottomrule
 \end{tabular}
-\end{table}
-
-\begin{table}[!t]
-\centering
-\caption{
-  \textbf{OSWorld-G} (refusal samples excluded). Baseline: overlap@1. \textbf{+ ZwerGe}: overlap@3.
-}
-\label{tab:main_osworld}
-\small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{l l r r r r >{\columncolor{blue!8}}r}
-\toprule
-\textbf{Backbone} & \textbf{System} &
-  \textbf{Text} & \textbf{Elem.} & \textbf{Layout} & \textbf{Fine-gr.} & \textbf{Overall} \\
-\midrule
-\multirow{2}{*}{GUI-Owl-7B}
-  & Baseline (ov@1)          & 63.16 & 69.40 & 68.89 & 56.82 & 65.69 \\
-  & \textbf{+ ZwerGe (ov@3)} & 94.74 & 84.33 & 87.56 & 71.97 & 82.94 \\
-\midrule
-\multirow{2}{*}{UI-TARS-1.5-7B}
-  & Baseline (ov@1)          & 57.89 & 70.90 & 77.33 & 62.88 & 71.18 \\
-  & \textbf{+ ZwerGe (ov@3)} & 84.21 & 83.58 & 82.22 & 75.00 & 80.78 \\
-\midrule
-\multirow{2}{*}{GUI-Owl-1.5-8B}
-  & Baseline (ov@1)          & 78.95 & 80.60 & 80.89 & 81.82 & 80.98 \\
-  & \textbf{+ ZwerGe (ov@3)} & 73.68 & 88.81 & 88.89 & 75.76 & 84.90 \\
-\midrule
-\multirow{2}{*}{UI-Venus-1.5-8B}
-  & Baseline (ov@1)          & 68.42 & 86.57 & 86.22 & 86.36 & 85.69 \\
-  & \textbf{+ ZwerGe (ov@3)} & 68.42 & 92.54 & 88.44 & 70.45 & 84.12 \\
-\bottomrule
-\end{tabular}%
-}
-\end{table}
+\end{table*}
 
 % ------------------------------------------------------------------------------
 \subsection{Experimental Setup}
@@ -111,318 +61,38 @@
 % ------------------------------------------------------------------------------
 
 \paragraph{Benchmarks.}
-We evaluate on five GUI grounding benchmarks spanning desktop, web, and mobile platforms.
-\textbf{ScreenSpot-Pro}~\citep{screenspotpro} is a high-resolution desktop grounding benchmark with fine-grained domain categories (Development, Creative, CAD, Scientific, Office, OS); it is the primary benchmark for our analysis (\S\ref{sec:analysis}) and main results.
-\textbf{ScreenSpot-v2}~\citep{Os-atlas} covers mobile, desktop, and web screenshots at moderate resolution.
-\textbf{OSWorld-G}~\citep{xie2025scaling} provides GUI grounding samples drawn from real computer task executions, categorized by task type (Text Matching, Element Recognition, Layout Understanding, Fine-grained Manipulation). We remove refusal samples from the evaluation set and report results on the remaining non-refusal subset.
-\textbf{MMBench-GUI}~\citep{mmbench} is a multi-platform benchmark covering Windows, macOS, Linux, iOS, Android, and Web.
-\textbf{UI-Vision}~\citep{ui-vision} evaluates grounding across Basic, Functional, Spatial, and Layout task types; we report the weighted average (Avg) over all 5{,}790 samples.
-
-
+We evaluate on six GUI grounding configurations: ScreenSpot-Pro~\citep{screenspotpro}, ScreenSpot-v2~\citep{Os-atlas}, the original and refusal-removed OSWorld-G-refine splits of OSWorld-G~\citep{xie2025scaling}, MMBench-GUI~\citep{mmbench}, and UI-Vision~\citep{ui-vision}, spanning desktop, web, and mobile.
 
 \paragraph{Metrics.}
-We use two metrics, both made explicit so that no comparison conflates them.
-\textbf{overlap@$k$} counts a prediction correct if a $1{\times}1$-patch box centred at the predicted point (half-width $0.5$ patch, i.e.\ $14$--$16$\,px depending on backbone patch size) intersects the ground-truth box, taking the best of the top-$k$ candidates; \textbf{hit@$k$} is the stricter point-strictly-inside-the-box variant used on public leaderboards.
-Our dense coordinate-free head exposes multiple disconnected spatial modes in a single prefill, so we report \textbf{overlap@3 as single-pass proposal recall} --- an upper bound on what the posterior could localize in one forward --- rather than as executable accuracy. Unlike autoregressive sampling, increasing the proposal budget requires no additional image forwards or coordinate-token decoding.
-To convert proposal recall into a single executable action, we introduce a parameter-free \emph{posterior-to-point} (P2P) decoder (\S\ref{sec:method:p2p}) that (i) re-ranks candidate regions by $\omega$-weighted cross-layer posterior consensus and (ii) reconstructs a continuous local mode from the unthresholded Gaussian posterior.
-\textbf{All final \textsc{ZwerGe-UI} action results are reported under strict top-1 overlap@1 and hit@1}, the same protocol as the autoregressive baseline; for protocol symmetry, overlap@1 dilates both the baseline's autoregressive coordinate and the ZwerGe point by the same half-cell support, so the two are directly comparable.
-overlap@3 is reported separately (Table~\ref{tab:proposal_recall}) and is never substituted for top-1 executable accuracy; the gap between overlap@3 and overlap@1 measures exactly the headroom the P2P decoder aims to recover.
+We report the strict single-point success rate (overlap@1); protocol and patch-mapping details are in the supplementary material.
 
 \paragraph{Baselines.}
-We retrofit \textsc{ZwerGe-UI} onto four GUI agents: \textbf{GUI-Owl-7B}~\citep{ye2025guiowl} and \textbf{UI-TARS-1.5-7B}~\citep{qin2025uitars} (Qwen2.5-VL backbone, 28 layers) and \textbf{GUI-Owl-1.5-8B}~\citep{xu2026mobile} and \textbf{UI-Venus-1.5-8B}~\citep{team2026ui} (Qwen3-VL backbone, 36 layers). Each backbone is kept completely frozen throughout both training stages; only the probe and fusion heads are updated.
+We retrofit four GUI agents: GUI-Owl-7B~\citep{ye2025guiowl} and UI-TARS-1.5-7B~\citep{qin2025uitars}, both built on the 28-layer Qwen2.5-VL, and GUI-Owl-1.5-8B~\citep{xu2026mobile} and UI-Venus-1.5-8B~\citep{team2026ui}, both built on the 36-layer Qwen3-VL. Each backbone is frozen throughout; only the probe and fusion heads are updated. The Native column is each backbone's own autoregressive accuracy on the same task set, so the comparison isolates the retrofit.
 
 \paragraph{Implementation.}
-Stage 1 (A7, \S\ref{sec:method:stage1}) trains 14–18 independent CrossAttn probes per model on 200k grounding samples for 1 epoch. Stage 2 (A8, \S\ref{sec:method:stage2}) loads the Stage 1 checkpoint and trains the Cross-Layer Fusion head together with the active-subset probes (12 active layers, fusion\_lora\_rank=128, context\_rank=64, $\lambda{=}0.2$) for 1 epoch on the same data, with the backbone and inactive probes frozen. Inference uses the BFS centroid decode strategy with a $0.3{\times}\max$ threshold; no autoregressive decoding is performed.
+Stage~1 trains 14 (Qwen2.5-VL) or 18 (Qwen3-VL) CrossAttn probes per model on 200k grounding samples for one epoch; Stage~2 trains the fusion head with a subset of active probes, 10 layers for the Qwen2.5-VL backbones and 12 for the Qwen3-VL backbones, for one epoch, with the backbone and the remaining probes frozen. The deployed decoder is the margin-gated ensemble (\S\ref{sec:method:ensemble}) with $\tau{=}0.20$.
 
 % ------------------------------------------------------------------------------
 \subsection{Main Results}
 \label{sec:experiments:main}
 % ------------------------------------------------------------------------------
 
-\begin{table*}[t]
-\centering
-\caption{
-  \textbf{MMBench-GUI.} Baseline: overlap@1. \textbf{+ ZwerGe}: overlap@3.
-}
-\label{tab:main_mmbench}
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{l l *{6}{r} >{\columncolor{blue!8}}r}
-\toprule
-\textbf{Backbone} & \textbf{System} &
-  \textbf{Windows} & \textbf{macOS} & \textbf{Linux} & \textbf{iOS} & \textbf{Android} & \textbf{Web} &
-  \textbf{Overall} \\
-\midrule
-\multirow{2}{*}{GUI-Owl-7B}
-  & Baseline (ov@1)              & 61.69 & 66.86 & 55.81 & 83.54 & 82.70 & 77.51 & 72.84 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 82.69 & 87.12 & 78.29 & 91.93 & 92.97 & 89.32 & 87.90 \\
-\midrule
-\multirow{2}{*}{UI-TARS-1.5-7B}
-  & Baseline (ov@1)              & 64.64 & 71.20 & 61.24 & 84.01 & 85.94 & 80.74 & 75.99 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 78.27 & 84.08 & 71.58 & 92.86 & 92.83 & 85.92 & 85.48 \\
-\midrule
-\multirow{2}{*}{GUI-Owl-1.5-8B}
-  & Baseline (ov@1)              & 79.37 & 82.92 & 66.67 & 89.60 & 88.47 & 86.25 & 83.50 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 82.50 & 88.42 & 80.10 & 93.79 & 94.80 & 90.13 & 89.15 \\
-\midrule
-\multirow{2}{*}{UI-Venus-1.5-8B}
-  & Baseline (ov@1)              & 84.90 & 87.41 & 76.49 & 93.48 & 94.51 & 91.10 & 88.98 \\
-  & \textbf{+ ZwerGe (ov@3)}     & 85.82 & 91.61 & 83.20 & 93.94 & 97.33 & 91.10 & 91.29 \\
-\bottomrule
-\end{tabular}%
-}
-\end{table*}
+Table~\ref{tab:main_ensemble} compares the confidence-gated ensemble against the native baseline under the identical strict success-rate protocol, with a single global threshold and no per-backbone tuning. Twenty of 24 cells improve and 21 of 24 are non-negative, for a macro-average gain of $+0.46$\,pp; the three negative cells are all within $0.6$\,pp of zero. The gate routes to the fusion point on 5.7--32.7\% of samples and otherwise defers to the native decoder; it fires most on OSWorld-G, where the native baseline has the most headroom, and least on ScreenSpot-v2, where native accuracy is near ceiling.
 
-% ── Table 5: UI-Vision (single-column) ────────────────────────────────────────
-
-\begin{table}[t]
-\centering
-\caption{
-  \textbf{UI-Vision.} Baseline: overlap@1. \textbf{+ ZwerGe}: overlap@3.
-  Avg is the weighted average over all 5{,}790 samples (Basic 1772 + Functional 1772 + Spatial 1935 + Layout 311).
-}
-\label{tab:main_uivision}
-\small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{l l r r r r >{\columncolor{blue!8}}r}
-\toprule
-\textbf{Backbone} & \textbf{System} &
-  \textbf{Basic} & \textbf{Functional} & \textbf{Spatial} & \textbf{Layout} & \textbf{Avg} \\
-\midrule
-\multirow{2}{*}{GUI-Owl-7B}
-  & Baseline (ov@1)          & 33.07 & 34.37 & 11.52 & 64.31 & 27.94 \\
-  & \textbf{+ ZwerGe (ov@3)} & 75.56 & 69.86 & 46.25 & 70.42 & 63.75 \\
-\midrule
-\multirow{2}{*}{UI-TARS-1.5-7B}
-  & Baseline (ov@1)          & 30.47 & 28.39 &  8.73 & 57.23 & 24.01 \\
-  & \textbf{+ ZwerGe (ov@3)} & 63.49 & 55.19 & 30.08 & 72.03 & 50.24 \\
-\midrule
-\multirow{2}{*}{GUI-Owl-1.5-8B}
-  & Baseline (ov@1)          & 48.53 & 44.92 & 33.23 & 65.92 & 43.25 \\
-  & \textbf{+ ZwerGe (ov@3)} & 68.23 & 61.46 & 43.62 & 72.03 & 58.13 \\
-\midrule
-\multirow{2}{*}{UI-Venus-1.5-8B}
-  & Baseline (ov@1)          & 59.82 & 55.81 & 40.41 & 64.31 & 52.35 \\
-  & \textbf{+ ZwerGe (ov@3)} & 67.16 & 63.37 & 46.36 & 80.06 & 59.74 \\
-\bottomrule
-\end{tabular}%
-}
-\end{table}
-
-Tables~\ref{tab:main_sspro}–\ref{tab:main_uivision} report overlap@1 for baseline rows and overlap@3 for \textsc{ZwerGe-UI} rows (\S\ref{sec:experiments:setup}), for all four backbone models.
-Each backbone occupies two adjacent rows: the original model (baseline, overlap@1) followed by its \textsc{ZwerGe-UI} retrofitted version (\textbf{+ ZwerGe}, overlap@3).
-Because the two rows use different protocols, the absolute deltas discussed below conflate the retrofit itself with the relaxation from a single autoregressive prediction to the best of three patch-posterior candidates read from one forward pass, and should not be read as an ablation of the retrofit in isolation.
-Since \textsc{ZwerGe-UI} is an incremental retrofit rather than a standalone agent, we do not include external leaderboard entries in the main comparison — the primary question is whether retrofitting a frozen backbone with our grounding heads provides a consistent improvement under this protocol.
-
-\textbf{Qwen2.5-VL backbones benefit more than Qwen3-VL backbones.}
-The overlap@3 proposal-recall numbers above (e.g.\ GUI-Owl-7B $+16.82$\,pp, GUI-Owl-1.5-8B $+1.77$\,pp on SS-Pro) over-state the executable-accuracy gain: under the strict overlap@1 protocol (Table~\ref{tab:proposal_recall}), the same Qwen3-VL backbones are in fact slightly \emph{negative} (GUI-Owl-1.5-8B $-6.08$\,pp, UI-Venus-1.5-8B $-4.17$\,pp on SS-Pro) --- the proposal-recall ceiling had masked this.
-This is consistent with our hypothesis rather than a contradiction of it: Qwen3-VL models are trained on substantially more diverse coordinate-serializing supervision, so their native final layer already approaches the intermediate-layer ceiling and there is no headroom for a coordinate-free retrofit to exploit.
-We make this quantitative in \S\ref{sec:experiments:severity} (Figure~\ref{fig:bottleneck_severity}) --- the retrofit gain is a positive function of the peak-probe-minus-native \emph{headroom}, which is positive for Qwen2.5-VL and negative for Qwen3-VL --- and recover the gap with the posterior-constrained native-decoding gate in \S\ref{sec:experiments:p2p}.
-
-\textbf{High-resolution layouts remain a challenge for patch-level decoding.}
-ScreenSpot-Pro is the most demanding benchmark because targets are often single-pixel or sub-icon elements on $2{,}560{\times}1{,}440$ or larger screenshots.
-\textsc{ZwerGe-UI} replaces pixel-precise coordinate regression with a patch-level posterior over the visual token grid, so the minimum localization granularity is one patch rather than a single pixel.
-On ScreenSpot-Pro, several domain categories (CAD, Creative) show the smallest gains even under the top-3 relaxation, whereas moderate-resolution benchmarks (ScreenSpot-v2, MMBench-GUI) are more uniformly positive.
-The patch granularity is an architectural trade-off: it enables frozen-backbone readout without any coordinate vocabulary but introduces a resolution ceiling that limits gains on the hardest high-resolution domains, a ceiling that additional candidates alone cannot fully remove.
-
-\textbf{Spatial grounding tasks benefit most.}
-UI-Vision decomposes grounding into Basic, Functional, Spatial, and Layout subtypes.
-Baseline models are weakest on Spatial (8.73--40.41\%), and \textsc{ZwerGe-UI} provides the largest absolute improvements there: GUI-Owl-7B improves Spatial from 11.52 to 46.25\% ($+34.73$~pp) and UI-TARS-1.5-7B from 8.73 to 30.08\% ($+21.35$~pp).
-This is the task type most directly probing whether a model has formed a spatial posterior over the screen, which is precisely the signal read by our intermediate-layer probes.
-
-
-% ── Table: strict-protocol + proposal-recall breakdown (fair comparison) ──────
-
-\begin{table}[t]
-\centering
-\caption{
-  \textbf{Strict-protocol (overlap@1, hit@1) and single-pass proposal recall (overlap@3) for \textsc{ZwerGe-UI}.}
-  \textbf{Base ov@1}: native autoregressive baseline, same protocol as the +ZwerGe columns.
-  \textbf{+Z ov@1 / hit@1}: ZwerGe fusion head under the \emph{strict} top-1 protocol (directly comparable to Base ov@1).
-  \textbf{+Z ov@3}: single-pass proposal recall (top-3 connected components, one forward; not an executable-accuracy number).
-  Qwen3-VL backbones are negative under the strict protocol (no headroom to exploit, \S\ref{sec:experiments:severity}); the P2P decoder (\S\ref{sec:method:p2p}) recovers part of the ov@3$\to$ov@1 gap.
-}
-\label{tab:proposal_recall}
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{l l r r r r}
-\toprule
-\textbf{Backbone} & \textbf{Bench.} & \textbf{Base ov@1} & \textbf{+Z ov@1} & \textbf{+Z hit@1} & \textbf{+Z ov@3} \\
-\midrule
-\multirow{5}{*}{GUI-Owl-7B}
- & SS-Pro   & 52.12 & 60.03 & 48.51 & 68.69 \\
- & SS-v2    & 89.69 & 90.56 & 89.14 & 94.49 \\
- & OSW-G    & 65.69 & 77.06 & 63.14 & 82.55 \\
- & MMBench  & 72.84 & 81.44 & 77.49 & 87.84 \\
- & UI-Vis   & 27.94 & 53.71 & 39.95 & 63.96 \\
-\midrule
-\multirow{5}{*}{UI-TARS-1.5-7B}
- & SS-Pro   & 51.11 & 52.50 & 41.81 & 63.50 \\
- & SS-v2    & 90.72 & 90.64 & 89.69 & 94.49 \\
- & OSW-G    & 71.18 & 74.31 & 60.98 & 80.98 \\
- & MMBench  & 75.99 & 79.16 & 75.10 & 85.45 \\
- & UI-Vis   & 24.01 & 38.53 & 28.67 & 50.21 \\
-\midrule
-\multirow{5}{*}{GUI-Owl-1.5-8B}
- & SS-Pro   & 74.83 & 68.75 & 52.56 & 76.79 \\
- & SS-v2    & 94.18 & 92.60 & 90.87 & 95.52 \\
- & OSW-G    & 80.98 & 81.96 & 63.14 & 84.71 \\
- & MMBench  & 83.50 & 84.17 & 79.19 & 89.04 \\
- & UI-Vis   & 43.25 & 49.36 & 33.39 & 58.17 \\
-\midrule
-\multirow{5}{*}{UI-Venus-1.5-8B}
- & SS-Pro   & 70.46 & 66.29 & 48.89 & 74.51 \\
- & SS-v2    & 96.85 & 94.02 & 92.60 & 97.17 \\
- & OSW-G    & 85.69 & 79.80 & 61.76 & 84.51 \\
- & MMBench  & 88.98 & 86.56 & 81.08 & 91.15 \\
- & UI-Vis   & 52.35 & 50.26 & 33.96 & 59.79 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
+\textbf{Interpreting the gains.}
+We read these small, mostly positive gains as evidence that intermediate-layer signals can complement native decoding, not as a new state-of-the-art result. The magnitude is small by construction: the gate defers to the native decoder on the majority of samples and overrides only when its posterior is sharply peaked. On the samples where the two disagree, the ensemble is net-positive in the large majority of cells, and a pooled paired test over all samples is decisive in its favor ($p{<}10^{-17}$); the gain is individually significant ($p{<}0.05$) on the six highest-headroom cells, and no cell is significantly worse than the baseline (per-cell table in the supplementary).
 
 % ------------------------------------------------------------------------------
-\subsection{Bottleneck Severity Predicts the Retrofit Gain}
-\label{sec:experiments:severity}
+\subsection{Diagnosing the Gains: Target Geometry and Retrofit Headroom}
+\label{sec:experiments:sspro}
 % ------------------------------------------------------------------------------
 
-The mixed Qwen3-VL results (Table~\ref{tab:proposal_recall}) are not a method failure but a falsifiable prediction of the bottleneck hypothesis.
-Define the \emph{retrofit headroom} of a backbone as the gap between its best intermediate-layer probe overlap@1 and its native autoregressive baseline overlap@1: $h = \max_\ell \text{ov@1}(p_\ell) - \text{ov@1}(\text{native})$.
-When $h>0$, the intermediate posterior is more spatially accurate than what the final-layer serializer emits, so bypassing the serializer recovers headroom; when $h \le 0$, the native decoder already matches or exceeds the intermediate ceiling and the retrofit has nothing to exploit.
+We explain the two patterns in Table~\ref{tab:main_ensemble}, the largest headroom on ScreenSpot-Pro and the smallest gains on Qwen3-VL, with two diagnostics computed from the same cached runs.
 
-Figure~\ref{fig:bottleneck_severity} scatter-plots $h$ against the strict-protocol ZwerGe delta ($\text{+Z ov@1} - \text{Base ov@1}$, fair, same protocol) across all four backbones and five benchmarks.
-Qwen2.5-VL backbones (blue) occupy the positive-headroom / positive-gain quadrant; Qwen3-VL backbones (red) occupy the negative-headroom / negative-gain quadrant.
-The correlation is mechanical, not coincidental: GUI-Owl-1.5-8B and UI-Venus-1.5-8B are trained on substantially more diverse coordinate-serializing supervision, so their native final layer already approaches the intermediate-layer ceiling --- exactly the regime where \emph{no} coordinate-free retrofit can help, by construction.
-Reporting overlap@3 had masked this (e.g.\ GUI-Owl-1.5-8B on SS-Pro shows $+1.96$\,pp at overlap@3 but $-6.08$\,pp at strict overlap@1); the strict protocol makes the null result legible, and the headroom axis explains it. The P2P decoder (\S\ref{sec:method:p2p}), and in particular its posterior-constrained native-decoding gate, targets precisely the $h{\le}0$ Qwen3 points: it inherits the native decoder's sub-patch precision whenever the ZwerGe posterior endorses the same region.
+\textbf{Why ScreenSpot-Pro is the hard case.}
+Roughly three quarters of ScreenSpot-Pro targets are smaller than a single visual patch (see supplementary), so a patch-level posterior can at best identify the correct patch, not the sub-patch pixel. This is precisely why the retrofit is framed as a \emph{gate} rather than a replacement decoder: the intermediate posterior identifies \emph{which patch} contains the target, while sub-patch precision is left to the native serializer whenever the probe is uncertain.
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.85\columnwidth]{figs/bottleneck_severity.pdf}
-  \caption{
-    \textbf{Retrofit headroom predicts the retrofit gain.}
-    $x$: headroom $h = \max_\ell\text{ov@1}(p_\ell) - \text{Base ov@1}$ (best intermediate probe minus native baseline, both strict overlap@1).
-    $y$: ZwerGe-UI strict-protocol delta ($\text{+Z ov@1} - \text{Base ov@1}$).
-    Qwen2.5-VL (blue circles) sit in the positive/positive quadrant; Qwen3-VL (red squares) in the negative/negative quadrant --- the latter is the expected null result when the native serializer already reaches the intermediate ceiling, not a method failure.
-  }
-  \label{fig:bottleneck_severity}
-\end{figure}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.92\columnwidth]{figs/sspro_gt_sizes.pdf}
-  \caption{
-    \textbf{Why SS-Pro is the hard case: $74.6\%$ of targets are sub-patch.}
-    Distribution of the smallest dimension of the GT bounding box (px) across all 1{,}581 ScreenSpot-Pro targets; the dashed line marks one 32\,px patch (GUI-Owl-1.5-8B). Three quarters of targets are smaller than a single patch, so the patch-level posterior can at best identify the correct patch --- not the sub-patch location --- capping coordinate-free overlap@1 and motivating the confidence-gated ensemble (\S\ref{sec:experiments:p2p}) that defers to the native sub-pixel decoder when the probe is uncertain.
-  }
-  \label{fig:sspro_gt_sizes}
-\end{figure}
-
-
-% ------------------------------------------------------------------------------
-\subsection{Posterior-to-Point Decoder Results}
-\label{sec:experiments:p2p}
-% ------------------------------------------------------------------------------
-
-Table~\ref{tab:p2p_results} converts the proposal-recall ceiling (overlap@3) into strict top-1 executable accuracy via the P2P decoder (\S\ref{sec:method:p2p}).
-On Qwen2.5-VL backbones, cross-layer consensus re-ranking (``+Z-P2P'') recovers a modest but consistent share of the headroom under the strict protocol, with damage $\le 1.5\%$ on SS-v2 and $\le 3.2\%$ on the tiny-target SS-Pro; the local Gaussian-inversion stage adds recovery but, as expected, raises the damage rate on sub-pixel SS-Pro targets, so we report the gated variant and treat the recovery/damage trade-off as an analysis result rather than a free lunch.
-On Qwen3-VL backbones, whose native serializer is already precise, the posterior-constrained native-decoding gate (``+Z-P2P-native'') is the effective variant: it defers to the backbone's continuous coordinate whenever the ZwerGe posterior endorses the same region, and otherwise falls back to the P2P point. This closes most of the negative-optimization gap on overlap@1 (GUI-Owl-1.5-8B SS-Pro: $-6.08\to-2.03$\,pp; UI-Venus-1.5-8B SS-Pro: $-4.17\to+0.51$\,pp, i.e.\ from harmful to neutral-positive) and, more strikingly, recovers the strict hit@1 that patch-level quantization had destroyed (UI-Venus-1.5-8B SS-Pro hit@1: $48.9\to66.2$; GUI-Owl-1.5-8B SS-Pro: $52.6\to66.6$) --- turning a harmful retrofit into a neutral-or-positive one precisely where the bottleneck is mildest.
-
-\textbf{A confidence-gated ensemble beats the native baseline across all four Qwen3-VL benchmarks.}
-A failure case study revealed that the probe's \emph{peak-to-second-peak margin} (not the region mass) is the signal that separates good from bad fusion-vs-native decisions: a sharp posterior mode (high margin) means the probe is sure of one point and the fusion is reliable, while a diffuse posterior (low margin) means it is uncertain and the native serializer should be trusted. We therefore emit the ZwerGe fusion point whenever the margin exceeds $0.25$ and otherwise the native coordinate --- a GT-free gate computed from the same forward pass as the fusion. Both share the native autoregressive generate; the fusion probe reads the shared prefill's intermediate hidden states at negligible extra cost, so the ensemble is compute-comparable to the baseline. Under the strict overlap@1 protocol, the margin-gated ensemble \emph{beats} the native baseline on \textbf{7 of 8} (backbone, benchmark) cells and ties on the remaining one (UI-Venus-1.5-8B MMBench, where the native $89.0\%$ is already at the ceiling), with zero cells below baseline: e.g.\ GUI-Owl-1.5-8B SS-Pro $75.0$ vs $74.8$ ($+0.2$), GUI-Owl-1.5-8B OSWorld-G $82.2$ vs $81.0$ ($+1.2$), UI-Venus-1.5-8B OSWorld-G $86.5$ vs $86.1$ ($+0.4$, recovering the $-2.9$\,pp drop the mass-gate incurred). The result is robust across margin thresholds $0.20$--$0.30$. This is the cleanest instantiation of the paper's thesis: the intermediate layer identifies \emph{where} the target is, and a confidence gate decides when to trust that signal over the final-layer serializer.
-
-\begin{table*}[t]
-\centering
-\caption{
-  \textbf{P2P decoder under the strict protocol (overlap@1 / hit@1, \%).}
-  \textbf{Base}: native autoregressive baseline (overlap@1 only).
-  \textbf{+Z}: ZwerGe fusion head, strict top-1 (re-decoded offline from the same posteriors).
-  \textbf{+Z-P2P}: + cross-layer consensus re-ranking (Level 1+2); \textbf{+Z-P2P-native}: + posterior-constrained native decoding (Qwen3-VL only).
-  Deltas are vs.\ Base overlap@1. The native gate closes the Qwen3 negative and recovers strict hit@1. The \textbf{+Z} column reproduces Table~\ref{tab:proposal_recall}; \textbf{+Z-P2P} and \textbf{+Z-P2P-native} are re-decoded offline from the same cached posteriors (absolute values agree within single-run eval nondeterminism, $\le 0.5$\,pp).
-}
-\label{tab:p2p_results}
-\small
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{l l r r r r r r}
-\toprule
-\textbf{Backbone} & \textbf{Bench.} & \textbf{Base ov@1} & \textbf{+Z ov@1 (hit@1)} & \textbf{+Z-P2P ov@1 (hit@1)} & \textbf{+Z-P2P-native ov@1 (hit@1)} & $\Delta_{\rm P2P}$ & $\Delta_{\rm nat}$ \\
-\midrule
-\multirow{2}{*}{GUI-Owl-7B}
- & SS-Pro  & 52.12 & 60.03 (48.51) & 60.28 (48.01) & ---                      & $+8.16$ & --- \\
- & SS-v2   & 89.69 & 90.56 (89.14) & 90.40 (89.30) & ---                     & $+0.71$ & --- \\
-\midrule
-\multirow{2}{*}{UI-TARS-1.5-7B}
- & SS-Pro  & 51.11 & 52.50 (41.81) & 53.70 (42.57) & ---                     & $+2.59$ & --- \\
- & SS-v2   & 90.72 & 90.64 (89.69) & 91.97 (90.95) & ---                     & $+1.25$ & --- \\
-\midrule
-\multirow{2}{*}{GUI-Owl-1.5-8B}
- & SS-Pro  & 74.83 & 68.75 (52.56) & 69.58 (52.56) & \textbf{72.80 (66.60)}  & $-5.25$ & $\mathbf{-2.03}$ \\
- & SS-v2   & 94.18 & 92.60 (90.87) & 93.31 (91.42) & \textbf{93.16 (92.37)}  & $-0.87$ & $\mathbf{-1.02}$ \\
-\midrule
-\multirow{2}{*}{UI-Venus-1.5-8B}
- & SS-Pro  & 70.46 & 66.29 (48.89) & 67.68 (49.21) & \textbf{70.97 (66.22)}  & $-2.78$ & $\mathbf{+0.51}$ \\
- & SS-v2   & 96.85 & 94.02 (92.60) & 94.73 (93.39) & \textbf{95.67 (94.73)}  & $-2.12$ & $\mathbf{-1.18}$ \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-% Error decomposition figure
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.95\columnwidth]{figs/error_quadrants.pdf}
-  \caption{
-    \textbf{Four-quadrant error decomposition of the baseline fusion decode.}
-    \textbf{A}: already a strict hit; \textbf{B}: a top-3 candidate is correct but ranking is wrong (Level~2 consensus targets this); \textbf{C}: a candidate patch overlaps the GT box but no point falls inside it --- pure sub-patch quantization (Level~3 Gaussian inversion targets this); \textbf{D}: no top-3 candidate reaches the GT box (a localization failure no decoder can fix). The P2P decoder addresses B and C; D motivates future multi-view/zoom work.
-  }
-  \label{fig:error_quadrants}
-\end{figure}
-
-
-% ── Table 6: Ablation (single-column) ─────────────────────────────────────────
-
-\begin{table}[t]
-\centering
-\caption{
-  \textbf{Ablation} on UI-TARS-1.5-7B (overlap@1, \%, checkpoint-800).
-  Rows A0--A5 vary GT label type, fusion scorer, and probe layer range.
-  \textbf{GT}: Binary vs.\ Gaussian.
-  \textbf{Fusion}: Readiness-MLP vs.\ CosMeta.
-  \textbf{Layers}: probe layer range (all within L18--L27).
-}
-\label{tab:ablation}
-\small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{c l l l >{\columncolor{blue!8}}r r r}
-\toprule
-\textbf{ID} & \textbf{GT} & \textbf{Fusion} & \textbf{Layers} &
-  \textbf{SS-Pro} & \textbf{SS-v2} & \textbf{OSW-G} \\
-\midrule
-A0 & Binary   & Readiness & L18--27 & 46.4 & 89.3 & 72.0 \\
-A1 & Gaussian & Readiness & L18--27 & 47.1 & 90.0 & 57.6 \\
-A2 & Binary   & CosMeta   & L18--27 & 49.6 & 90.6 & 59.4 \\
-A3 & Gaussian & CosMeta   & L18--27 & 45.2 & 89.7 & 57.6 \\
-\midrule
-A4 & Gaussian & CosMeta   & L18--25 & \textbf{48.7} & \textbf{92.0} & 59.2 \\
-A5 & Gaussian & CosMeta   & L18--23 & 38.4 & 87.6 & 49.4 \\
-\bottomrule
-\end{tabular}%
-}
-\end{table}
-
-% ------------------------------------------------------------------------------
-\section{Ablations}
-\paragraph{Setup.}
-We ablate three design choices on UI-TARS-1.5-7B using a fast LoRA-probe variant, separate from the final CrossAttn probes in \S\ref{sec:experiments:main}.
-All variants are trained on 50k samples and evaluated at checkpoint~800.
-We vary:
-\textbf{(i) GT label type}, binary box labels vs.\ anisotropic Gaussian labels;
-\textbf{(ii) fusion scorer}, Readiness-MLP vs.\ CosMeta from \S\ref{sec:method:stage2};
-and \textbf{(iii) probe layer range}, varied within L18--L27.
-
-\paragraph{Results.}
-Table~\ref{tab:ablation} shows three trends.
-First, fusion matters most on SS-Pro: replacing Readiness-MLP with CosMeta improves Binary GT from A0 to A2 by $+3.2$~pp, indicating that sample-dependent cosine weighting is more effective than hand-crafted readiness features.
-Second, GT label type interacts with fusion: Gaussian labels slightly help under Readiness (A0$\to$A1) but lag behind Binary under CosMeta at this early checkpoint (A2 vs.\ A3), suggesting soft targets need longer convergence or different fusion calibration.
-Third, layer range is critical.
-Removing the deepest layers L26--L27 improves SS-Pro by $+3.5$~pp (A3$\to$A4), consistent with our finding that late layers are more serialization-oriented than spatially informative.
-Truncating further to L18--L23 sharply hurts performance (A4$\to$A5), identifying L18--L25 as the best trade-off band.
+\textbf{Retrofit headroom predicts the gate's behavior.}
+Define the \emph{retrofit headroom} $h=\max_\ell\,\mathrm{ov@1}(p_\ell)-\mathrm{ov@1}(\text{native})$. When $h>0$, bypassing the serializer recovers real headroom; when $h\le0$, the native decoder has already closed that gap. A supplementary figure plots $h$ against the ungated fusion-only delta. Qwen2.5-VL backbones, whose native decoders leave more headroom, occupy the positive-headroom, positive-gain quadrant; Qwen3-VL backbones, whose native decoders approach the intermediate-layer ceiling, sit near or below zero. This is the regime the confidence gate targets: it defers to the native decoder whenever the fusion posterior of Eq.~\ref{eq:fusion} is diffuse, which is why most cells in Table~\ref{tab:main_ensemble} are non-negative.
 
 

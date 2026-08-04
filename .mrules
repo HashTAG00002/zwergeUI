@@ -3008,3 +3008,124 @@
 
     未处理：P0-2b tuned-lens 仍只有 GUI-Owl-7B 一个模型（caption 已如实标注单模型，
     不构成过度概括，暂不补做，因需要额外的 ridge regression 训练流程，成本较高）。
+
+
+  - [2026-07-29] 【★ 主表换为 margin-gated ensemble + 全文 gate 叙事重写 + 合规/编译修复】
+
+    背景：用户指示主表必须换成 p2p_ensemble_t020_offline 的 confidence-gated ensemble
+    （margin gate, τ=0.20，24 cell 全部同次运行严格 overlap@1），不能再展示旧 Qwen3
+    负优化数字或 overlap@3 协议。本次完成该交接的全部写作 + 合规 + 编译。
+
+    ─── 5_experiment.tex 主表体系重做 ─────────────────────────────────────────
+    删除 5 张旧 overlap@3 主表（tab:main_sspro/ssv2/osworld/mmbench/uivision）、
+    tab:proposal_recall、tab:p2p_results；新建 1 张 tab:main_ensemble（24 cell =
+    4 backbone × 6 benchmark，列 Native ov@1 / +ZwerGe ov@1 / Δ / %Fusion）。
+    3 个极小幅负优化（uitars_osworld_g −0.59, guiowl_ss_v2 −0.08, uivenus_mmbench −0.08）
+    与 1 个持平（uivenus_ss_v2 0.00）均如实保留并标红/灰，未删行。宏观均值 Δ=+0.46pp。
+    %Fusion（5.7–32.7%）用于论证门控保守性（OSWorld-G 触发率最高，SS-v2 最低）。
+    【数据已核验】：脚本对 24 cell × 4 字段 = 96 项逐一比对 results_t020.json，0 mismatch。
+    metrics 段：明确 overlap@1 严格协议、baseline 与 ensemble 同次运行协议对称；hit@1
+    在 gate 同配置下 pending follow-up，不借用别的协议/阈值数字（诚实注明）。
+    §5.3 severity 重构：fusion-only delta vs headroom 图保留，但 reframe 为"解释 fusion-only
+    收益差异"，gate 作为其解决方案（不再暗示主表有负优化）。
+
+    ─── 4_method.tex §sec:method:p2p 重写 ─────────────────────────────────────
+    P2P decoder Levels 1–3 保留为 fusion point 产生器；新增 §sec:method:ensemble
+    （deployed decoder）：margin = p_final top1 − top2 patch prob，margin>τ 用 fusion
+    否则 native，τ 默认 0.25（主表 0.20，robust 0.20–0.30），GT-free，成本≈baseline
+    （共享 native generate，fusion 仅多一次 prefill 读 hook，无 AR decode；如实注明
+    harness 当前分离 forward、可 coalesce 到 native prefill）。region-membership gate
+    与 zoom 降级为 optional variants（不进主表）。删除 pipeline 图后 \vspace{-0.4cm}。
+
+    ─── intro/abstract/conclusion 框架更新 ─────────────────────────────────────
+    去掉"coordinate-free / no AR generation""Qwen3 收益更小"等旧表述（deployed ensemble
+    实际用 native AR decode + gate）。abstract/intro/contribution bullet/conclusion
+    统一为"confidence gate closes negative-optimization gap，20/24 cell 正优化"。
+    benchmark 数改为 5 benchmarks（6 configurations，OSW-G 两个 split）。\textsc{ZwerGe-UI} 统一。
+
+    ─── 2_related.tex GUI-Actor/Re-Prefill ────────────────────────────────────
+    GUI-Actor 具体化（eKpD-W9）：单层 last-layer head ~25M vs 我们多层 ~42M probe +
+    cross-layer fusion；motivation=最优空间层 backbone-dependent 且非末层。Re-Prefill
+    中性区分（stage-level vs layer-level，不暗示对方有缺陷）。
+
+    ─── 合规 + 编译修复（AAAI 2027 模板）─────────────────────────────────────
+    删除全部 7 处 \clearpage（a_appendix）、4_method 的 \vspace{-0.4cm}；prompt/*.tex
+    7 处 tcolorbox label=prompt:* 在 TL2013 tcolorbox 2.02 下不识别（key 未支持），
+    且均未被 \ref，已删除（source-compliant）。
+    附录 19 个 float 的 flush：用 placeins \FloatBarrier（非 forbidden 命令）替代
+    \clearpage；但 \FloatBarrier 触发 colortbl 的 \@endfloatbox/\color@endbox "Extra }"
+    bug → 故 drop colortbl（仅 ablation 一处 \columncolor 高亮，已移除，cosmetic），改用
+    xcolor \color{red} 文本着色。\usepackage{placeins} 已加 preamble。
+    编译通过：pdflatex+bibtex+2×pdflatex 全程 0 fatal error、0 undefined ref/citation、
+    0 overfull。总 30 页；正文（intro→conclusion）止于第 9 页（含 bottleneck_severity +
+    sspro_gt_sizes 两图），参考文献 p9–11，appendix p12–30。
+    【页数诚实说明】正文 ~9pp 超出 AAAI 7pp 限制 2 页；已做 3_analysis 三个 verbose 控制
+    段（§3.1 robustness/§3.2 logit-lens/§3.4 target-size）condense + 移 error_quadrants
+    图入 appendix + condense §5.1 benchmarks（共省 ~1.2pp 但未足）。bottleneck_severity
+    与 sspro_gt_sizes 图按交接要求保留在正文（analysis→method 桥梁，handoff 明确要留），
+    故未进一步移图。若最终目标严格 AAAI 7pp：把这两图 + tab:resolution_comparison 移
+    appendix 即可达 7–8pp（一行改动，待用户定夺）。对 CVPR/NeurIPS/ICLR/ICML 目标
+    venue（8–9pp 限制）当前 9pp 已可用。
+
+    ─── 文件改动清单 ─────────────────────────────────────────────────────────
+    docs/our_paper_tex/secs/{1_intro,3_analysis,4_method,5_experiment,6_conclusion,2_related,a_appendix}.tex
+    docs/our_paper_tex/AnonymousSubmission2027.tex（abstract + preamble: +placeins, −colortbl）
+    docs/our_paper_tex/prompt/{uitars,guiowl,guiowl15,ui_venus15,uitars_ours,guiowl_ours,ui_venus15_ours}.tex（删 label=prompt:*）
+
+
+  - [2026-07-29] 【★★ 第二轮打磨：结构重组 + 去破折号 + 7页达标 + fig3 修复 + data/appendix 补齐】
+
+    ─── 方法结构重组（task 5，参考 Vision Transformers Need Registers）──────────
+    新建 secs/2_probe.tex（Stage 1 per-layer probe = "lens"），移到 3_analysis 之前
+    （分析基于 Stage 1，故 Stage 1 先行）。secs/4_method.tex 重写为轻量扩展：
+    Cross-Layer Fusion + Training-Free Gated Decoding（2 段：概述 + 公平性/成本）。
+    pipeline 图移出正文（减量，更分析型）。main.tex input 重排：
+    1_intro → 2_probe → 3_analysis → 4_method → 5_experiment → 6_conclusion。
+    修复 eq5（fusion）：明确定义 ω_ℓ = softmax(α_ℓ + τ⁻¹cos(q̃_ℓ, q_meta))，p_final = Σ ω_ℓ p_ℓ，
+    terminology 与公式一致（eKpD/4sok 之前指出不匹配，已修）。Stage2 loss 注明 active probes
+    trainable → auxiliary 是真实梯度非 constant（eKpD-W3）。
+    decode 成本论证：写理论下界"single forward pass realizable"（shared prefill，无额外
+    image forward / 无 AR decode），如实注明 harness 分离 forward 仅 code-path 方便。
+
+    ─── 去破折号（task 3）────────────────────────────────────────────────────
+    全文 553 处 em-dash (---) → 逗号（AI 味写作 tic）。保留 -- en-dash 数字范围（L18--L27 等）。
+    非注释行 0 残留。prompt/*.tex 7 处 tcolorbox label=prompt:* 在 TL2013 tcolorbox 2.02
+    不识别且未被 \ref，已删（source-compliant）。
+
+    ─── 主表 + 引用（task 4）────────────────────────────────────────────────
+    osworld_g → "OSW-G-Ref"（OSWorld-G-refine，refusal-removed+reclassified）；
+    osworld_g_orig → "OSW-G"（OSWorld-G original）。caption 说明二者关系。
+    4 个模型名在表内加 \citep{ye2025guiowl/qin2025uitars/xu2026mobile/team2026ui}。
+
+    ─── 摘要重写（task 9，参考 our_eccv 风格）──────────────────────────────
+    直切主题、结论先行、每句作用对齐 ECCV；去啰嗦；用 "success-rate protocol"（弱化 overlap）。
+
+    ─── 训练/测试数据入 appendix（task 7）─────────────────────────────────
+    新 app:data：200k grounding_200k.jsonl（AgentNet 42k + OS-Atlas 35k + GroundCUA 123k），
+    去重 + 排除测试 benchmark；6 benchmark 配置 + n。正文 2_probe/5_experiment 引用 app:data。
+
+    ─── fig3 重新生成（task 8）─────────────────────────────────────────────
+    plot_probes.py plot_fig3：legend bbox_to_anchor (0.5,-0.08)→(0.5,-0.22) + tight_layout
+    rect=[0,0.06,1,0.96]，修复 legend 与 x 轴 "Probe layer" 重叠。4 模型 panel（含 guiowl7b）不变。
+    数据 zwerge/probe/outputs/exp3(+exp3_v2)，输出 docs/our_paper_tex/figs/。
+
+    ─── 弱化 overlap 表述（task 10）────────────────────────────────────────
+    §5.1 metrics：lead 用 "success rate (SR, overlap@1)"，patch size/box 映射细节丢 app:data；
+    hit@1 pending 说明保留；overlap@3 仅作动机一句（不入主表）。
+
+    ─── appendix 附加 P2P decoder 细节 ──────────────────────────────────────
+    新 app:p2p：Level 1 region re-ranking / Level 2 cross-layer consensus / Level 3 local
+    Gaussian inversion（从原 4_method 移入 appendix，正文 decode 仅 2 段）。
+
+    ─── 编译验证 ───────────────────────────────────────────────────────────
+    pdflatex+bibtex+2×pdflatex 全程 0 fatal / 0 undefined ref / 0 overfull。
+    正文（intro→conclusion）止于第 7 页（含 bottleneck_severity 图）✓ 达 AAAI 7pp。
+    总 29 页（appendix 含 prompt/控制实验/per-layer 曲线）。
+    所有 24 cell 仍与 results_t020.json 一致（未动主表数据）。
+
+    ─── 文件改动 ───────────────────────────────────────────────────────────
+    docs/our_paper_tex/secs/{2_probe(new),1_intro,3_analysis,4_method,5_experiment,6_conclusion,2_related,a_appendix}.tex
+    docs/our_paper_tex/AnonymousSubmission2027.tex（abstract + preamble + input 顺序）
+    docs/our_paper_tex/prompt/*.tex（7 文件删 label=）
+    docs/our_paper_tex/figs/fig3_serialization_lens.{pdf,png}（重新生成）
+    zwerge/probe/plot_probes.py（plot_fig3 legend 布局修复）

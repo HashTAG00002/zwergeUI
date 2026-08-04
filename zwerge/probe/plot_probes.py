@@ -328,12 +328,14 @@ def plot_fig3(exp3_data: Dict[str, dict], output_dir: str,
             Line2D([0], [0], color=_BLUE,   lw=1.4, ls=":", alpha=0.6, label="hit@1 SS-v2 ↑"),
             Line2D([0], [0], color=_ORANGE, lw=1.4, ls=":", alpha=0.6, label="Coord LL SS-v2 ↑"),
         ]
-    ncol = 3 if has_v2 else 4
+    ncol = 6 if has_v2 else 4
     fig.legend(handles=legend_elems, loc="lower center", ncol=ncol,
-               fontsize=7.5, bbox_to_anchor=(0.5, -0.08))
+               fontsize=6.5, bbox_to_anchor=(0.5, -0.12),
+               borderpad=0.3, handletextpad=0.35, columnspacing=0.9,
+               frameon=False)
     fig.suptitle("Spatial Grounding Peaks Before Coordinate Serialization",
-                 fontsize=10, y=1.02)
-    fig.tight_layout()
+                 fontsize=10, y=1.01)
+    fig.tight_layout(rect=[0, 0.04, 1, 0.96])
     _save_fig(fig, output_dir, "fig3_serialization_lens")
 
 

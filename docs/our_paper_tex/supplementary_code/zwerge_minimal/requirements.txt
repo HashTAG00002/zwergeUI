@@ -1,0 +1,29 @@
+# ZwerGe-UI minimal supplementary code — dependencies
+#
+# Core (required for modeling.py / inference.py / ensemble.py / probe_lens.py):
+torch>=2.1
+Pillow>=9.0
+numpy>=1.24
+
+# HuggingFace stack for loading a frozen VLM backbone.
+# IMPORTANT — backbone-specific transformers version requirements:
+#   - UI-TARS-1.5-7B / GUI-Owl-7B          (Qwen2.5-VL): transformers>=4.51.3
+#   - GUI-Owl-1.5-8B-Instruct / UI-Venus-1.5-8B (Qwen3-VL): transformers>=4.57.1
+#     (Qwen3VLForConditionalGeneration is only available from this version on;
+#      an older transformers install can still import modeling.py itself,
+#      since the Qwen3-VL model class is loaded lazily inside
+#      build_qwen3vl_retrofit_model_class())
+transformers>=4.51.3
+
+# Qwen-family image/video preprocessing (chat-template vision info extraction).
+qwen-vl-utils>=0.0.8
+
+# Optional but strongly recommended for the paper's reported throughput
+# (loaded via attn_implementation="flash_attention_2" in from_pretrained();
+# no custom kernel code is needed from this package).
+# flash-attn>=2.5.0
+
+# tqdm is used by some of the full-repository eval loops referenced in
+# README.md; not a hard dependency of the files in this package, listed for
+# convenience when extending example_run.sh into a full sweep.
+tqdm>=4.65

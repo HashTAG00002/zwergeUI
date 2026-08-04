@@ -2,8 +2,8 @@ This is pdfTeX, Version 3.1415926-2.5-1.40.14 (TeX Live 2013) (format=pdflatex 2
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
-**AnonymousSubmission2027.tex
-(./AnonymousSubmission2027.tex
+**supplementary.tex
+(./supplementary.tex
 LaTeX2e <2011/06/27>
 Babel <v3.8m> and hyphenation patterns for english, dumylang, nohyphenation, lo
 aded.
@@ -581,31 +581,29 @@ Package: listings 2007/02/22 1.4 (Carsten Heinz)
 \@float@every@listing=\toks37
 \c@listing=\count143
 
-(./AnonymousSubmission2027.aux)
-\openout1 = `AnonymousSubmission2027.aux'.
+(./supplementary.aux)
+\openout1 = `supplementary.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 176.
-LaTeX Font Info:    ... okay on input line 176.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 176.
-LaTeX Font Info:    ... okay on input line 176.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 176.
-LaTeX Font Info:    ... okay on input line 176.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 176.
-LaTeX Font Info:    ... okay on input line 176.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 176.
-LaTeX Font Info:    ... okay on input line 176.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 176.
-LaTeX Font Info:    ... okay on input line 176.
-LaTeX Font Info:    Try loading font information for T1+ntxrx on input line 176
-.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 63.
+LaTeX Font Info:    ... okay on input line 63.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 63.
+LaTeX Font Info:    ... okay on input line 63.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 63.
+LaTeX Font Info:    ... okay on input line 63.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 63.
+LaTeX Font Info:    ... okay on input line 63.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 63.
+LaTeX Font Info:    ... okay on input line 63.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 63.
+LaTeX Font Info:    ... okay on input line 63.
+LaTeX Font Info:    Try loading font information for T1+ntxrx on input line 63.
 
-(/usr/share/texlive/texmf-dist/tex/latex/newtx/t1ntxrx.fd
+ (/usr/share/texlive/texmf-dist/tex/latex/newtx/t1ntxrx.fd
 File: t1ntxrx.fd 2012/12/25 v1.0
 )
 \c@mv@tabular=\count144
 \c@mv@boldtabular=\count145
-
-(/usr/share/texlive/texmf-dist/tex/context/base/supp-pdf.mkii
+ (/usr/share/texlive/texmf-dist/tex/context/base/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
 \scratchcounter=\count146
 \scratchdimen=\dimen184
@@ -677,160 +675,354 @@ ABD: EveryShipout initializing macros
 \c@aaai@corrfn=\count154
 \titlearea=\box48
 \actualheight=\skip53
-LaTeX Font Info:    Try loading font information for U+msa on input line 184.
+ (./secs/2_related.tex
+LaTeX Font Info:    Try loading font information for U+msa on input line 11.
 
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Try loading font information for U+msb on input line 184.
+LaTeX Font Info:    Try loading font information for U+msb on input line 11.
 
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
-) (./secs/1_intro.tex
-LaTeX Font Info:    Try loading font information for OMS+ntxrx on input line 31
-.
-LaTeX Font Info:    No file OMSntxrx.fd. on input line 31.
+)
+Underfull \hbox (badness 5175) in paragraph at lines 11--12
+ \T1/ntxrx/bx/n/10 Coordinate-free and region-centric ground-ing. \T1/ntxrx/m/n
+/10 Be-
+ []
 
 
-LaTeX Font Warning: Font shape `OMS/ntxrx/m/n' undefined
-(Font)              using `OMS/cmsy/m/n' instead
-(Font)              for symbol `textbullet' on input line 31.
-
-[1{/usr/share/texlive/texmf/fonts/map/pdftex/updmap/pdftex.map}
+Underfull \hbox (badness 1264) in paragraph at lines 11--12
+\T1/ntxrx/m/n/10 et al. 2025b), DiMo-GUI (Wu et al. 2025a), and Fo-
+ []
 
 
+Underfull \vbox (badness 3503) has occurred while \output is active []
 
-])
-(./secs/2_probe.tex
-LaTeX Font Info:    Try loading font information for T1+pcr on input line 12.
+ [1{/usr/share/texlive/texmf/fonts/map/pdftex/updmap/pdftex.map}
+
+
+
+]) (./secs/a_appendix.tex
+Underfull \hbox (badness 10000) in paragraph at lines 17--4
+ \T1/ntxrx/bx/n/10 Ef-fi-cient mul-ti-modal ground-ing back-bones. \T1/ntxrx/m/
+n/10 GUI
+ []
+
+
+Underfull \hbox (badness 2096) in paragraph at lines 17--4
+\T1/ntxrx/m/n/10 tional vision-language ar-chi-tec-tures (Doso-vit-skiy et al.
+ []
+
+
+Underfull \hbox (badness 1009) in paragraph at lines 17--4
+\T1/ntxrx/m/n/10 pos-te-rior op-er-ates over. Our probes are com-ple-men-tary
+ []
+
+
+Underfull \hbox (badness 4634) in paragraph at lines 104--113
+ \T1/ntxrx/bx/n/10 Con-trolled within-benchmark target-size re-gres-sion.
+ []
+
+[2] [3] <figs/fig_targetsize_gap.pdf, id=31, 390.13976pt x 240.90176pt>
+File: figs/fig_targetsize_gap.pdf Graphic file (type pdf)
+
+<use figs/fig_targetsize_gap.pdf>
+Package pdftex.def Info: figs/fig_targetsize_gap.pdf used on input line 133.
+(pdftex.def)             Requested size: 220.24239pt x 135.99579pt.
+
+<figs/fig_norm_census_combined.pdf, id=32, 785.74492pt x 251.1671pt>
+File: figs/fig_norm_census_combined.pdf Graphic file (type pdf)
+
+<use figs/fig_norm_census_combined.pdf>
+Package pdftex.def Info: figs/fig_norm_census_combined.pdf used on input line 1
+60.
+(pdftex.def)             Requested size: 227.42392pt x 72.69478pt.
+ [4 <./figs/fig_targetsize_gap.pdf> <./figs/fig_norm_census_combined.pdf>]
+<figs/error_quadrants.pdf, id=171, 397.41191pt x 236.7131pt>
+File: figs/error_quadrants.pdf Graphic file (type pdf)
+
+<use figs/error_quadrants.pdf>
+Package pdftex.def Info: figs/error_quadrants.pdf used on input line 206.
+(pdftex.def)             Requested size: 215.45348pt x 128.33244pt.
+
+<figs/sspro_gt_sizes.pdf, id=172, 368.2558pt x 220.72739pt>
+File: figs/sspro_gt_sizes.pdf Graphic file (type pdf)
+
+<use figs/sspro_gt_sizes.pdf>
+Package pdftex.def Info: figs/sspro_gt_sizes.pdf used on input line 215.
+(pdftex.def)             Requested size: 215.45348pt x 129.14015pt.
+
+<figs/bottleneck_severity.pdf, id=173, 368.23198pt x 278.51741pt>
+File: figs/bottleneck_severity.pdf Graphic file (type pdf)
+
+<use figs/bottleneck_severity.pdf>
+Package pdftex.def Info: figs/bottleneck_severity.pdf used on input line 223.
+(pdftex.def)             Requested size: 215.45348pt x 162.9639pt.
+
+Underfull \hbox (badness 1215) in paragraph at lines 224--224
+[][]  []\OT1/cmr/m/n/10 (\OML/cmm/m/it/10 p[]\OT1/cmr/m/n/10 ) \OMS/cmsy/m/n/10
+ ^^@ []\OT1/cmr/m/n/10 ([])$\T1/ntxrx/m/n/10 ; $\OML/cmm/m/it/10 y$\T1/ntxrx/m/
+n/10 -axis: strict, un-gated
+ []
+
+
+Underfull \hbox (badness 1210) in paragraph at lines 229--232
+\T1/ntxrx/m/n/10 parameter attention-only base-line, and a probe-capacity
+ []
+
+[5 <./figs/error_quadrants.pdf> <./figs/sspro_gt_sizes.pdf> <./figs/bottleneck_
+severity.pdf>]
+LaTeX Font Info:    Try loading font information for T1+pcr on input line 310.
  (/usr/share/texlive/texmf-dist/tex/latex/psnfss/t1pcr.fd
 File: t1pcr.fd 2001/06/04 font definitions for T1/pcr.
 )
-Underfull \hbox (badness 10000) in paragraph at lines 12--13
-[] [] [] [] []$\T1/ntxrx/m/n/10 ,
+Underfull \hbox (badness 3954) in paragraph at lines 313--314
+\T1/ntxrx/m/n/10 fig-u-ra-tions. \T1/ntxrx/bx/n/10 ScreenSpot-Pro \T1/ntxrx/m/n
+/10 ($\OML/cmm/m/it/10 n[]\OT1/cmr/m/n/10 1581$\T1/ntxrx/m/n/10 ), \T1/ntxrx/bx
+/n/10 ScreenSpot-v2
  []
 
 
-Underfull \hbox (badness 1365) in paragraph at lines 27--28
-\T1/ntxrx/m/n/10 put norm to $[][]$ re-gard-less of depth and pre-vent-ing
+Underfull \hbox (badness 5711) in paragraph at lines 324--325
+ \T1/ntxrx/bx/n/10 Level 1: re-gion re-ranking. \T1/ntxrx/m/n/10 Thresh-old-ing
+ $\OML/cmm/m/it/10 p[]$ \T1/ntxrx/m/n/10 at
  []
 
-) (./secs/3_analysis.tex
-<figs/fig3_serialization_lens.pdf, id=20, 918.2148pt x 272.52014pt>
-File: figs/fig3_serialization_lens.pdf Graphic file (type pdf)
-
-<use figs/fig3_serialization_lens.pdf>
-Package pdftex.def Info: figs/fig3_serialization_lens.pdf used on input line 17
-.
-(pdftex.def)             Requested size: 505.89pt x 150.14851pt.
-
-Underfull \hbox (badness 3108) in paragraph at lines 55--57
-[]\T1/ntxrx/m/n/10 The or-ange curves in Fig-ure 1[] re-veal a dis-so-ci-a-
+[6]
+Underfull \hbox (badness 2744) in paragraph at lines 338--339
+\T1/ntxrx/m/n/10 The main pa-per de-fines the retrofit head-room $\OML/cmm/m/it
+/10 h \OT1/cmr/m/n/10 =
  []
 
-[2] <figs/fig4_instruction_suppression.pdf, id=37, 918.57362pt x 265.08034pt>
-File: figs/fig4_instruction_suppression.pdf Graphic file (type pdf)
 
-<use figs/fig4_instruction_suppression.pdf>
-Package pdftex.def Info: figs/fig4_instruction_suppression.pdf used on input li
-ne 84.
-(pdftex.def)             Requested size: 505.89pt x 145.98877pt.
+Underfull \vbox (badness 3579) has occurred while \output is active []
 
-Overfull \hbox (17.11765pt too wide) in paragraph at lines 113--129
+
+Underfull \hbox (badness 1052) in paragraph at lines 350--350
+[]\T1/ntxrx/m/n/10 Table 9: |Ab-la-tion on UI-TARS-1.5-7B (over-lap@1, %,
+ []
+
+
+Overfull \hbox (13.54796pt too wide) in paragraph at lines 353--369
  [][] 
  []
 
 
-Underfull \hbox (badness 4634) in paragraph at lines 134--135
- \T1/ntxrx/bx/n/10 Con-trolled within-benchmark target-size re-gres-sion.
+Underfull \hbox (badness 1430) in paragraph at lines 375--378
+\T1/ntxrx/m/n/10 Figure 6[] shows the per-layer over-lap@1 of ev-ery A7
  []
 
-[3 <./figs/fig3_serialization_lens.pdf>]) (./secs/4_method.tex
+[7]
+LaTeX Font Info:    Try loading font information for OMS+ntxrx on input line 38
+8.
+LaTeX Font Info:    No file OMSntxrx.fd. on input line 388.
 
-pdfTeX warning: pdflatex (file ./figs/pipeline.pdf): PDF inclusion: found PDF v
-ersion <1.7>, but at most version <1.5> allowed
-<figs/pipeline.pdf, id=109, 963.35912pt x 542.025pt>
-File: figs/pipeline.pdf Graphic file (type pdf)
- <use figs/pipeline.pdf>
-Package pdftex.def Info: figs/pipeline.pdf used on input line 10.
-(pdftex.def)             Requested size: 480.59395pt x 270.3998pt.
 
-Underfull \hbox (badness 1701) in paragraph at lines 15--16
-\T1/ntxrx/m/n/10 layer varies by sam-ple (Ÿ3[], Find-ing 1). We add two
+LaTeX Font Warning: Font shape `OMS/ntxrx/m/n' undefined
+(Font)              using `OMS/cmsy/m/n' instead
+(Font)              for symbol `textbullet' on input line 388.
+
+
+<figs/a7_layerwise_plots/a7_layerwise_combined.pdf, id=362, 1178.09508pt x 1332
+.71019pt>
+File: figs/a7_layerwise_plots/a7_layerwise_combined.pdf Graphic file (type pdf)
+
+ <use figs/a7_layerwise_plots/a7_layerwise_combined.pdf>
+Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_combined.pdf used
+ on input line 410.
+(pdftex.def)             Requested size: 505.88791pt x 520.34462pt.
+ [8] [9 <./figs/a7_layerwise_plots/a7_layerwise_combined.pdf>]
+<figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf, id=511, 859.38693pt x 587.463
+5pt>
+File: figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf Graphic file (type pdf)
+ <use figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf>
+Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf used o
+n input line 431.
+(pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
+ [10 <./figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf>]
+<figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf, id=613, 859.38693pt x 587.4635
+pt>
+File: figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf Graphic file (type pdf)
+ <use figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf>
+Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf used on
+ input line 445.
+(pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
+ [11 <./figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf>]
+<figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf, id=716, 859.38693pt x 587.
+4635pt>
+File: figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf Graphic file (type pdf
+)
+ <use figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf>
+Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf use
+d on input line 458.
+(pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
+ [12 <./figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf>]
+<figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf, id=819, 859.38693pt x 587.46
+35pt>
+File: figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf Graphic file (type pdf)
+ <use figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf>
+Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf used 
+on input line 471.
+(pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
+ [13 <./figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf>]
+<figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf, id=924, 859.38693pt x 587.
+4635pt>
+File: figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf Graphic file (type pdf
+)
+ <use figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf>
+Package pdftex.def Info: figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf use
+d on input line 486.
+(pdftex.def)             Requested size: 465.41786pt x 318.14885pt.
+
+(./prompt/uitars.tex) (./prompt/guiowl.tex) (./prompt/guiowl15.tex)
+(./prompt/ui_venus15.tex) (./prompt/uitars_ours.tex) (./prompt/guiowl_ours.tex)
+(./prompt/ui_venus15_ours.tex) [14 <./figs/a7_layerwise_plots/a7_layerwise_ui_v
+ision.pdf>] [15] [16] [17]
+<figs/append/uitars/idx00021.png, id=1035, 1222.5675pt x 1174.3875pt>
+File: figs/append/uitars/idx00021.png Graphic file (type png)
+
+<use figs/append/uitars/idx00021.png>
+Package pdftex.def Info: figs/append/uitars/idx00021.png used on input line 520
+.
+(pdftex.def)             Requested size: 303.53708pt x 291.57123pt.
+
+<figs/append/uitars/idx00440.png, id=1036, 1222.5675pt x 1174.3875pt>
+File: figs/append/uitars/idx00440.png Graphic file (type png)
+
+<use figs/append/uitars/idx00440.png>
+Package pdftex.def Info: figs/append/uitars/idx00440.png used on input line 527
+.
+(pdftex.def)             Requested size: 303.53708pt x 291.57123pt.
+ [18 <./figs/append/uitars/idx00021.png (PNG copy)> <./figs/append/uitars/idx00
+440.png (PNG copy)>]
+<figs/append/uitars/idx00114.png, id=1040, 1222.5675pt x 1174.3875pt>
+File: figs/append/uitars/idx00114.png Graphic file (type png)
+
+<use figs/append/uitars/idx00114.png>
+Package pdftex.def Info: figs/append/uitars/idx00114.png used on input line 540
+.
+(pdftex.def)             Requested size: 303.53708pt x 291.57123pt.
+
+<figs/append/uitars/idx00329.png, id=1041, 1222.5675pt x 1174.3875pt>
+File: figs/append/uitars/idx00329.png Graphic file (type png)
+
+<use figs/append/uitars/idx00329.png>
+Package pdftex.def Info: figs/append/uitars/idx00329.png used on input line 547
+.
+(pdftex.def)             Requested size: 303.53708pt x 291.57123pt.
+ [19 <./figs/append/uitars/idx00114.png (PNG copy)> <./figs/append/uitars/idx00
+329.png (PNG copy)>]
+<figs/append/uivenus/idx00015.png, id=1046, 1222.5675pt x 1429.34pt>
+File: figs/append/uivenus/idx00015.png Graphic file (type png)
+
+<use figs/append/uivenus/idx00015.png>
+Package pdftex.def Info: figs/append/uivenus/idx00015.png used on input line 56
+2.
+(pdftex.def)             Requested size: 303.53708pt x 354.8696pt.
+
+<figs/append/uivenus/idx02155.png, id=1047, 1222.5675pt x 1429.34pt>
+File: figs/append/uivenus/idx02155.png Graphic file (type png)
+
+<use figs/append/uivenus/idx02155.png>
+Package pdftex.def Info: figs/append/uivenus/idx02155.png used on input line 56
+9.
+(pdftex.def)             Requested size: 303.53708pt x 354.8696pt.
+
+
+LaTeX Warning: Float too large for page by 87.30927pt on input line 574.
+
+[20 <./figs/append/uivenus/idx00015.png (PNG copy)> <./figs/append/uivenus/idx0
+2155.png (PNG copy)>]
+<figs/append/uivenus/idx00405.png, id=1051, 1222.5675pt x 1429.34pt>
+File: figs/append/uivenus/idx00405.png Graphic file (type png)
+
+<use figs/append/uivenus/idx00405.png>
+Package pdftex.def Info: figs/append/uivenus/idx00405.png used on input line 58
+2.
+(pdftex.def)             Requested size: 303.53708pt x 354.8696pt.
+
+<figs/append/uivenus/idx00493.png, id=1052, 1222.5675pt x 1429.34pt>
+File: figs/append/uivenus/idx00493.png Graphic file (type png)
+
+<use figs/append/uivenus/idx00493.png>
+Package pdftex.def Info: figs/append/uivenus/idx00493.png used on input line 58
+9.
+(pdftex.def)             Requested size: 303.53708pt x 354.8696pt.
+
+
+LaTeX Warning: Float too large for page by 87.30927pt on input line 594.
+
+) [21 <./figs/append/uivenus/idx00405.png (PNG copy)> <./figs/append/uivenus/id
+x00493.png (PNG copy)>] (./supplementary.bbl
+Underfull \hbox (badness 1460) in paragraph at lines 12--17
+\T1/ntxrx/m/n/10 Language Model for Un-der-stand-ing, Lo-cal-iza-tion, Text
  []
 
 
-Overfull \hbox (48.08763pt too wide) detected at line 27
-\OML/cmm/m/it/10 ![] \OT1/cmr/m/n/10 = []  [] \OML/cmm/m/it/10 ;  p[] \OT1/cmr/
-m/n/10 = [] \OML/cmm/m/it/10 ![] p[];
- []
-
-
-Overfull \hbox (9.26021pt too wide) detected at line 34
-\OMS/ntxrx/m/n/10 L[] \OT1/cmr/m/n/10 = \OML/cmm/m/it/10 D[]\OT1/cmr/m/n/10 (\O
-T1/cmr/bx/n/10 y \OMS/ntxrx/m/n/10 k \OML/cmm/m/it/10 p[]\OT1/cmr/m/n/10 ) + []
- [] \OML/cmm/m/it/10 D[]\OT1/cmr/m/n/10 (\OT1/cmr/bx/n/10 y \OMS/ntxrx/m/n/10 k
- \OML/cmm/m/it/10 p[]\OT1/cmr/m/n/10 )\OML/cmm/m/it/10 ;  ^^U \OT1/cmr/m/n/10 =
- 0\OML/cmm/m/it/10 :\OT1/cmr/m/n/10 2\OML/cmm/m/it/10 ;
- []
-
-[4 <./figs/fig4_instruction_suppression.pdf>]) (./secs/5_experiment.tex
-Underfull \hbox (badness 1721) in paragraph at lines 70--71
-\T1/ntxrx/m/n/10 built on the 28-layer Qwen2.5-VL, and GUI-Owl-1.5-
- []
-
-[5 <./figs/pipeline.pdf>]) (./secs/6_conclusion.tex) [6]
-(./AnonymousSubmission2027.bbl
-Underfull \hbox (badness 1127) in paragraph at lines 46--50
+Underfull \hbox (badness 1127) in paragraph at lines 183--187
 []\T1/ntxrx/m/n/10 Lin, J.; Shen, F.; Li, J.; Nie, P.; Yu, F.; Li, M.; and
  []
 
+[22
 
-Underfull \hbox (badness 2343) in paragraph at lines 53--56
+
+
+
+
+
+
+
+
+]
+Underfull \hbox (badness 2343) in paragraph at lines 248--251
 []\T1/ntxrx/m/n/10 Meng, K.; Bau, D.; An-do-nian, A.; and Be-linkov, Y.
  []
 
-) [7] (./AnonymousSubmission2027.aux)
+
+Underfull \hbox (badness 1810) in paragraph at lines 345--349
+[]\T1/ntxrx/m/n/10 Xu, H.-M.; Chen, Q.; Wang, L.; and Liu, L. 2025a.
+ []
+
+) [23] (./supplementary.aux)
 
 LaTeX Font Warning: Some font shapes were not available, defaults substituted.
 
  ) 
 Here is how much of TeX's memory you used:
- 15331 strings out of 495063
- 273314 string characters out of 3182201
- 337582 words of memory out of 3000000
- 18113 multiletter control sequences out of 15000+200000
- 68565 words of font info for 92 fonts, out of 3000000 for 9000
+ 15546 strings out of 495063
+ 279345 string characters out of 3182201
+ 758044 words of memory out of 3000000
+ 18313 multiletter control sequences out of 15000+200000
+ 44329 words of font info for 71 fonts, out of 3000000 for 9000
  14 hyphenation exceptions out of 8191
- 55i,15n,92p,1020b,393s stack positions out of 5000i,500n,10000p,200000b,50000s
+ 55i,11n,92p,1927b,1237s stack positions out of 5000i,500n,10000p,200000b,50000s
 {/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/share/texliv
 e/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texm
-f-dist/fonts/type1/public/amsfonts/cm/cmbx7.pfb></usr/share/texlive/texmf-dist/
-fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/
-type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/
-public/amsfonts/cm/cmmi5.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/
-amsfonts/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfont
-s/cm/cmmi9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cm
-mib10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.p
-fb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr5.pfb></usr
-/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/t
-exlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/share/texlive/t
-exmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-d
-ist/fonts/type1/public/amsfonts/cm/cmsy5.pfb></usr/share/texlive/texmf-dist/fon
-ts/type1/public/amsfonts/cm/cmsy7.pfb></usr/share/texlive/texmf-dist/fonts/type
-1/public/amsfonts/cm/cmsy9.pfb></usr/share/texlive/texmf-dist/fonts/type1/publi
-c/amsfonts/symbols/msbm10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public
-/txfonts/rtxb.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/txfonts/rtx
-bsc.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/txfonts/rtxr.pfb></us
-r/share/texlive/texmf-dist/fonts/type1/public/txfonts/rtxsc.pfb></usr/share/tex
-live/texmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texlive/texmf-di
-st/fonts/type1/urw/times/utmb8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/
-urw/times/utmr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmri
-8a.pfb>
-Output written on AnonymousSubmission2027.pdf (7 pages, 531943 bytes).
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist
+/fonts/type1/public/amsfonts/cmextra/cmex7.pfb></usr/share/texlive/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmmi5.pfb></usr/share/texlive/texmf-dist/fonts/type1/pu
+blic/amsfonts/cm/cmmi6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
+cm/cmmi9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr1
+0.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></
+usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/shar
+e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texl
+ive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy6.pfb></usr/share/texlive/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/share/texlive/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/share/texlive/texmf-dist/fonts/
+type1/public/txfonts/rtxb.pfb></usr/share/texlive/texmf-dist/fonts/type1/public
+/txfonts/rtxi.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/txfonts/rtx
+r.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/txfonts/rtxsc.pfb></usr
+/share/texlive/texmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texliv
+e/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texlive/texmf-dist/fo
+nts/type1/urw/times/utmr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/t
+imes/utmri8a.pfb>
+Output written on supplementary.pdf (23 pages, 3478984 bytes).
 PDF statistics:
- 333 PDF objects out of 1000 (max. 8388607)
- 145 compressed objects within 2 object streams
+ 1137 PDF objects out of 1200 (max. 8388607)
+ 212 compressed objects within 3 object streams
  0 named destinations out of 1000 (max. 500000)
- 28 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 108 words of extra memory for PDF output out of 10000 (max. 10000000)
 

@@ -1,0 +1,35 @@
+% ==============================================================================
+% Section 2: Per-Layer Spatial Probes (the diagnostic lens; also the readout head)
+% ==============================================================================
+
+\section{Per-Layer Spatial Probes}
+\label{sec:probe}
+\label{sec:method:stage1}
+
+We diagnose \emph{where} GUI grounding signals reside across transformer depth by attaching one lightweight probe per layer to a frozen backbone. The same probe set later forms the readout head of the retrofit (\S\ref{sec:method}). Probes introduce no new spatial knowledge: the backbone is frozen, and the gradient from layer $\ell$ reaches only $\phi_\ell$.
+
+\paragraph{Prefill-forced inference.}
+Coordinate generation serializes a location into up to eight number tokens, but the spatial intent is already encoded before decoding begins (\S\ref{sec:analysis}). We prefill a fixed template ending in an anchor token, $\texttt{click(}\,\texttt{<|ground|>}\,\texttt{<|pointer\_start|>}\cdots\texttt{)}$, and run a single forward pass. At the anchor position the model has processed the full screenshot and instruction but no coordinate value, so there is zero label leakage.
+
+\paragraph{Cross-attention probe.}
+Let $f_\theta$ be a frozen $L$-layer backbone. For each probed layer $\ell\in\mathcal{L}_{\mathrm{probe}}$, drawn from the deeper half of the network where spatial signal concentrates, we read the anchor query $\mathbf{h}^{(\ell)}_{t^*}\in\mathbb{R}^d$ at the \texttt{<|ground|>} position and visual keys $\mathbf{H}^{(\ell)}_v\in\mathbb{R}^{N_v\times d}$ over the $N_v$ patch tokens. Each probe $\phi_\ell$ computes a patch-level posterior via multi-head cross-attention with a learnable head gate $\boldsymbol{\alpha}$:
+\begin{equation}
+\begin{aligned}
+  \mathbf{Q}_\ell &= W_q^{(\ell)}\,\mathrm{Norm}(\mathbf{h}^{(\ell)}_{t^*}),\quad
+  \mathbf{K}_\ell = W_k^{(\ell)}\,\mathrm{Norm}(\mathbf{H}^{(\ell)}_v),\\[-2pt]
+  p_\ell &= \sigma\!\left(\textstyle\sum_h \sigma(\boldsymbol{\alpha})_h\,\frac{\mathbf{Q}_{\ell,h}^{\!\top}\mathbf{K}_{\ell,h}}{\sqrt{d_h}}\right)\in\Delta^{N_v-1},
+\end{aligned}
+\label{eq:probe}
+\end{equation}
+where $\mathrm{Norm}(\cdot)$ is the RMS pre-scale followed by LayerNorm, and $W_q^{(\ell)},W_k^{(\ell)}$ are full-rank projections so each probe learns a geometry suited to its layer. Each probe is ${\approx}4.2$M parameters ($d{=}4096$, $n_h{=}8$, $d_h{=}64$); the full set totals ${\approx}42$M, or $0.52\%$ of a 7B backbone.
+
+\paragraph{RMSNorm pre-scale.}
+Hidden-state $\ell_2$ norms grow with depth, geometrically misaligning layers. We pre-scale $\mathbf{h}\leftarrow\mathbf{h}/(\|\mathbf{h}\|_2/\sqrt{d})$ before each LayerNorm, bounding the input norm to ${\approx}\sqrt{d}$ regardless of depth and preventing \texttt{bfloat16} overflow.
+
+\paragraph{Supervision.}
+Each probe is supervised with an anisotropic Gaussian centered at the bbox centroid:
+\begin{equation}
+  y_i \propto \exp\!\left(-\tfrac{(x_i-c_x)^2}{2\sigma_x^2} - \tfrac{(y_i-c_y)^2}{2\sigma_y^2}\right),\quad \sigma_x=\eta w_b,\ \sigma_y=\eta h_b
+  \label{eq:gaussian}
+\end{equation}
+which reduces over-penalization from patch-grid quantization on small targets (\S\ref{sec:analysis}). Stage~1 minimizes $\mathcal{L}_{\mathrm{S1}}=\tfrac{1}{|\mathcal{L}_{\mathrm{probe}}|}\sum_\ell D_{\mathrm{KL}}(\mathbf{y}\,\|\,p_\ell)$ with the backbone receiving zero gradient. Training-data construction is detailed in the supplementary material.

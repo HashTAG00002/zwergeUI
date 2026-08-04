@@ -1,0 +1,72 @@
+\documentclass[letterpaper]{article} % DO NOT CHANGE THIS
+\usepackage[submission]{aaai2027} % DO NOT CHANGE THIS
+\usepackage[hyphens]{url} % DO NOT CHANGE THIS
+\usepackage{graphicx} % DO NOT CHANGE THIS
+\urlstyle{rm} % DO NOT CHANGE THIS
+\def\UrlFont{\rm} % DO NOT CHANGE THIS
+\usepackage{natbib} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\usepackage{caption} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\frenchspacing % DO NOT CHANGE THIS
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{subcaption}
+\usepackage{amssymb}
+\usepackage{placeins}
+
+\usepackage{newfloat}
+\usepackage{listings}
+\DeclareCaptionStyle{ruled}{labelfont=normalfont,labelsep=colon,strut=off} % DO NOT CHANGE THIS
+\lstset{%
+	basicstyle={\footnotesize\ttfamily},%
+	numbers=left,numberstyle=\footnotesize,xleftmargin=2em,%
+	aboveskip=0pt,belowskip=0pt,%
+	showstringspaces=false,tabsize=2,breaklines=true}
+\floatstyle{ruled}
+\newfloat{listing}{tb}{lst}{}
+\floatname{listing}{Listing}
+
+\usepackage{booktabs}
+
+\pdfinfo{
+/TemplateVersion (2027.1)
+}
+
+\setcounter{secnumdepth}{2}
+
+\title{Supplementary Material: Middle Layers Know Where to Click}
+
+\author{
+ Written by AAAI Press Staff\textsuperscript{\rm 1}\thanks{With help from the AAAI Publications Committee.}\\
+ AAAI Style Contributions by Peter Patel Schneider,
+ Sunil Issar,\\
+ J. Scott Penberthy,
+ George Ferguson,
+ Hans Guesen,
+ Francisco Cruz\equalcontrib\corresponding,
+ Marc Pujol-Gonzalez\equalcontrib\corresponding
+}
+\affiliations{
+ \textsuperscript{\rm 1}Association for the Advancement of Artificial Intelligence\\
+ 1101 Pennsylvania Ave, NW Suite 300\\
+ Washington, DC 20004 USA\\
+ proceedings-questions@aaai.org
+}
+
+\begin{document}
+
+\maketitle
+\appendix
+\input{secs/2_related}
+\input{secs/a_appendix}
+
+\bibliography{aaai2027}
+
+\end{document}

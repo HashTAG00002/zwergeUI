@@ -1,0 +1,111 @@
+% ==============================================================================
+% paper_full.tex — readable combined build: main paper (7pp) + references + supplementary
+% This is the reading copy. The AAAI-submittable 7-page build is AnonymousSubmission2027.tex
+% (appendix excluded there). Here the appendix is re-attached after a clear page break so the
+% whole thing reads as one document. \clearpage below is intentional for readability of this
+% combined copy and is NOT used in the submittable build.
+% ==============================================================================
+
+\documentclass[letterpaper]{article} % DO NOT CHANGE THIS
+\usepackage[submission]{aaai2027} % DO NOT CHANGE THIS
+\usepackage[hyphens]{url} % DO NOT CHANGE THIS
+\usepackage{graphicx} % DO NOT CHANGE THIS
+\urlstyle{rm} % DO NOT CHANGE THIS
+\def\UrlFont{\rm} % DO NOT CHANGE THIS
+\usepackage{natbib} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\usepackage{caption} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\frenchspacing % DO NOT CHANGE THIS
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{subcaption}
+\usepackage{amssymb}
+% placeins provides \FloatBarrier, used in the appendix to drain the deferred-float queue
+% before each float group (replacing the forbidden \clearpage in the submittable build).
+\usepackage{placeins}
+
+\usepackage{newfloat}
+\usepackage{listings}
+\DeclareCaptionStyle{ruled}{labelfont=normalfont,labelsep=colon,strut=off}
+\lstset{%
+	basicstyle={\footnotesize\ttfamily},%
+	numbers=left,numberstyle=\footnotesize,xleftmargin=2em,%
+	aboveskip=0pt,belowskip=0pt,%
+	showstringspaces=false,tabsize=2,breaklines=true}
+\floatstyle{ruled}
+\newfloat{listing}{tb}{lst}{}
+\floatname{listing}{Listing}
+
+\usepackage{booktabs}
+
+\pdfinfo{
+/TemplateVersion (2027.1)
+}
+
+\setcounter{secnumdepth}{2}
+
+\title{Middle Layers Know Where to Click: Coordinate Serialization Bottlenecks in GUI Agents}
+
+\author{
+ Written by AAAI Press Staff\textsuperscript{\rm 1}\thanks{With help from the AAAI Publications Committee.}\\
+ AAAI Style Contributions by Peter Patel Schneider,
+ Sunil Issar,\\
+ J. Scott Penberthy,
+ George Ferguson,
+ Hans Guesgen,
+ Francisco Cruz\equalcontrib\corresponding,
+ Marc Pujol-Gonzalez\equalcontrib\corresponding
+}
+\affiliations{
+ \textsuperscript{\rm 1}Association for the Advancement of Artificial Intelligence\\
+ 1101 Pennsylvania Ave, NW Suite 300\\
+ Washington, DC 20004 USA\\
+ proceedings-questions@aaai.org
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Autoregressive GUI agents ground instructions by generating screen coordinates, conflating two computations that the final-layer reading leaves undistinguished: locating the target widget in screen space, and serializing that location into coordinate tokens.
+We show these computations peak at different transformer depths: spatial grounding is best decoded from intermediate layers and often degrades near the output, while coordinate-token predictability keeps improving in later layers.
+We call this mismatch the \textbf{coordinate serialization bottleneck}.
+To exploit it, we introduce \textbf{\textsc{ZwerGe-UI}}, a frozen-backbone retrofit that reads intermediate-layer posteriors through lightweight cross-attention probes (${\approx}42$M parameters, $0.5\%$ of an 8B backbone), fuses them with a ${<}200$K-parameter head, and routes each sample between the fused point and the backbone's own coordinate via a training-free confidence gate.
+Experiments across 4 GUI agents, 2 backbone families, and 5 benchmarks show that the gate yields small but consistent and statistically significant gains (paired $p{<}0.001$) under the identical strict success-rate protocol, at the cost of a single forward pass.
+\end{abstract}
+
+
+\input{secs/1_intro}
+\input{secs/2_probe}
+\input{secs/3_analysis}
+\input{secs/4_method}
+\input{secs/5_experiment}
+\input{secs/6_conclusion}
+
+\bibliography{aaai2027}
+
+% ==============================================================================
+% Supplementary Material
+% Appended after the references for the readable combined build only.
+% ==============================================================================
+\clearpage
+\appendix
+\setcounter{section}{0}
+\renewcommand{\thesection}{\Alph{section}}
+\begin{center}
+{\Large\bfseries Supplementary Material}
+\end{center}
+\vspace{0.6em}
+
+\input{secs/2_related}
+\input{secs/a_appendix}
+
+\end{document}

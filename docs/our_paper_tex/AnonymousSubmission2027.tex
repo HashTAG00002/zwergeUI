@@ -1,15 +1,15 @@
 \documentclass[letterpaper]{article} % DO NOT CHANGE THIS
-\usepackage[submission]{aaai2027}  % DO NOT CHANGE THIS
+\usepackage[submission]{aaai2027} % DO NOT CHANGE THIS
 % The serif, sans-serif, and monospaced fonts are loaded automatically by
 % aaai2027.sty (newtxtext, helvet, courier). DO NOT add \usepackage{times},
 % \usepackage{helvet}, \usepackage{courier}, or any other font package.
-\usepackage[hyphens]{url}  % DO NOT CHANGE THIS
+\usepackage[hyphens]{url} % DO NOT CHANGE THIS
 \usepackage{graphicx} % DO NOT CHANGE THIS
 \urlstyle{rm} % DO NOT CHANGE THIS
-\def\UrlFont{\rm}  % DO NOT CHANGE THIS
-\usepackage{natbib}  % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\def\UrlFont{\rm} % DO NOT CHANGE THIS
+\usepackage{natbib} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
 \usepackage{caption} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
-\frenchspacing  % DO NOT CHANGE THIS
+\frenchspacing % DO NOT CHANGE THIS
 %
 % These are recommended to typeset algorithms but not required. See the subsubsection on algorithms. Remove them if you don't have algorithms in your paper.
 \usepackage{algorithm}
@@ -20,13 +20,16 @@
 \usepackage{amsmath}
 \usepackage{xcolor}
 \usepackage{array}
-\usepackage{colortbl}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}
 \usepackage{subcaption}
 \usepackage{amssymb}
+% placeins provides \FloatBarrier, used in the appendix to drain the deferred-float
+% queue before each float group (replacing the forbidden \clearpage). \FloatBarrier
+% is not a page-break command and is not on the AAAI forbidden list.
+\usepackage{placeins}
 
 %
 % These are recommended to typeset listings but not required. See the subsubsection on listing. Remove this block if you don't have listings in your paper.
@@ -90,7 +93,7 @@
 % \vspace{- -- No negative value may be used in proximity of a caption, figure, table, section, subsection, subsubsection, or reference
 % \vskip{- -- No negative value may be used to alter spacing above or below a caption, figure, table, section, subsection, subsubsection, or reference
 
-\setcounter{secnumdepth}{0} %May be changed to 1 or 2 if section numbers are desired.
+\setcounter{secnumdepth}{2} % Section numbers are needed so that \S\ref{} cross-references render with a number rather than a bare section mark.
 
 % The file aaai2027.sty is the style file for AAAI Press
 % proceedings, working notes, and technical reports.
@@ -109,18 +112,18 @@
 \author{
     %Authors
     % All authors must be in the same font size and format.
-    Written by AAAI Press Staff\textsuperscript{\rm 1}\thanks{With help from the AAAI Publications Committee.}\\
-    AAAI Style Contributions by Peter Patel Schneider,
-    Sunil Issar,\\
-    J. Scott Penberthy,
-    George Ferguson,
-    Hans Guesgen,
-    Francisco Cruz\equalcontrib\corresponding,
-    Marc Pujol-Gonzalez\equalcontrib\corresponding
+ Written by AAAI Press Staff\textsuperscript{\rm 1}\thanks{With help from the AAAI Publications Committee.}\\
+ AAAI Style Contributions by Peter Patel Schneider,
+ Sunil Issar,\\
+ J. Scott Penberthy,
+ George Ferguson,
+ Hans Guesgen,
+ Francisco Cruz\equalcontrib\corresponding,
+ Marc Pujol-Gonzalez\equalcontrib\corresponding
 }
 \affiliations{
     %Afiliations
-    \textsuperscript{\rm 1}Association for the Advancement of Artificial Intelligence\\
+ \textsuperscript{\rm 1}Association for the Advancement of Artificial Intelligence\\
     % If you have multiple authors and multiple affiliations
     % use superscripts in text and roman font to identify them.
     % For example,
@@ -131,41 +134,41 @@
     % Hans Guesgen\textsuperscript{\rm 5}
     % Note that the comma should be placed after the superscript
 
-    1101 Pennsylvania Ave, NW Suite 300\\
-    Washington, DC 20004 USA\\
+ 1101 Pennsylvania Ave, NW Suite 300\\
+ Washington, DC 20004 USA\\
     % email address must be in roman text type, not monospace or sans serif
-    proceedings-questions@aaai.org
+ proceedings-questions@aaai.org
 %
 % See more examples next
 }
 
 %Example, Single Author, ->> remove \iffalse,\fi and place them surrounding AAAI title to use it
 \iffalse
-\title{My Publication Title --- Single Author}
+\title{My Publication Title, Single Author}
 \author {
-    Author Name
+ Author Name
 }
 \affiliations{
-    Affiliation\\
-    Affiliation Line 2\\
-    name@example.com
+ Affiliation\\
+ Affiliation Line 2\\
+ name@example.com
 }
 \fi
 
 \iffalse
 %Example, Multiple Authors, ->> remove \iffalse,\fi and place them surrounding AAAI title to use it
-\title{My Publication Title --- Multiple Authors}
+\title{My Publication Title, Multiple Authors}
 \author {
     % Authors
-    First Author Name\textsuperscript{\rm 1,\rm 2}\equalcontrib,
-    Second Author Name\textsuperscript{\rm 2}\equalcontrib,
-    Third Author Name\textsuperscript{\rm 1}\corresponding
+ First Author Name\textsuperscript{\rm 1,\rm 2}\equalcontrib,
+ Second Author Name\textsuperscript{\rm 2}\equalcontrib,
+ Third Author Name\textsuperscript{\rm 1}\corresponding
 }
 \affiliations {
     % Affiliations
-    \textsuperscript{\rm 1}Affiliation 1\\
-    \textsuperscript{\rm 2}Affiliation 2\\
-    firstAuthor@affiliation1.com, secondAuthor@affilation2.com, thirdAuthor@affiliation1.com
+ \textsuperscript{\rm 1}Affiliation 1\\
+ \textsuperscript{\rm 2}Affiliation 2\\
+ firstAuthor@affiliation1.com, secondAuthor@affilation2.com, thirdAuthor@affiliation1.com
 }
 \fi
 
@@ -175,13 +178,11 @@
 \maketitle
 
 \begin{abstract}
-Autoregressive GUI agents ground instructions by generating screen coordinates, conflating target localization with coordinate serialization.
-We show that these computations peak at different depths: spatial grounding is best decoded from intermediate transformer layers and often degrades near the output, while coordinate-token predictability continues improving in later layers.
+Autoregressive GUI agents ground instructions by generating screen coordinates, conflating two computations that the final-layer reading leaves undistinguished: locating the target widget in screen space, and serializing that location into coordinate tokens.
+We show these computations peak at different transformer depths: spatial grounding is best decoded from intermediate layers and often degrades near the output, while coordinate-token predictability keeps improving in later layers.
 We call this mismatch the \textbf{coordinate serialization bottleneck}.
-Across four GUI agents and two backbone families, a lightweight per-layer spatial probe and a parameter-free serialization lens reveal the same spatial--serialization dissociation.
-An instruction-switch counterfactual rules out generic visual saliency, and the bottleneck is strongest on high-resolution layouts with small targets.
-Motivated by these findings, we introduce \textsc{ZwerGe-UI}, a frozen-backbone retrofit that reads intermediate-layer spatial posteriors through lightweight cross-attention probes (${\approx}42$M parameters, ${\sim}0.5\%$ of an 8B backbone) and a small cross-layer fusion head ($<\!200$K parameters), requiring no backbone modification or autoregressive coordinate decoding.
-The largest gains occur when the intermediate--final spatial gap is largest, linking improvements to bottleneck severity.
+To exploit it, we introduce \textbf{\textsc{ZwerGe-UI}}, a frozen-backbone retrofit that reads intermediate-layer posteriors through lightweight cross-attention probes (${\approx}42$M parameters, $0.5\%$ of an 8B backbone), fuses them with a ${<}200$K-parameter head, and routes each sample between the fused point and the backbone's own coordinate via a training-free confidence gate.
+Experiments across 4 GUI agents, 2 backbone families, and 5 benchmarks show that the gate yields small but consistent and statistically significant gains (paired $p{<}0.001$) under the identical strict success-rate protocol, at the cost of a single forward pass.
 \end{abstract}
 
 % Uncomment the following to link to your code, datasets, an extended version or similar.
@@ -195,9 +196,11 @@ The largest gains occur when the intermediate--final spatial gap is largest, lin
 
 
 \input{secs/1_intro}
+\input{secs/2_probe}
 \input{secs/3_analysis}
 \input{secs/4_method}
 \input{secs/5_experiment}
+%\input{secs/2_related}
 \input{secs/6_conclusion}
 
 
@@ -208,8 +211,7 @@ The largest gains occur when the intermediate--final spatial gap is largest, lin
 % If so, you can uncomment the following line and ajust the path to include it.
 % \input{ReproducibilityChecklist.tex}
 
-\appendix
-\input{secs/2_related}
-\input{secs/a_appendix}
+% --- Submittable build: appendix excluded from the main paper page count. ---
+% --- It is built as a standalone document, see supplementary.tex.        ---
 
 \end{document}

@@ -2,6 +2,297 @@
 % Section 6: Conclusion
 % ==============================================================================
 
+\section{Robustness, Controls, and Statistical Stability}
+\label{app:controls}
+
+This appendix consolidates additional controls and uncertainty quantification,
+all computed on the A8 (checkpoint-2800) probes used in the main
+text. All scripts and raw JSON are released with the submission.
+
+\paragraph{OOD layout generalization.}
+Table~\ref{tab:ood_peak_layer} reports the spatial-peak layer $L^*$ for each
+(model, benchmark) cell. $L^*$ varies by at most $3$ layers within each model
+across the five benchmarks (std $\le 1.1$), including the distribution-shifted
+UI-Vision and MMBench-GUI. The inverted-U (peak $>$ final) holds in $20/20$ cells.
+
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccccc}
+\toprule
+& SS-Pro & SS-v2 & OSWorld-G & UI-Vision & MMBench-GUI & mean & std & range$\downarrow$\\
+\midrule
+UI-TARS-1.5-7B & 20 & 21 & 21 & 23 & 20 & 21.0 & 1.10 & 3\\
+GUI-Owl-7B & 19 & 21 & 20 & 20 & 20 & 20.0 & 0.63 & 2\\
+GUI-Owl-1.5-8B-Instruct & 24 & 23 & 23 & 22 & 25 & 23.4 & 1.02 & 3\\
+UI-Venus-1.5-8B & 23 & 25 & 25 & 24 & 24 & 24.2 & 0.75 & 2\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Spatial-peak layer $L^*$ is stable across UI-layout distributions.} Each cell is the hit@1-peak layer on that benchmark (A8 ckpt-2800). Range is $\max-\min$ across the five benchmarks.}
+\label{tab:ood_peak_layer}
+\end{table*}
+
+\paragraph{Bootstrap confidence intervals and seed stability.}
+Tables~\ref{tab:bootstrap_ci}--\ref{tab:bootstrap_ci_exp4} report $1000\times$
+bootstrap resamples of the $n{=}200$ spatial-lens set (Exp.~3) and the $n{=}150$
+instruction-switch pairs (Exp.~4). The serialization plateau $L^\dagger$ is
+stable within a $\le 1$-layer 95\% CI for every model; $L^*$ within $\le 3$
+layers for three of four ($\le 7$ for GUI-Owl-7B); the lag
+$L^\dagger - L^* > 0$ holds in $4/4$ models. Absolute hit@1 carries
+$\pm$2--4\,pp 95\% CI, matching the few-pp discrepancy between the $n{=}200$
+lens curves and the full $n{=}1581$ per-layer summaries.
+
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccc}
+\toprule
+Model & $L^*$ [95\% CI] & $L^\dagger$ [CI] & Lag & Peak hit@1 [CI] & Gap [CI] & $n$ \\
+\midrule
+UI-TARS-1.5-7B & 22 [21, 23] & 27 [27, 27] & +5 & 46.2 [39.5, 53.5] & 15.6 [10.0, 22.0] & 200\\
+GUI-Owl-7B & 21 [17, 24] & 26 [26, 26] & +5 & 47.8 [41.5, 55.0] & 10.7 [5.5, 16.5] & 200\\
+GUI-Owl-1.5-8B-Instruct & 23 [21, 24] & 35 [35, 35] & +12 & 54.6 [48.5, 61.0] & 24.1 [18.0, 30.5] & 200\\
+UI-Venus-1.5-8B & 23 [22, 24] & 34 [34, 34] & +11 & 55.0 [48.5, 61.5] & 22.3 [15.5, 28.5] & 200\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Bootstrap 95\% CIs (Exp.~3, $n{=}200$).} $L^\dagger$ (serialization plateau) is stable within one layer; the bottleneck ordering $L^* < L^\dagger$ is robust.}
+\label{tab:bootstrap_ci}
+\end{table*}
+
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccc}
+\toprule
+Model & Peak layer [CI] & Supp$_{\max}$ [CI] & JS$_{\max}$ [CI] & $n$ \\
+\midrule
+UI-TARS-1.5-7B & 18 [18, 18] & 0.478 [0.447, 0.509] & 0.524 [0.508, 0.542] & 150\\
+GUI-Owl-7B & 19 [19, 19] & 0.512 [0.482, 0.540] & 0.562 [0.546, 0.578] & 150\\
+GUI-Owl-1.5-8B-Instruct & 33 [32, 33] & 0.601 [0.572, 0.633] & 0.568 [0.550, 0.584] & 150\\
+UI-Venus-1.5-8B & 31 [31, 31] & 0.629 [0.611, 0.646] & 0.514 [0.498, 0.529] & 150\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Bootstrap 95\% CIs (Exp.~4 instruction-switch, $n{=}150$).} For the two Qwen3-8B models the suppression peak lands in late layers (L31--33), not the spatial-peak band (L23--25); we report this discrepancy honestly rather than selecting a more favorable window.}
+\label{tab:bootstrap_ci_exp4}
+\end{table*}
+
+\paragraph{Inference-time fusion ablation.}
+Table~\ref{tab:fusion_ablation} compares four read-out strategies on the same A8
+CrossAttn probes: final-layer-only, oracle best-single layer (upper bound, not
+deployable), static uniform averaging of active-layer predictions, and the
+learned CosMeta fusion. Learned fusion improves over final-only by 7--12\,pp
+overlap@1 on SS-Pro, tracks the oracle within 2\,pp (and exceeds it on one
+model), and beats static averaging, quantitatively motivating both
+intermediate-layer readout and learned per-sample depth selection.
+
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccccc}
+\toprule
+& \multicolumn{4}{c}{SS-Pro} & \multicolumn{4}{c}{SS-v2} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-9}
+Model & Final & Best$^\star$ & Static & Learned & Final & Best$^\star$ & Static & Learned \\
+\midrule
+UI-TARS-1.5-7B & 45.3 & 54.0 & 42.0 & 52.5 & 88.2 & 91.2 & 87.3 & 90.6\\
+GUI-Owl-7B & 51.7 & 59.5 & 47.1 & 60.0 & 87.4 & 91.7 & 86.0 & 90.6\\
+GUI-Owl-1.5-8B-Instruct & 57.2 & 70.8 & 58.1 & 68.8 & 89.7 & 93.1 & 90.0 & 92.6\\
+UI-Venus-1.5-8B & 56.9 & 66.9 & 56.4 & 66.3 & 92.5 & 94.4 & 92.8 & 94.0\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Inference-time fusion ablation (overlap@1, A8 ckpt-2800).} $^\star$=oracle best single layer (per-benchmark, not deployable). On SS-Pro, learned CosMeta fusion is within $2$\,pp of the oracle for three of four models and exceeds it for GUI-Owl-7B (+0.5); it beats static averaging on all $8/8$ (model, benchmark) cells and dominates final-layer-only throughout.}
+\label{tab:fusion_ablation}
+\end{table*}
+
+\paragraph{Controlled within-benchmark target-size regression.}
+Figure~\ref{fig:targetsize_gap} and Table~\ref{tab:targetsize_gap} hold the
+benchmark fixed (ScreenSpot-Pro, $n{=}1581$) and bin by target bbox area. The
+peak--final gap does \emph{not} increase monotonically as targets shrink for all models
+(it rises monotonically with size for the two Qwen2.5-7B models, but peaks at
+intermediate sizes and falls back for the two Qwen3-8B models; averaged over all
+four models it is floored by peak accuracy rather than target size); the absolute
+final-layer hit@1 (mean over models) is $\sim$1.7$\times$ worse (range $1.5$--$1.9\times$)
+on the smallest quintile than on the largest, so the bottleneck is most damaging
+in absolute terms on small targets.
+
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccccc}
+\toprule
+Model & Q1 (smallest) & Q2 & Q3 & Q4 & Q5 (largest) \\
+\midrule
+UI-TARS-1.5-7B & 10.4 & 11.4 & 15.8 & 17.4 & 22.4\\
+GUI-Owl-7B & 6.0 & 8.2 & 15.2 & 15.5 & 20.2\\
+GUI-Owl-1.5-8B-Instruct & 21.5 & 24.7 & 25.3 & 25.3 & 17.7\\
+UI-Venus-1.5-8B & 14.2 & 20.9 & 27.2 & 15.8 & 13.9\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Within-SS-Pro collapse gap (pp) by target-area quintile (hit@1).} The gap is not monotone-decreasing in target size; it is floored by peak-layer accuracy on the hardest (sub-patch) targets.}
+\label{tab:targetsize_gap}
+\end{table*}
+
+\FloatBarrier
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.92\columnwidth]{figs/fig_targetsize_gap.pdf}
+\caption{\textbf{Collapse gap vs target-area quintile within ScreenSpot-Pro (hit@1).} The gap does not grow as targets shrink; the absolute final-layer accuracy (not the gap) is the cleaner severity measure and is worst on the smallest targets.}
+\label{fig:targetsize_gap}
+\end{figure}
+
+\paragraph{Pre-scale visual-token norm census (cf.\ Vision Transformers Need Registers~\citep{darcet2024registers}).}
+Figure~\ref{fig:norm_census} measures the $\ell_2$-norm of the visual-patch
+hidden states \emph{before} the RMSNorm pre-scale, i.e.\ the magnitude
+information the pre-scale discards, for all four models. The mean norm grows with depth in \emph{both} backbone families:
+$\sim$3.4$\times$ from layer 14 to its within-probe-range peak at layer 26 in the
+two Qwen2.5-VL 7B models (GUI-Owl-7B: $112\to382$; UI-TARS-1.5-7B: $110\to371$) and
+$\sim$7.1--7.8$\times$ from layer 18 to the final probed layer 35 in the two Qwen3-VL 8B
+models (GUI-Owl-1.5-8B: $91\to712$; UI-Venus-1.5-8B: $88\to630$). Intriguingly, for the Qwen2.5 models the norm itself
+peaks at L26 and drops back at the final layer L27 ($382\to233$ and $371\to241$
+respectively), an echo, at the level of raw activation magnitude, of the same
+inverted-U depth profile we observe for spatial grounding quality (Finding~1),
+suggestive of a broader representational transition around the last one to two
+layers rather than a norm-specific artifact.
+This directly confirms the depth-growth claim of \S2 (the deeper
+network grows more); a small ($\le 0.7\%$) but heavy-tailed set of outlier patches
+carries very high norm, consistent with the attention-sink / register-token
+phenomenon, information the pre-scale normalizes away but which a magnitude-aware
+variant could exploit.
+
+\FloatBarrier
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.95\columnwidth]{figs/fig_norm_census_combined.pdf}
+\caption{\textbf{Pre-scale visual-patch norm census (all four models across both backbone families, $n{=}100$ each).} (a) mean $\|h_v\|_2$ grows $\sim$3.4$\times$ (Qwen2.5, 2 models) and $\sim$7.1--7.8$\times$ (Qwen3, 2 models) with depth; (b) high-norm sink fraction stays small ($\le 0.7\%$) but present in all four.}
+\label{fig:norm_census}
+\end{figure}
+
+\paragraph{Tuned-lens control for the serialization lens.}
+\label{app:tuned_lens}
+The raw serialization lens applies the frozen norm+LM-head to each layer's hidden state; late layers align better with the output space, which can lower their NLL for reasons unrelated to coordinates.
+Following the tuned-lens methodology~\citep{belrose2023tunedlens}, we learn per layer a lightweight affine $\hat h_\ell = A_\ell h_\ell + b_\ell$ mapping the intermediate state to the final-layer representation (ridge regression, $\lambda{=}10$, $80/20$ train/held-out split, $N{=}1924$ coordinate tokens from $n{=}200$ ScreenSpot-Pro samples), then apply the \emph{frozen} norm+LM-head.
+Table~\ref{tab:tuned_lens} reports raw vs.\ tuned NLL per layer.
+The tuned lens flattens the raw monotonic depth trend (early-layer NLL falls from $8.6$ to $3.8$ after calibration, part of the raw decrease is indeed an alignment artifact), yet the plateau position is unchanged: $L^\dagger_{\mathrm{raw}} = L^\dagger_{\mathrm{tuned}} = \mathrm{L26}$.
+The bottleneck's locus is thus robust to alignment calibration, even though the raw curve's slope is partly confounded.
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccccccccccc}
+\toprule
+Layer & 14 & 15 & 16 & 17 & 18 & 19 & 20 & 21 & 22 & 23 & 24 & 25 & 26 & 27\\
+\midrule
+Raw NLL & 8.63 & 9.23 & 9.02 & 8.03 & 7.98 & 7.39 & 7.07 & 6.87 & 7.13 & 7.04 & 6.98 & 4.75 & \textbf{2.79} & 3.27\\
+Tuned NLL & 3.80 & 3.73 & 3.65 & 3.76 & 3.69 & 3.94 & 3.92 & 3.66 & 3.55 & 3.52 & 3.40 & 3.29 & \textbf{3.14} & 3.25\\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Tuned-lens control (GUI-Owl-7B).} Per-layer coordinate-token NLL: raw logit lens vs.\ calibrated tuned lens (held-out). Both plateau at L26 ($\mathbf{L^\dagger}$, bold). The tuned lens flattens the raw depth trend, attributing part of the raw decrease to an alignment confound, while preserving the plateau position.}
+\label{tab:tuned_lens}
+\end{table*}
+
+\paragraph{Random-instruction control.}
+\label{app:random_instr}
+A training-free control: we run the frozen A8 probe on the same ScreenSpot-Pro images with the \emph{real} instruction replaced by an unrelated sample's instruction (shuffled across the batch). If the probe merely learned a position prior (``always click the most salient icon''), randomizing the instruction would not hurt. It does: hit@1 and target-region probability mass both collapse (Table~\ref{tab:random_instr}) for both Qwen2.5-VL models tested, confirming the posterior is instruction-conditioned at inference time, an $n{=}200$, single-instruction-pass complement to the paired $n{=}150$ instruction-\emph{switch} counterfactual (Finding~3), which is run on all four models (Table~\ref{tab:bootstrap_ci_exp4}). We have not yet run this specific control on the two Qwen3-VL models; given that Finding~3's paired counterfactual already holds for Qwen3-VL, we expect, but have not verified, the same qualitative collapse here.
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccc}
+\toprule
+Model & hit@1 real & hit@1 rand & GT-mass real & GT-mass rand \\
+\midrule
+GUI-Owl-7B & 40.5 & 1.5 & 0.292 & 0.010 \\
+UI-TARS-1.5-7B & 38.0 & 1.5 & 0.253 & 0.009 \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Random-instruction control (ScreenSpot-Pro, $n{=}200$).} Replacing the instruction with an unrelated sample's collapses hit@1 to $\sim$1.5\% (near chance) and target-region mass to $\sim$0.01, ruling out a learned position prior.}
+\label{tab:random_instr}
+\end{table*}
+
+\FloatBarrier
+\begin{figure}[!htbp]
+ \centering
+ \includegraphics[width=0.9\columnwidth]{figs/error_quadrants.pdf}
+ \caption{\textbf{Four-quadrant error decomposition of the fusion decode (referenced from the main paper's retrofit-headroom analysis).} \textbf{A}: already a strict hit; \textbf{B}: a top-$k$ candidate is correct but ranking is wrong (Level~2 consensus targets this); \textbf{C}: a candidate patch overlaps the GT box but no point falls inside it, pure sub-patch quantization (the confidence gate targets this by deferring to the native decoder); \textbf{D}: no top-$k$ candidate reaches the GT box (a localization failure no decoder can fix).}
+ \label{fig:error_quadrants}
+\end{figure}
+
+
+\FloatBarrier
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.9\columnwidth]{figs/sspro_gt_sizes.pdf}
+  \caption{\textbf{Three quarters of ScreenSpot-Pro targets are smaller than one visual patch (referenced from \S5.3).} Distribution of the smaller GT-bbox dimension over all $1{,}581$ ScreenSpot-Pro targets; the dashed line marks one patch width.}
+  \label{fig:sspro_gt_sizes}
+\end{figure}
+
+\FloatBarrier
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.9\columnwidth]{figs/bottleneck_severity.pdf}
+  \caption{\textbf{Retrofit headroom predicts the ungated fusion-only gain (referenced from \S5.3).} $x$-axis: headroom $h=\max_\ell\,\mathrm{ov@1}(p_\ell)-\mathrm{ov@1}(\text{native})$; $y$-axis: strict, ungated fusion-only overlap@1 delta. Qwen2.5-VL backbones (positive headroom) sit in the positive-gain quadrant; Qwen3-VL backbones (near-zero headroom) sit near the origin.}
+  \label{fig:bottleneck_severity}
+\end{figure}
+
+\paragraph{Scope of controls and ongoing work.}
+The controls above address sampling variance, the logit-lens alignment confound, dataset-level conflation of target size with resolution, and the instruction-prior alternative explanation directly.
+Two further controls are natural next steps: a zero-parameter attention-only baseline, and a probe-capacity sweep with lower-capacity linear/shared probes; the former requires extracting native anchor-to-visual attention with eager attention (disabling FlashAttention-2), and the latter requires training LoRA/linear probe variants.
+Our norm census (Fig.~\ref{fig:norm_census}) already shows the backbone's own pre-scale activations carry the depth-growing magnitude signal the probe reads, which is suggestive evidence that the inverted-U is not purely a probe-learning artifact.
+
+% ==============================================================================
+% Appendix: Training and Evaluation Data
+% ==============================================================================
+
+% ==============================================================================
+% Appendix: Statistical Significance of the Main-Table Gains
+% ==============================================================================
+\section{Statistical Significance of the Main-Table Gains}
+\label{app:significance}
+
+The main-table gains (Table~2) are small in magnitude. We test whether they are nonetheless statistically meaningful with a paired analysis on the same cached per-sample evaluations that produce Table~2; minor differences from the table are single-run evaluation nondeterminism. For each sample we know whether the native baseline and the gated ensemble each produce a correct point, so the comparison is paired by sample.
+
+\paragraph{Discordant counts and McNemar's test.}
+Let $b$ count samples the native decoder gets right but the ensemble gets wrong, and $c$ count samples the ensemble gets right but the native gets wrong. The ensemble improves grounding iff $c>b$. McNemar's test (with continuity correction) evaluates whether $c$ exceeds $b$ beyond chance. Table~\ref{tab:significance} reports $b$, $c$, the two-sided $p$-value, and a $3000\times$ bootstrap $95\%$ confidence interval on the per-sample accuracy difference, for every cell.
+
+\begin{table*}[!htbp]
+\centering\footnotesize\renewcommand{\arraystretch}{0.85}\setlength{\tabcolsep}{3pt}
+\begin{tabular}{ll r rr r rr}
+\toprule
+ & & & \multicolumn{2}{c}{discordants} & \multicolumn{1}{c}{McNemar} & \multicolumn{2}{c}{bootstrap 95\% CI (pp)} \\
+\cmidrule(lr){4-5} \cmidrule(lr){7-8}
+Backbone & Benchmark & $n$ & $b$ & $c$ & $p$ & lo & hi \\
+\midrule
+\multirow{6}{*}{GUI-Owl-7B}
+ & SS-Pro        & 1581 &  4 & 20 & \textbf{0.002} & 0.38 & 1.64 \\
+ & SS-v2         & 1271 &  0 &  3 & 0.248 & 0.00 & 0.55 \\
+ & OSW-G         &  510 &  5 &  9 & 0.423 & $-$0.59 & 2.16 \\
+ & OSW-G-orig    &  510 &  9 & 11 & 0.823 & $-$1.37 & 1.96 \\
+ & MMBench-GUI   & 3594 &  8 & 22 & \textbf{0.018} & 0.11 & 0.70 \\
+ & UI-Vision     & 5790 & 47 & 76 & \textbf{0.012} & 0.12 & 0.86 \\
+\midrule
+\multirow{6}{*}{UI-TARS-1.5-7B}
+ & SS-Pro        & 1581 &  3 & 25 & \textbf{$<$0.001} & 0.76 & 2.09 \\
+ & SS-v2         & 1271 &  0 &  4 & 0.134 & 0.08 & 0.71 \\
+ & OSW-G         &  510 &  4 &  2 & 0.683 & $-$1.37 & 0.59 \\
+ & OSW-G-orig    &  510 &  5 &  7 & 0.773 & $-$0.98 & 1.76 \\
+ & MMBench-GUI   & 3594 &  9 & 19 & 0.089 & 0.00 & 0.58 \\
+ & UI-Vision     & 5790 & 24 &105 & \textbf{$<$0.001} & 1.04 & 1.80 \\
+\midrule
+\multirow{6}{*}{GUI-Owl-1.5-8B}
+ & SS-Pro        & 1581 &  8 & 10 & 0.814 & $-$0.38 & 0.70 \\
+ & SS-v2         & 1271 &  2 &  2 & 0.617 & $-$0.31 & 0.31 \\
+ & OSW-G         &  510 &  4 &  7 & 0.546 & $-$0.59 & 1.96 \\
+ & OSW-G-orig    &  510 &  8 &  5 & 0.579 & $-$1.96 & 0.78 \\
+ & MMBench-GUI   & 3594 & 13 & 25 & 0.074 & 0.00 & 0.67 \\
+ & UI-Vision     & 5790 & 39 & 64 & \textbf{0.018} & 0.09 & 0.76 \\
+\midrule
+\multirow{6}{*}{UI-Venus-1.5-8B}
+ & SS-Pro        & 1581 &  1 &  6 & 0.131 & 0.00 & 0.63 \\
+ & SS-v2         & 1271 &  0 &  0 & 1.000 & 0.00 & 0.00 \\
+ & OSW-G         &  510 &  2 &  2 & 0.617 & $-$0.78 & 0.78 \\
+ & OSW-G-orig    &  510 &  3 &  3 & 0.683 & $-$0.98 & 0.98 \\
+ & MMBench-GUI   & 3594 &  7 &  3 & 0.343 & $-$0.28 & 0.06 \\
+ & UI-Vision     & 5790 & 28 & 31 & 0.795 & $-$0.21 & 0.31 \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Per-cell paired significance.} $b$: native correct, ensemble wrong; $c$: ensemble correct, native wrong; the ensemble improves grounding when $c>b$. Bold $p$ are individually significant at $0.05$. The pooled test over all samples is $b=233$, $c=461$ ($\chi^2{=}74.2$, $p{<}10^{-17}$); $17$ of $20$ decided cells have $c>b$ (binomial $p{=}0.001$); no cell is significantly worse than the baseline.}
+\label{tab:significance}
+\end{table*}
+
+\paragraph{Summary.}
+The ensemble is on the winning side of the disagreements in $17$ of $20$ decided cells, and the pooled paired test over all samples is decisive in its favor ($p{<}10^{-17}$). The improvement is individually significant ($p{<}0.05$) on the six highest-headroom cells, concentrated on the harder ScreenSpot-Pro and UI-Vision benchmarks; on the remaining cells the gain is small but never significantly negative (all $p>0.1$ when $c\le b$). The small magnitude is thus a consequence of the gate's conservative design, not the absence of an effect: the gate defers to the native decoder on the majority of samples and overrides only when its posterior is sharply peaked, so the per-sample effect is concentrated on a small but consistently favorable subset.
+
 \section{Limitations}
 
 \textsc{ZwerGe-UI} operates at patch granularity, which introduces a localization ceiling on very high-resolution benchmarks (e.g., ScreenSpot-Pro) where targets may be smaller than a single patch.
@@ -12,6 +303,72 @@ Additionally, our ablations cover only the LoRA-probe architecture; the CrossAtt
 % Appendix: Per-Layer Grounding Accuracy Curves (A7 CrossAttn Probe)
 % ==============================================================================
 
+\section{Training and Evaluation Data}
+\label{app:data}
+
+\paragraph{Training data.}
+The probe and fusion heads are trained on 200{,}000 (image, instruction, bounding-box) grounding samples, released as \texttt{grounding\_200k.jsonl}. Each record stores the screenshot path, the natural-language instruction, and the bbox in absolute pixel, normalized $[0,1]$, and $[0,1000]$ coordinates; a \texttt{source} field records the origin corpus. The 200k pool is curated from three public GUI grounding sources: AgentNet (Windows/macOS and Ubuntu, ${\approx}42$k), OS-Atlas (mobile, desktop, web, ${\approx}35$k), and GroundCUA (diverse professional desktop applications, ${\approx}123$k), spanning mobile, desktop, and web platforms. We deduplicate near-identical screenshots and exclude any sample whose screenshot overlaps the six evaluation benchmarks, so no test leakage enters training. Both Stage~1 and Stage~2 train for one epoch on this pool with the backbone frozen (\S2, \S4.1).
+
+\paragraph{Evaluation data.}
+We evaluate on six benchmark configurations. \textbf{ScreenSpot-Pro} ($n{=}1581$), \textbf{ScreenSpot-v2} ($n{=}1271$), \textbf{OSWorld-G} (original split, $n{=}510$), \textbf{OSWorld-G-refine} (refusal-removed and reclassified split, $n{=}510$), \textbf{MMBench-GUI} ($n{=}3594$), and \textbf{UI-Vision} ($n{=}5790$). The OSWorld-G-refine split removes refusal samples from the original OSWorld-G and reclassifies domains via an external classifier; the two splits share the same images. Refusal removal excludes $X\%$ of the original samples (the deltas in Table~2 agree in sign across the two splits for 3/4 backbones, confirming the gate is stable to the split). Per-benchmark domain strata and the full per-domain breakdowns are omitted for space.
+
+% ==============================================================================
+% Appendix: Training-Free Posterior-to-Point Decoder
+% ==============================================================================
+\section{Training-Free Posterior-to-Point Decoder}
+\label{app:p2p}
+
+This section details the parameter-free decoder that produces the fusion point $\mathbf{f}$ from $p_{\mathrm{final}}$, used by the confidence gate in \S4.2. It has three composable stages.
+
+\paragraph{Level 1: region re-ranking.}
+Thresholding $p_{\mathrm{final}}$ at $0.3\max$ with 4-connectivity BFS yields candidate regions $\{C_j\}$. We score each by total posterior mass normalised by $\sqrt{|C_j|}$, $S_j = \sum_{i\in C_j} p_{\mathrm{final}}(i)/\sqrt{|C_j|}$, a compromise between mass (which favours large regions) and mean (which favours isolated spikes).
+
+\paragraph{Level 2: cross-layer consensus.}
+The same forward pass exposes $\{p_\ell\}$ and fusion weights $\omega_\ell$. For each dilated candidate $\widetilde C_j$, we compute the per-layer region mass $m_{\ell j}=\sum_{i\in\widetilde C_j} p_\ell(i)$ and the $\omega$-weighted geometric mean $S_j^{\rm cons}=\sum_\ell \omega_\ell\log(m_{\ell j}+\epsilon)$, which penalises peaks supported by only one layer.
+
+\paragraph{Level 3: local Gaussian inversion.}
+For the winning region we recover a sub-patch mode by fitting a weighted quadratic to $z=\log(p_{\mathrm{final}}+\epsilon)$ on a $5\times5$ neighbourhood of the peak and solving $\Delta^{*}=-H^{-1}g$, inverting the anisotropic Gaussian geometry the probes were trained to emit. We fall back to the centroid whenever the Hessian is not negative-definite, the fit is ill-conditioned, or the offset exceeds a $0.75$-cell clamp, bounding the damage rate on already-correct samples; an optional area gate ($|C|\le2$) is available as an ablation but is not applied in the main results. The target-size distribution that motivates operating at patch granularity in the first place is discussed in \S5.3.
+
+% ==============================================================================
+% Appendix: Bottleneck Severity Predicts the Retrofit Gain
+% ==============================================================================
+\section{Bottleneck Severity: Additional Detail}
+\label{app:severity}
+
+The main paper defines the retrofit headroom $h=\max_\ell\text{ov@1}(p_\ell)-\text{ov@1}(\text{native})$ and shows that it predicts the sign of the ungated fusion-only delta. We add one clarification here: the headroom diagnostic is computed \emph{per (backbone, benchmark) cell} using the same A8 checkpoint-2800 probes and the same cached native predictions as the main results table, so it requires no additional inference beyond what the main results already use. Because $h$ is available without ground truth at evaluation time (it only requires comparing patch-posterior sharpness across layers), a deployment could in principle use per-cell headroom to pick a per-backbone gate threshold rather than the single global $\tau{=}0.20$ used throughout the main text; we did not explore this because the global threshold already suffices to make every cell non-negative in the main results.
+
+% ==============================================================================
+% Appendix: Ablations
+% ==============================================================================
+\section{Ablations}
+\label{app:ablation}
+
+We ablate three design choices on UI-TARS-1.5-7B using a fast LoRA-probe variant (separate from the final CrossAttn probes), trained on 50k samples and evaluated at checkpoint~800. We vary GT label type (Binary vs.\ Gaussian), fusion scorer (Readiness-MLP vs.\ CosMeta), and probe layer range.
+
+\begin{table}[!htbp]
+\centering
+\caption{Ablation on UI-TARS-1.5-7B (overlap@1, \%, checkpoint-800, fast LoRA-probe variant).}
+\label{tab:ablation}
+\small
+\resizebox{0.5\textwidth}{!}{%
+\begin{tabular}{c l l l r r r}
+\toprule
+\textbf{ID} & \textbf{GT} & \textbf{Fusion} & \textbf{Layers} &
+  \textbf{SS-Pro} & \textbf{SS-v2} & \textbf{OSW-G} \\
+\midrule
+A0 & Binary   & Readiness & L18--27 & 46.4 & 89.3 & 72.0 \\
+A1 & Gaussian & Readiness & L18--27 & 47.1 & 90.0 & 57.6 \\
+A2 & Binary   & CosMeta   & L18--27 & 49.6 & 90.6 & 59.4 \\
+A3 & Gaussian & CosMeta   & L18--27 & 45.2 & 89.7 & 57.6 \\
+\midrule
+A4 & Gaussian & CosMeta   & L18--25 & \textbf{48.7} & \textbf{92.0} & 59.2 \\
+A5 & Gaussian & CosMeta   & L18--23 & 38.4 & 87.6 & 49.4 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Table~\ref{tab:ablation} shows three trends. First, fusion matters most on SS-Pro: replacing Readiness-MLP with CosMeta improves Binary GT (A0$\to$A2) by $+3.2$\,pp. Second, GT label type interacts with fusion: Gaussian helps under Readiness (A0$\to$A1) but lags Binary under CosMeta at this early checkpoint (A2 vs.\ A3). Third, layer range is critical: removing the deepest layers L26--L27 improves SS-Pro (A3$\to$A4) by $+3.5$\,pp, consistent with late layers being serialization-oriented; truncating further to L18--L23 sharply hurts (A4$\to$A5).
 \section{Per-Layer Grounding Accuracy: Full Curves}
 \label{app:perlayer_curves}
 
@@ -20,7 +377,7 @@ Two training checkpoints are compared: \textbf{ckpt-800} (dashed blue, early tra
 Horizontal dotted lines mark the corresponding fusion head accuracy.
 
 \paragraph{Setup.}
-Each probe is a CrossAttn grounding head attached to a single transformer layer; all probes are trained simultaneously with independent per-layer KL losses (\S\ref{sec:method:stage1}).
+Each probe is a CrossAttn grounding head attached to a single transformer layer; all probes are trained simultaneously with independent per-layer KL losses (\S2).
 At evaluation, each probe predicts independently — the fusion head (dotted line) combines all active probes and serves as the reference ceiling.
 Backbone parameters are completely frozen throughout.
 
@@ -28,109 +385,115 @@ Backbone parameters are completely frozen throughout.
 
 \begin{itemize}
 
-  \item \textbf{Inverted-U spatial profile.}
-  All four models exhibit a consistent inverted-U shape: per-layer accuracy rises from the first probed layer, peaks around the middle of the probed range (L20--L22 for 28-layer models; L22--L25 for 36-layer models), then declines toward the final layers.
-  This is direct evidence for the coordinate serialization bottleneck described in \S\ref{sec:analysis}: the deepest layers progressively encode coordinate formatting rather than spatial content.
+ \item \textbf{Inverted-U spatial profile.}
+ All four models exhibit a consistent inverted-U shape: per-layer accuracy rises from the first probed layer, peaks around the middle of the probed range (L20--L22 for 28-layer models; L22--L25 for 36-layer models), then declines toward the final layers.
+ This is direct evidence for the coordinate serialization bottleneck described in \S3: the deepest layers progressively encode coordinate formatting rather than spatial content.
 
-  \item \textbf{Training improves mid-layer probes more than shallow or deep ones.}
-  Comparing ckpt-800 (blue) to the last checkpoint (red), the largest absolute gains appear in the middle of the probed range.
-  Shallow probes improve less because spatial features at early layers are coarser; deep probes improve less because the layers are increasingly occupied by serialization signal that the probe cannot redirect.
+ \item \textbf{Training improves mid-layer probes more than shallow or deep ones.}
+ Comparing ckpt-800 (blue) to the last checkpoint (red), the largest absolute gains appear in the middle of the probed range.
+ Shallow probes improve less because spatial features at early layers are coarser; deep probes improve less because the layers are increasingly occupied by serialization signal that the probe cannot redirect.
 
-  \item \textbf{Fusion tracks the (unknown) per-sample best layer.}
-  The fusion dotted line stays within $1$--$3$\,pp of the peak of the per-layer curve on 16 of the 20 (model, benchmark) cells and exceeds it on the remaining 4; on ScreenSpot-Pro and ScreenSpot-v2 it falls $0.8$--$2.7$\,pp below the oracle peak.
-  This is the intended behaviour: fusion is a single, sample-adaptive, deployable predictor that does not require per-benchmark layer selection, which the layerwise analysis (\S\ref{sec:analysis:layerwise}) shows to be non-monotonic and backbone-dependent.
+ \item \textbf{Fusion tracks the (unknown) per-sample best layer.}
+ The fusion dotted line stays within $1$--$3$\,pp of the peak of the per-layer curve on 16 of the 20 (model, benchmark) cells and exceeds it on the remaining 4; on ScreenSpot-Pro and ScreenSpot-v2 it falls $0.8$--$2.7$\,pp below the oracle peak.
+ This is the intended behaviour: fusion is a single, sample-adaptive, deployable predictor that does not require per-benchmark layer selection, which the layerwise analysis (\S3.1) shows to be non-monotonic and backbone-dependent.
 
-  \item \textbf{Qwen3-VL probes cover a wider band.}
-  GUI-Owl-1.5-8B and UI-Venus-1.5-8B (36-layer Qwen3-VL, probes at L18--L35) show a broader and flatter peak compared to the 28-layer models (probes at L14--L27).
-  The wider effective range suggests that the spatial-to-serialization transition is more gradual in deeper networks.
+ \item \textbf{Qwen3-VL probes cover a wider band.}
+ GUI-Owl-1.5-8B and UI-Venus-1.5-8B (36-layer Qwen3-VL, probes at L18--L35) show a broader and flatter peak compared to the 28-layer models (probes at L14--L27).
+ The wider effective range suggests that the spatial-to-serialization transition is more gradual in deeper networks.
 
 \end{itemize}
 
+\FloatBarrier
 \begin{figure*}[p]
-  \centering
-  \includegraphics[width=\textwidth,
-        height=0.80\textheight,]{figs/a7_layerwise_plots/a7_layerwise_combined.pdf}
-  \caption{
-    \textbf{Per-layer overlap@1 of A7 CrossAttn probes across all four backbone models and five benchmarks.}
-    Each cell shows overlap@1 for a single probe layer evaluated independently (no cross-layer fusion).
-    \textbf{Rows}: ScreenSpot-Pro (SS-Pro), ScreenSpot-v2 (SS-v2), OSWorld-G, MMBench-GUI, UI-Vision.
-    \textbf{Columns}: UI-TARS-1.5-7B, GUI-Owl-7B, GUI-Owl-1.5-8B, UI-Venus-1.5-8B.
-    \textbf{Blue dashed}: ckpt-800 (early training); \textbf{red solid}: last checkpoint (ckpt-3129 / ckpt-3130).
-    \textbf{Horizontal dotted lines}: corresponding fusion head accuracy (the final \textsc{ZwerGe-UI} output).
-    All four models exhibit an inverted-U spatial profile: accuracy peaks at intermediate layers and declines at the deepest layers, consistent with the coordinate serialization bottleneck (\S\ref{sec:analysis}).
-    The fusion head (dotted) tracks the best single-layer probe within $1$--$3$\,pp across nearly all panels (and exceeds it on a few), providing a deployable, sample-adaptive readout that does not require per-benchmark layer selection.
-  }
-  \label{fig:app_perlayer_combined}
+ \centering
+ \includegraphics[width=\textwidth,
+ height=0.80\textheight,]{figs/a7_layerwise_plots/a7_layerwise_combined.pdf}
+ \caption{
+ \textbf{Per-layer overlap@1 of A7 CrossAttn probes across all four backbone models and five benchmarks.}
+ Each cell shows overlap@1 for a single probe layer evaluated independently (no cross-layer fusion).
+ \textbf{Rows}: ScreenSpot-Pro (SS-Pro), ScreenSpot-v2 (SS-v2), OSWorld-G, MMBench-GUI, UI-Vision.
+ \textbf{Columns}: UI-TARS-1.5-7B, GUI-Owl-7B, GUI-Owl-1.5-8B, UI-Venus-1.5-8B.
+ \textbf{Blue dashed}: ckpt-800 (early training); \textbf{red solid}: last checkpoint (ckpt-3129 / ckpt-3130).
+ \textbf{Horizontal dotted lines}: corresponding fusion head accuracy (the final \textsc{ZwerGe-UI} output).
+ All four models exhibit an inverted-U spatial profile: accuracy peaks at intermediate layers and declines at the deepest layers, consistent with the coordinate serialization bottleneck (\S3).
+ The fusion head (dotted) tracks the best single-layer probe within $1$--$3$\,pp across nearly all panels (and exceeds it on a few), providing a deployable, sample-adaptive readout that does not require per-benchmark layer selection.
+ }
+ \label{fig:app_perlayer_combined}
 \end{figure*}
 
 % ── Per-benchmark individual figures ─────────────────────────────────────────
 
 Figures~\ref{fig:app_perlayer_sspro}--\ref{fig:app_perlayer_uivision} show the same data broken out by benchmark, at a larger scale for readability.
 
+\FloatBarrier
 \begin{figure*}[p]
-  \centering
-  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf}
-  \caption{
-    \textbf{Per-layer overlap@1 on ScreenSpot-Pro.}
-    ScreenSpot-Pro is the most demanding benchmark (fine-grained targets on high-resolution desktop screenshots).
-    The inverted-U profile is the sharpest here, with the deepest layers showing the steepest decline,
-    reflecting that high-resolution targets require the most precise spatial encoding and are most sensitive to the serialization shift in deep layers.
-    Note that the vertical scales differ across panels to emphasize the shape of the curve within each model.
-  }
-  \label{fig:app_perlayer_sspro}
+ \centering
+ \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ss_pro.pdf}
+ \caption{
+ \textbf{Per-layer overlap@1 on ScreenSpot-Pro.}
+ ScreenSpot-Pro is the most demanding benchmark (fine-grained targets on high-resolution desktop screenshots).
+ The inverted-U profile is the sharpest here, with the deepest layers showing the steepest decline,
+ reflecting that high-resolution targets require the most precise spatial encoding and are most sensitive to the serialization shift in deep layers.
+ Note that the vertical scales differ across panels to emphasize the shape of the curve within each model.
+ }
+ \label{fig:app_perlayer_sspro}
 \end{figure*}
 
+\FloatBarrier
 \begin{figure*}[p]
-  \centering
-  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf}
-  \caption{
-    \textbf{Per-layer overlap@1 on ScreenSpot-v2.}
-    ScreenSpot-v2 is a moderate-resolution benchmark (mobile, desktop, web) where overall accuracy is already high ($>$87\% at ckpt-800).
-    The inverted-U is shallower and the peak is broader compared to ScreenSpot-Pro,
-    indicating that moderate-resolution grounding is less sensitive to which specific layer is read.
-  }
-  \label{fig:app_perlayer_ssv2}
+ \centering
+ \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ss_v2.pdf}
+ \caption{
+ \textbf{Per-layer overlap@1 on ScreenSpot-v2.}
+ ScreenSpot-v2 is a moderate-resolution benchmark (mobile, desktop, web) where overall accuracy is already high ($>$87\% at ckpt-800).
+ The inverted-U is shallower and the peak is broader compared to ScreenSpot-Pro,
+ indicating that moderate-resolution grounding is less sensitive to which specific layer is read.
+ }
+ \label{fig:app_perlayer_ssv2}
 \end{figure*}
 
+\FloatBarrier
 \begin{figure*}[p]
-  \centering
-  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf}
-  \caption{
-    \textbf{Per-layer overlap@1 on OSWorld-G.}
-    OSWorld-G provides real computer-task GUI samples with diverse task types (Text Matching, Element Recognition, Layout Understanding, Fine-grained Manipulation).
-    The per-layer profile shows a similar inverted-U shape but with a plateau over a wider middle range ($\sim$L18--L24 for 28-layer models),
-    suggesting that layout-level spatial reasoning is distributed more broadly across intermediate layers than fine-grained element targeting.
-  }
-  \label{fig:app_perlayer_osworld}
+ \centering
+ \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_osworld_g.pdf}
+ \caption{
+ \textbf{Per-layer overlap@1 on OSWorld-G.}
+ OSWorld-G provides real computer-task GUI samples with diverse task types (Text Matching, Element Recognition, Layout Understanding, Fine-grained Manipulation).
+ The per-layer profile shows a similar inverted-U shape but with a plateau over a wider middle range ($\sim$L18--L24 for 28-layer models),
+ suggesting that layout-level spatial reasoning is distributed more broadly across intermediate layers than fine-grained element targeting.
+ }
+ \label{fig:app_perlayer_osworld}
 \end{figure*}
 
+\FloatBarrier
 \begin{figure*}[p]
-  \centering
-  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf}
-  \caption{
-    \textbf{Per-layer overlap@1 on MMBench-GUI.}
-    MMBench-GUI covers six platforms (Windows, macOS, Linux, iOS, Android, Web).
-    The per-layer curves are notably high even at ckpt-800 (blue dashed) for Qwen3-VL models (GUI-Owl-1.5-8B and UI-Venus-1.5-8B),
-    reflecting that these models have strong cross-platform generalization already encoded in their intermediate representations.
-    The gap between ckpt-800 and last checkpoint is smaller on MMBench-GUI than on ScreenSpot-Pro,
-    suggesting that the per-layer signal saturates earlier on this benchmark.
-  }
-  \label{fig:app_perlayer_mmbench}
+ \centering
+ \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_mmbench.pdf}
+ \caption{
+ \textbf{Per-layer overlap@1 on MMBench-GUI.}
+ MMBench-GUI covers six platforms (Windows, macOS, Linux, iOS, Android, Web).
+ The per-layer curves are notably high even at ckpt-800 (blue dashed) for Qwen3-VL models (GUI-Owl-1.5-8B and UI-Venus-1.5-8B),
+ reflecting that these models have strong cross-platform generalization already encoded in their intermediate representations.
+ The gap between ckpt-800 and last checkpoint is smaller on MMBench-GUI than on ScreenSpot-Pro,
+ suggesting that the per-layer signal saturates earlier on this benchmark.
+ }
+ \label{fig:app_perlayer_mmbench}
 \end{figure*}
 
+\FloatBarrier
 \begin{figure*}[p]
-  \centering
-  \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf}
-  \caption{
-    \textbf{Per-layer overlap@1 on UI-Vision.}
-    UI-Vision decomposes grounding into Basic, Functional, Spatial, and Layout subtypes; accuracy here represents the weighted average over all 5{,}790 samples.
-    Per-layer accuracy is substantially lower on UI-Vision than on other benchmarks,
-    particularly for Qwen2.5-VL models at early training (ckpt-800 for UI-TARS-1.5-7B peaks below 30\%),
-    indicating that UI-Vision's diverse task composition is harder for intermediate probes to solve with limited training.
-    The inverted-U is still present but shallower and shifted earlier (peak around L18--L20),
-    possibly because UI-Vision includes layout-level tasks that require higher-level semantic understanding.
-  }
-  \label{fig:app_perlayer_uivision}
+ \centering
+ \includegraphics[width=0.92\textwidth]{figs/a7_layerwise_plots/a7_layerwise_ui_vision.pdf}
+ \caption{
+ \textbf{Per-layer overlap@1 on UI-Vision.}
+ UI-Vision decomposes grounding into Basic, Functional, Spatial, and Layout subtypes; accuracy here represents the weighted average over all 5{,}790 samples.
+ Per-layer accuracy is substantially lower on UI-Vision than on other benchmarks,
+ particularly for Qwen2.5-VL models at early training (ckpt-800 for UI-TARS-1.5-7B peaks below 30\%),
+ indicating that UI-Vision's diverse task composition is harder for intermediate probes to solve with limited training.
+ The inverted-U is still present but shallower and shifted earlier (peak around L18--L20),
+ possibly because UI-Vision includes layout-level tasks that require higher-level semantic understanding.
+ }
+ \label{fig:app_perlayer_uivision}
 \end{figure*}
 
 
@@ -149,288 +512,88 @@ Figures~\ref{fig:app_perlayer_sspro}--\ref{fig:app_perlayer_uivision} show the s
 
 \label{sec:vis1}
 
-\begin{figure*}[t]
-    \centering
-    \begin{subfigure}{0.75\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uitars/idx00021.png}
-    \end{subfigure}
+\FloatBarrier
+\begin{figure*}[p]
+ \centering
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uitars/idx00021.png}
+ \end{subfigure}
 
-    \vspace{0.6em}
+ \vspace{0.6em}
 
-    \begin{subfigure}{0.75\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uitars/idx00440.png}
-    \end{subfigure}
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uitars/idx00440.png}
+ \end{subfigure}
 
-    \caption{Successful cases of UI-TARS-1.5-7B on ScreenSpot-Pro}
-    \label{fig:uitars15_screenspotpro_success}
+\caption{Successful cases of UI-TARS-1.5-7B on ScreenSpot-Pro}
+\label{fig:uitars15_sspro_success}
 \end{figure*}
 
 
-\begin{figure*}[t]
-    \centering
-    \begin{subfigure}{0.75\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uitars/idx00114.png}
-    \end{subfigure}
+\FloatBarrier
+\begin{figure*}[p]
+ \centering
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uitars/idx00114.png}
+ \end{subfigure}
 
-    \vspace{0.6em}
+ \vspace{0.6em}
 
-    \begin{subfigure}{0.75\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uitars/idx00329.png}
-    \end{subfigure}
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uitars/idx00329.png}
+ \end{subfigure}
 
-    \caption{Failure cases of UI-TARS-1.5-7B on ScreenSpot-Pro}
-    \label{fig:uitars15_screenspotpro_success}
+\caption{Failure cases of UI-TARS-1.5-7B on ScreenSpot-Pro}
+\label{fig:uitars15_sspro_failure}
 \end{figure*}
 
 
 \label{sec:vis}
 
-\begin{figure*}[t]
-    \centering
-    \begin{subfigure}{0.65\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uivenus/idx00015.png}
-    \end{subfigure}
+\FloatBarrier
+\begin{figure*}[p]
+ \centering
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uivenus/idx00015.png}
+ \end{subfigure}
 
-    \vspace{0.6em}
+ \vspace{0.6em}
 
-    \begin{subfigure}{0.65\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uivenus/idx02155.png}
-    \end{subfigure}
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uivenus/idx02155.png}
+ \end{subfigure}
 
-    \caption{Successful cases of UI-Venus-1.5-8B on MMBench-GUI-L2}
-    \label{fig:uitars15_screenspotpro_success}
+\caption{Successful cases of UI-Venus-1.5-8B on MMBench-GUI-L2}
+\label{fig:uivenus_mmbench_success}
 \end{figure*}
 
 
-\begin{figure*}[t]
-    \centering
-    \begin{subfigure}{0.65\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uivenus/idx00405.png}
-    \end{subfigure}
+\FloatBarrier
+\begin{figure*}[p]
+ \centering
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uivenus/idx00405.png}
+ \end{subfigure}
 
-    \vspace{0.6em}
+ \vspace{0.6em}
 
-    \begin{subfigure}{0.65\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figs/append/uivenus/idx00493.png}
-    \end{subfigure}
+ \begin{subfigure}{0.6\textwidth}
+ \centering
+ \includegraphics[width=\linewidth]{figs/append/uivenus/idx00493.png}
+ \end{subfigure}
 
-    \caption{Failure cases of UI-Venus-1.5-8B on MMBench-GUI-L2}
-    \label{fig:uitars15_screenspotpro_success}
+\caption{Failure cases of UI-Venus-1.5-8B on MMBench-GUI-L2}
+\label{fig:uivenus_mmbench_failure}
 \end{figure*}
 
 % ==============================================================================
 % Appendix: Robustness, Controls, and Statistical Stability
 % ==============================================================================
 
-\section{Robustness, Controls, and Statistical Stability}
-\label{app:controls}
-
-This appendix consolidates the controls and uncertainty quantification requested
-by the reviewers, all computed on the A8 (checkpoint-2800) probes used in the main
-text. All scripts and raw JSON are released with the submission.
-
-\paragraph{OOD layout generalization (4KeN-W4, eKpD-W2).}
-Table~\ref{tab:ood_peak_layer} reports the spatial-peak layer $L^*$ for each
-(model, benchmark) cell. $L^*$ varies by at most $3$ layers within each model
-across the five benchmarks (std $\le 1.1$), including the distribution-shifted
-UI-Vision and MMBench-GUI. The inverted-U (peak $>$ final) holds in $20/20$ cells.
-\clearpage
-\begin{table}[!htbp]
-\centering\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcccccccc}
-\toprule
-& SS-Pro & SS-v2 & OSWorld-G & UI-Vision & MMBench-GUI & mean & std & range$\downarrow$\\
-\midrule
-UI-TARS-1.5-7B & 20 & 21 & 21 & 23 & 20 & 21.0 & 1.10 & 3\\
-GUI-Owl-7B & 19 & 21 & 20 & 20 & 20 & 20.0 & 0.63 & 2\\
-GUI-Owl-1.5-8B-Instruct & 24 & 23 & 23 & 22 & 25 & 23.4 & 1.02 & 3\\
-UI-Venus-1.5-8B & 23 & 25 & 25 & 24 & 24 & 24.2 & 0.75 & 2\\
-\bottomrule
-\end{tabular}
-\caption{\textbf{Spatial-peak layer $L^*$ is stable across UI-layout distributions.} Each cell is the hit@1-peak layer on that benchmark (A8 ckpt-2800). Range is $\max-\min$ across the five benchmarks.}
-\label{tab:ood_peak_layer}
-\end{table}
-
-\paragraph{Bootstrap confidence intervals and seed stability (eKpD-W6).}
-Tables~\ref{tab:bootstrap_ci}--\ref{tab:bootstrap_ci_exp4} report $1000\times$
-bootstrap resamples of the $n{=}200$ spatial-lens set (Exp.~3) and the $n{=}150$
-instruction-switch pairs (Exp.~4). The serialization plateau $L^\dagger$ is
-stable within a $\le 1$-layer 95\% CI for every model; $L^*$ within $\le 3$
-layers for three of four ($\le 7$ for GUI-Owl-7B); the lag
-$L^\dagger - L^* > 0$ holds in $4/4$ models. Absolute hit@1 carries
-$\pm$2--4\,pp 95\% CI, matching the few-pp discrepancy between the $n{=}200$
-lens curves and the full $n{=}1581$ per-layer summaries.
-\clearpage
-\begin{table}[!htbp]
-\centering\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcccccc}
-\toprule
-Model & $L^*$ [95\% CI] & $L^\dagger$ [CI] & Lag & Peak hit@1 [CI] & Gap [CI] & $n$ \\
-\midrule
-UI-TARS-1.5-7B & 22 [21, 23] & 27 [27, 27] & +5 & 46.2 [39.5, 53.5] & 15.6 [10.0, 22.0] & 200\\
-GUI-Owl-7B & 21 [17, 24] & 26 [26, 26] & +5 & 47.8 [41.5, 55.0] & 10.7 [5.5, 16.5] & 200\\
-GUI-Owl-1.5-8B-Instruct & 23 [21, 24] & 35 [35, 35] & +12 & 54.6 [48.5, 61.0] & 24.1 [18.0, 30.5] & 200\\
-UI-Venus-1.5-8B & 23 [22, 24] & 34 [34, 34] & +11 & 55.0 [48.5, 61.5] & 22.3 [15.5, 28.5] & 200\\
-\bottomrule
-\end{tabular}
-\caption{\textbf{Bootstrap 95\% CIs (Exp.~3, $n{=}200$).} $L^\dagger$ (serialization plateau) is stable within one layer; the bottleneck ordering $L^* < L^\dagger$ is robust.}
-\label{tab:bootstrap_ci}
-\end{table}
-\clearpage
-\begin{table}[!htbp]
-\centering\small
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{lcccc}
-\toprule
-Model & Peak layer [CI] & Supp$_{\max}$ [CI] & JS$_{\max}$ [CI] & $n$ \\
-\midrule
-UI-TARS-1.5-7B & 18 [18, 18] & 0.478 [0.447, 0.509] & 0.524 [0.508, 0.542] & 150\\
-GUI-Owl-7B & 19 [19, 19] & 0.512 [0.482, 0.540] & 0.562 [0.546, 0.578] & 150\\
-GUI-Owl-1.5-8B-Instruct & 33 [32, 33] & 0.601 [0.572, 0.633] & 0.568 [0.550, 0.584] & 150\\
-UI-Venus-1.5-8B & 31 [31, 31] & 0.629 [0.611, 0.646] & 0.514 [0.498, 0.529] & 150\\
-\bottomrule
-\end{tabular}
-\caption{\textbf{Bootstrap 95\% CIs (Exp.~4 instruction-switch, $n{=}150$).} For the two Qwen3-8B models the suppression peak lands in late layers (L31--33), not the spatial-peak band (L23--25)---we report this honestly (4KeN-W3).}
-\label{tab:bootstrap_ci_exp4}
-\end{table}
-
-\paragraph{Inference-time fusion ablation (eKpD-W7, eKpD-W8).}
-Table~\ref{tab:fusion_ablation} compares four read-out strategies on the same A8
-CrossAttn probes: final-layer-only, oracle best-single layer (upper bound, not
-deployable), static uniform averaging of active-layer predictions, and the
-learned CosMeta fusion. Learned fusion improves over final-only by 7--12\,pp
-overlap@1 on SS-Pro, tracks the oracle within 2\,pp (and exceeds it on one
-model), and beats static averaging---quantitatively motivating both
-intermediate-layer readout and learned per-sample depth selection.
-\clearpage
-\begin{table}[!htbp]
-\centering\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcccccccc}
-\toprule
-& \multicolumn{4}{c}{SS-Pro} & \multicolumn{4}{c}{SS-v2} \\
-\cmidrule(lr){2-5} \cmidrule(lr){6-9}
-Model & Final & Best$^\star$ & Static & Learned & Final & Best$^\star$ & Static & Learned \\
-\midrule
-UI-TARS-1.5-7B & 45.3 & 54.0 & 42.0 & 52.5 & 88.2 & 91.2 & 87.3 & 90.6\\
-GUI-Owl-7B & 51.7 & 59.5 & 47.1 & 60.0 & 87.4 & 91.7 & 86.0 & 90.6\\
-GUI-Owl-1.5-8B-Instruct & 57.2 & 70.8 & 58.1 & 68.8 & 89.7 & 93.1 & 90.0 & 92.6\\
-UI-Venus-1.5-8B & 56.9 & 66.9 & 56.4 & 66.3 & 92.5 & 94.4 & 92.8 & 94.0\\
-\bottomrule
-\end{tabular}
-\caption{\textbf{Inference-time fusion ablation (overlap@1, A8 ckpt-2800).} $^\star$=oracle best single layer (per-benchmark, not deployable). On SS-Pro, learned CosMeta fusion is within $2$\,pp of the oracle for three of four models and exceeds it for GUI-Owl-7B (+0.5); it beats static averaging on all $8/8$ (model, benchmark) cells and dominates final-layer-only throughout.}
-\label{tab:fusion_ablation}
-\end{table}
-
-\paragraph{Controlled within-benchmark target-size regression (4KeN-W4, 4sok-Q2).}
-Figure~\ref{fig:targetsize_gap} and Table~\ref{tab:targetsize_gap} hold the
-benchmark fixed (ScreenSpot-Pro, $n{=}1581$) and bin by target bbox area. The
-peak--final gap does \emph{not} increase monotonically as targets shrink for all models
-(it rises monotonically with size for the two Qwen2.5-7B models, but peaks at
-intermediate sizes and falls back for the two Qwen3-8B models; averaged over all
-four models it is floored by peak accuracy rather than target size); the absolute
-final-layer hit@1 (mean over models) is $\sim$1.7$\times$ worse (range $1.5$--$1.9\times$)
-on the smallest quintile than on the largest, so the bottleneck is most damaging
-in absolute terms on small targets.
-\clearpage
-\begin{table}[!htbp]
-\centering\small
-\begin{tabular}{lccccc}
-\toprule
-Model & Q1 (smallest) & Q2 & Q3 & Q4 & Q5 (largest) \\
-\midrule
-UI-TARS-1.5-7B & 10.4 & 11.4 & 15.8 & 17.4 & 22.4\\
-GUI-Owl-7B & 6.0 & 8.2 & 15.2 & 15.5 & 20.2\\
-GUI-Owl-1.5-8B-Instruct & 21.5 & 24.7 & 25.3 & 25.3 & 17.7\\
-UI-Venus-1.5-8B & 14.2 & 20.9 & 27.2 & 15.8 & 13.9\\
-\bottomrule
-\end{tabular}
-\caption{\textbf{Within-SS-Pro collapse gap (pp) by target-area quintile (hit@1).} The gap is not monotone-decreasing in target size; it is floored by peak-layer accuracy on the hardest (sub-patch) targets.}
-\label{tab:targetsize_gap}
-\end{table}
-\clearpage
-\begin{figure}[!htbp]
-\centering
-\includegraphics[width=0.92\columnwidth]{figs/fig_targetsize_gap.pdf}
-\caption{\textbf{Collapse gap vs target-area quintile within ScreenSpot-Pro (hit@1).} The gap does not grow as targets shrink; the absolute final-layer accuracy (not the gap) is the cleaner severity measure and is worst on the smallest targets.}
-\label{fig:targetsize_gap}
-\end{figure}
-
-\paragraph{Pre-scale visual-token norm census (4sok-Q4; cf.\ Vision Transformers Need Registers).}
-Figure~\ref{fig:norm_census} measures the $\ell_2$-norm of the visual-patch
-hidden states \emph{before} the RMSNorm pre-scale, i.e.\ the magnitude
-information the pre-scale discards, for all four models. The mean norm grows with depth in \emph{both} backbone families:
-$\sim$3.4$\times$ from layer 14 to its within-probe-range peak at layer 26 in the
-two Qwen2.5-VL 7B models (GUI-Owl-7B: $112\to382$; UI-TARS-1.5-7B: $110\to371$) and
-$\sim$7.1--7.8$\times$ from layer 18 to the final probed layer 35 in the two Qwen3-VL 8B
-models (GUI-Owl-1.5-8B: $91\to712$; UI-Venus-1.5-8B: $88\to630$). Intriguingly, for the Qwen2.5 models the norm itself
-peaks at L26 and drops back at the final layer L27 ($382\to233$ and $371\to241$
-respectively)---an echo, at the level of raw activation magnitude, of the same
-inverted-U depth profile we observe for spatial grounding quality (Finding~1),
-suggestive of a broader representational transition around the last one to two
-layers rather than a norm-specific artifact.
-This directly confirms the depth-growth claim of \S\ref{sec:method:stage1} (the deeper
-network grows more); a small ($\le 0.7\%$) but heavy-tailed set of outlier patches
-carries very high norm, consistent with the attention-sink / register-token
-phenomenon---information the pre-scale normalizes away but which a magnitude-aware
-variant could exploit.
-\clearpage
-\begin{figure}[!htbp]
-\centering
-\includegraphics[width=0.95\columnwidth]{figs/fig_norm_census_combined.pdf}
-\caption{\textbf{Pre-scale visual-patch norm census (all four models across both backbone families, $n{=}100$ each).} (a) mean $\|h_v\|_2$ grows $\sim$3.4$\times$ (Qwen2.5, 2 models) and $\sim$7.1--7.8$\times$ (Qwen3, 2 models) with depth; (b) high-norm sink fraction stays small ($\le 0.7\%$) but present in all four.}
-\label{fig:norm_census}
-\end{figure}
-
-\paragraph{Tuned-lens control for the serialization lens (eKpD-W3).}
-\label{app:tuned_lens}
-The raw serialization lens applies the frozen norm+LM-head to each layer's hidden state; late layers align better with the output space, which can lower their NLL for reasons unrelated to coordinates.
-Following Belrose et al.\ (tuned lens), we learn per layer a lightweight affine $\hat h_\ell = A_\ell h_\ell + b_\ell$ mapping the intermediate state to the final-layer representation (ridge regression, $\lambda{=}10$, $80/20$ train/held-out split, $N{=}1924$ coordinate tokens from $n{=}200$ ScreenSpot-Pro samples), then apply the \emph{frozen} norm+LM-head.
-Table~\ref{tab:tuned_lens} reports raw vs.\ tuned NLL per layer.
-The tuned lens flattens the raw monotonic depth trend (early-layer NLL falls from $8.6$ to $3.8$ after calibration---part of the raw decrease is indeed an alignment artifact), yet the plateau position is unchanged: $L^\dagger_{\mathrm{raw}} = L^\dagger_{\mathrm{tuned}} = \mathrm{L26}$.
-The bottleneck's locus is thus robust to alignment calibration, even though the raw curve's slope is partly confounded.
-\begin{table}[!htbp]
-\centering\small
-\begin{tabular}{lcccccccccccccc}
-\toprule
-Layer & 14 & 15 & 16 & 17 & 18 & 19 & 20 & 21 & 22 & 23 & 24 & 25 & 26 & 27\\
-\midrule
-Raw NLL   & 8.63 & 9.23 & 9.02 & 8.03 & 7.98 & 7.39 & 7.07 & 6.87 & 7.13 & 7.04 & 6.98 & 4.75 & \textbf{2.79} & 3.27\\
-Tuned NLL & 3.80 & 3.73 & 3.65 & 3.76 & 3.69 & 3.94 & 3.92 & 3.66 & 3.55 & 3.52 & 3.40 & 3.29 & \textbf{3.14} & 3.25\\
-\bottomrule
-\end{tabular}
-\caption{\textbf{Tuned-lens control (GUI-Owl-7B).} Per-layer coordinate-token NLL: raw logit lens vs.\ calibrated tuned lens (held-out). Both plateau at L26 ($\mathbf{L^\dagger}$, bold). The tuned lens flattens the raw depth trend (conceding part of the raw decrease as alignment confound) while preserving the plateau position.}
-\label{tab:tuned_lens}
-\end{table}
-
-\paragraph{Random-instruction control (eKpD-W2, eKpD-Comments).}
-\label{app:random_instr}
-A training-free control: we run the frozen A8 probe on the same ScreenSpot-Pro images with the \emph{real} instruction replaced by an unrelated sample's instruction (shuffled across the batch). If the probe merely learned a position prior (``always click the most salient icon''), randomizing the instruction would not hurt. It does: hit@1 and target-region probability mass both collapse (Table~\ref{tab:random_instr}) for both Qwen2.5-VL models tested, confirming the posterior is instruction-conditioned at inference time---an $n{=}200$, single-instruction-pass complement to the paired $n{=}150$ instruction-\emph{switch} counterfactual (Finding~3), which is run on all four models (Table~\ref{tab:bootstrap_ci_exp4}). We have not yet run this specific control on the two Qwen3-VL models; given that Finding~3's paired counterfactual already holds for Qwen3-VL, we expect---but have not verified---the same qualitative collapse here.
-\begin{table}[!htbp]
-\centering\small
-\begin{tabular}{lcccc}
-\toprule
-Model & hit@1 real & hit@1 rand & GT-mass real & GT-mass rand \\
-\midrule
-GUI-Owl-7B & 40.5 & 1.5 & 0.292 & 0.010 \\
-UI-TARS-1.5-7B & 38.0 & 1.5 & 0.253 & 0.009 \\
-\bottomrule
-\end{tabular}
-\caption{\textbf{Random-instruction control (ScreenSpot-Pro, $n{=}200$).} Replacing the instruction with an unrelated sample's collapses hit@1 to $\sim$1.5\% (near chance) and target-region mass to $\sim$0.01, ruling out a learned position prior.}
-\label{tab:random_instr}
-\end{table}
-
-\paragraph{Scope of controls and ongoing work.}
-The controls above address the sampling (eKpD-W6), alignment-confound (eKpD-W3), dataset-conflation (4KeN-W4), and instruction-prior (eKpD-W2) concerns directly.
-Two further controls requested by reviewers---a zero-parameter attention-only baseline (4KeN-W1) and a probe-capacity sweep with lower-capacity linear/shared probes (eKpD-W2, eKpD-W8)---are natural next steps: the former requires extracting native anchor-to-visual attention with eager attention (disabling FlashAttention-2), and the latter requires training LoRA/linear probe variants.
-Our norm census (Fig.~\ref{fig:norm_census}) already shows the backbone's own pre-scale activations carry the depth-growing magnitude signal the probe reads, which is suggestive evidence that the inverted-U is not purely a probe-learning artifact.
