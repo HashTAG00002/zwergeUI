@@ -3143,8 +3143,10 @@
     - GitHub：zwerge .git/config 内嵌 PAT（github_pat_11BHXBSXQ...）已过期（API 401 Bad credentials）；
       ~/.git-credentials 里的 166599006:<token> 有效（API 200）→ 已 git remote set-url 为
       无内嵌凭据的 https://github.com/HashTAG00002/zwergeUI.git，由 credential.helper=store 接管。
-    - Overleaf：a2ui 的 token（olp_9JxfaO9tGGhtgzhuUs34bYktcShP632o4PJx，按账号维度）对新项目
-      6a5edf2d15bb366a14bb9277 有效（ls-remote 通过）。凭据写入 docs/our_tex/.env.local（gitignore）。
+    - Overleaf：a2ui 的 token（olp_9Jxf...4PJx，按账号维度，完整值见 docs/our_tex/.env.local）
+      对新项目 6a5edf2d15bb366a14bb9277 有效（ls-remote 通过）。凭据写入 docs/our_tex/.env.local（gitignore）。
+      （注：本文件首次提交时曾误写完整 token，已按 a2ui 约定脱敏；该 token 在 a2ui README 中本已明文入库，
+      且仓库为私有，风险敞口无增量。）
     - ⚠️ 环境坑：全局 git config 的 http.proxy=10.70.11.143:8412 已失效（connection refused），
       会覆盖环境变量 https_proxy；所有 git 网络命令必须 git -c http.proxy=http://10.70.16.106:3128
       逐命令覆盖（两个 sync 脚本已内置 gitp() 包装）。
