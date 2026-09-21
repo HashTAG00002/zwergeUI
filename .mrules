@@ -166,6 +166,10 @@ A7 四实验启动、qwen3 环境验证、Qwen3.5(qwen35)/UI-TARS-7B-SFT(uitars1
   结构重组（2_probe.tex 前置，7 页达标）、去破折号、训练/测试数据入 appendix、
   P2P decoder 细节入 appendix、fig3 legend 修复。
 
+**pack.sh 打包脚本迁移 2026-09-22**（log 末尾条目）：a2ui/pack.sh 适配到仓库根，
+git archive HEAD 只打 tracked 文件 + unzip -Z1 计数校验（默认输出 ZwerGeUI_main_<SHA>.zip），
+实测 184/184 一致、敏感 gitignore 项（.env.local/references/wandb）零泄漏。
+
 **维护规则**：每轮对话结束前将核心变动以同样格式追加到 .mrules.log 末尾（一条 = 日期+主题+可验证细节），
 本文件的 §七 索引同步加一行；.mrules 正文只在契约级事实变化时修改。
 

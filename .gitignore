@@ -28,6 +28,7 @@ docs/references/
 .env
 .env.*
 *APIKEY
+*.zip
 
 # LaTeX 构建产物（docs/our_tex/，经 git subtree 与 Overleaf 同步）
 docs/our_tex/**/*.aux

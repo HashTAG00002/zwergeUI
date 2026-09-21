@@ -3194,3 +3194,22 @@
     ─── 六、父目录说明（不进 git，未动）────────────────────────────────────────
     zwerge/data/（eval 数据与 results 产出）、zwerge/infer_jc/（jinchao 另一套独立推理代码，
     eval_{guiowl,guiowl15,uitars,ui_venus15}.py + infer hope，与 zwerge 主 pipeline 无关，保留原样）。
+
+  - [2026-09-22] 【pack.sh：从 a2ui 迁移的一键打包脚本（仓库根 code/pack.sh）】
+
+    用户要求把 /mnt/.../a2ui/pack.sh 搬到 zwerge/code 并适配。逻辑逐行保持一致：
+    git archive --format=zip -o "$OUT" HEAD 只打包 tracked 文件（天然等于 .gitignore
+    排除后剩余全部内容），rm -rf *.zip 先清根目录旧包，unzip -Z1（排除目录条目 '/'）与
+    git ls-files 做计数一致性校验，不等则 exit 1。适配点仅三处：① 默认输出名
+    A2UI_main_<SHA>.zip → ZwerGeUI_main_<SHA>.zip；② 注释中"不进包"举例换成本仓库
+    gitignore 实况（docs/references/ 竞品原文、docs/our_tex/scripts/ + .env.local 凭据、
+    wandb/、LaTeX 构建产物、docs/our_tex/*.pdf）；③ 计数坑注释保留 a2ui 2026-08-29
+    实证结论（unzip -l | awk NF==4 会多算表头分隔线、漏数带空格文件名），并注明本仓库
+    当前 184 个 tracked 文件无空格/非 ASCII 文件名。
+    实测（HEAD 68d6617，2026-09-22）：bash pack.sh → ZwerGeUI_main_68d6617.zip（8.5M），
+    输出 files 184 in zip / 184 tracked ✓；敏感项精确抽查全 0（^\.env / env\.local /
+    references\/ / wandb / __pycache__ / our_tex 根目录编译产物 pdf / pack.sh 自身）；
+    包内 pdf 集合与 git tracked pdf 集合 diff 为空（figs/ 下图源 pdf 是 tracked 文件，
+    理应进包，与 .gitignore L44 仅忽略 docs/our_tex/*.pdf 一致）。
+    注意：pack.sh 自身当前 untracked，git archive HEAD 语义下不进包；若需入包先
+    git add pack.sh（本会话未 add 未 commit，遵循 git 纪律）。
