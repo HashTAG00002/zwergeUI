@@ -2,14 +2,14 @@
 
 > 本文件是全项目的唯一入口记忆。写作目的：ACL ARR 被拒后（原从 EMNLP 转投，AAAI2027 提交号 Submission2403），
 > 基于三位审稿人意见做大规模补充实验与论文重写。以后新开对话，**先看这一份**，能想起所有关键决策、
-> 待办实验、代码风险点。详细工程细节仍在 `.mrules`，本文件只做"接口层"索引 + 决策摘要，不重复贴长代码。
+> 待办实验、代码风险点。详细工程细节仍在 `.mrules.log`，本文件只做"接口层"索引 + 决策摘要，不重复贴长代码。
 
 ---
 
 ## 0. 一句话现状
 
 论文核心 claim（**Coordinate Serialization Bottleneck**：GUI grounding 在中间层已形成，最后几层更偏向把
-空间意图"序列化"成坐标 token）已经被论文正文采纳并写成了 4 个 Finding + 完整方法+实验章节（`docs/our_paper_tex/`）。
+空间意图"序列化"成坐标 token）已经被论文正文采纳并写成了 4 个 Finding + 完整方法+实验章节（`docs/our_tex/`）。
 三位审稿人评分为 **2 / 3 / 3.5**（10 分制大致对应"拒稿重投 / Findings 弱接收 / 边缘会议"），
 核心问题不是"idea 不行"，而是 **证据链不够硬、部分数字与文字 claim 不一致、部分技术描述有逻辑漏洞**。
 本轮修订目标：**不换核心叙事，把审稿人指出的每一个"证据不够"补成"证据够硬"**。
@@ -18,7 +18,7 @@
 
 ## 1. 论文当前结构（已实际写好，采纳了 oracle 写作建议）
 
-路径：`docs/our_paper_tex/secs/`
+路径：`docs/our_tex/secs/`
 
 ```
 1_intro.tex       — Coordinate Serialization Bottleneck 提出，4条贡献
@@ -57,7 +57,7 @@ a_appendix.tex    — Limitations + 逐层曲线（A7 CrossAttn probe 全曲线�
    论文 `4_method.tex` 第129行写"auxiliary per-layer KL term prevents fusion from collapsing by keeping
    probe posteriors individually calibrated"。但 Stage 2 backbone 和 probe 都冻结，如果 per-layer posterior
    `p_l` 不是 fusion 参数的函数，这一项对 fusion 参数就是常数，起不到防 collapse 的作用。
-   **必须做**：明确回答"Stage 2 梯度到底流到哪里"，即回顾 `.mrules` [2026-05-25] A8 章节的梯度路径分析——
+   **必须做**：明确回答"Stage 2 梯度到底流到哪里"，即回顾 `.mrules.log` [2026-05-25] A8 章节的梯度路径分析——
    结论应该是：`loss_layer` 的梯度流向 **active probe 的 W_q/W_k**（不是 frozen 的，A8 里 10/12 层是继续训练的，
    不是完全冻结！），`loss_fuse` 也通过 `p_l`（非 detach 的）反传到 probe。**当前论文写"probe frozen"是不准确的**，
    需要在方法section明确写清楚 Stage2 到底哪些层参数继续训练、哪些冻结、auxiliary loss 具体作用于谁。
@@ -80,25 +80,25 @@ a_appendix.tex    — Limitations + 逐层曲线（A7 CrossAttn probe 全曲线�
    **必须补**：non-coordinate action token 对照、random coordinate 对照、text-only token 对照、
    **tuned lens**（每层单独训一个仿射变换再解码，而不是复用最终 LM head，参考 arXiv:2303.08112 Tuned Lens）、
    或者做因果干预实验（把中间层 spatial peak 路由到 decoder 是否真的提升坐标预测）。
-   代码位置：`docs/our_paper_tex` 引用的 serialization lens 实现应在 `zwerge/probe/` 下（`exp3_serialization_lens.py`
+   代码位置：`docs/our_tex` 引用的 serialization lens 实现应在 `zwerge/probe/` 下（`exp3_serialization_lens.py`
    看名字很可能就是这个，需要检查其中 LM head 用法是否有上述 confound，并补 tuned lens 变体）。
 
 4. **【eKpD】训练数据 200k 样本来源、去重、benchmark 泄漏完全未描述**
    论文只写"200k grounding samples for 1 epoch"，没有列数据集名称、许可、如何去重、是否与测试集视觉相似。
-   **必须补**：完整数据来源表（GroundCUA 110k / OS-Atlas 48k / AgentNet 42k，来自 `.mrules` A7 训练记录），
+   **必须补**：完整数据来源表（GroundCUA 110k / OS-Atlas 48k / AgentNet 42k，来自 `.mrules.log` A7 训练记录），
    写明是否检查过与 5 个 benchmark 的图像重复（可用 perceptual hash / CLIP embedding 相似度扫一遍）。
 
 5. **【eKpD】评测指标可能对 patch-level 方法有利，需要补标准 point-in-box 精度**
    当前 `overlap@1` 对 baseline 和 ZwerGe 都用 patch 中心/patch 相交判定，论文自己也承认这对 baseline 更宽松
    （`5_experiment.tex` 第126行"more forgiving for baselines"）。但审稿人要的是**标准点击成功率**（原始像素级
    hit@1，不做 patch 宽容化）。**必须补**：标准 hit@1（pixel-level，非 patch 宽容）作为并列指标，
-   这在 `.mrules` 里已经有过很多讨论（gap = overlap@1 - hit@1，机制是 near_miss patch 量化误差），
+   这在 `.mrules.log` 里已经有过很多讨论（gap = overlap@1 - hit@1，机制是 near_miss patch 量化误差），
    只是论文正文目前只报了 overlap@1，需要把 hit@1 也放进主表或至少 appendix。
 
 6. **【eKpD 数值错误，最容易修】Appendix fusion claim 与图不符**
    `a_appendix.tex` 第39-41行明确写"Fusion consistently outperforms the best single layer... dotted line
    lies above the peak... in nearly all panels"，但 `5_experiment.tex` 主表 Table ablation 里 A4 fusion
-   结果 48.7 是否真的高于所有单层峰值需要重新核对（`.mrules` [2026-05-20] 记录显示：A4@ckpt1600 SS-Pro 上
+   结果 48.7 是否真的高于所有单层峰值需要重新核对（`.mrules.log` [2026-05-20] 记录显示：A4@ckpt1600 SS-Pro 上
    fusion 39.97% 只比最优单层 L20/L21 (39.9%/40.16%) 高 0.06-0.81pp，且部分 bench 如 OSWorld-G fusion
    反而比最优单层差 1.4pp）。**这是一个可以立刻验证的检查项**：拉出 A7 appendix 逐层曲线图数据，
    逐个 panel 核实 fusion dotted line 是否真的在所有 peak 之上，不是则改文字为"fusion matches or
@@ -133,12 +133,12 @@ a_appendix.tex    — Limitations + 逐层曲线（A7 CrossAttn probe 全曲线�
 11. **【4sok】小目标下 Gaussian label 方差趋零、退化成 hard one-hot 的问题**
     `σ = η·w_b`（η=0.35），当 bbox 很小时 σ 也很小，接近退化成 one-hot，soft label 的意义消失。
     **需要**：报告 σ 的实际分布（尤其 SS-Pro 上小图标的 σ 统计），并讨论是否需要设置 `σ_min` 下限。
-    这个问题在 `.mrules` 里目前没有被讨论过，是一个新发现的点，值得做一个快速 ablation：固定最小 σ
+    这个问题在 `.mrules.log` 里目前没有被讨论过，是一个新发现的点，值得做一个快速 ablation：固定最小 σ
     （比如至少覆盖 1 个 patch）vs 当前的纯比例方案。
 
 12. **【4sok】Prefill-forced inference 的 OOD 问题**
     backbone 原生训练是在 CoT/reasoning token 之后才生成 `<|ground|><|pointer_start|>`，而 ZwerGe 直接
-    prefill 这个模板、跳过 CoT，这构成一种分布外输入。`.mrules` [2026-05-18] 已经讨论过这个问题并给出了
+    prefill 这个模板、跳过 CoT，这构成一种分布外输入。`.mrules.log` [2026-05-18] 已经讨论过这个问题并给出了
     "方案A: Rule-based CoT + 强制 prefill grounding token" 的集成设计，但**从未做过消融实验**验证"有无CoT
     prefill 对 grounding 质量的影响"。这正好和 oracle 报告里"实验4: pre-decoding vs post-decoding anchor
     probe"的方案C（no-think/direct-action）与方案B（post-think pre-action）重合，是本轮该补的实验。
@@ -149,7 +149,7 @@ a_appendix.tex    — Limitations + 逐层曲线（A7 CrossAttn probe 全曲线�
 
 ### P2（值得做但优先级低于以上）
 
-- 4KeN 提到的 patch size / box-to-patch mapping 需要在论文里明确写清楚（当前只在 `.mrules` 里有：
+- 4KeN 提到的 patch size / box-to-patch mapping 需要在论文里明确写清楚（当前只在 `.mrules.log` 里有：
   uitars/guiowl7b patch≈28px，guiowl/uivenus patch≈32px）。
 - naming 统一："ZWERGE-UI" / "ZwerGe" / "ZwerGe-UI" 三种写法，论文里必须统一成 `\textsc{ZwerGe-UI}`（LaTeX
   宏已经在用，检查全文有无手打的不一致写法）。
@@ -180,7 +180,7 @@ Re-Prefill 的表达。目前论文标题/abstract 已经用了 "Coordinate Seri
 
 ## 4. 竞品定位三维坐标系（写 Related Work 时的检查清单）
 
-来自 `.mrules` §六 长期积累 + oracle report §9.3，三个维度上 ZwerGe-UI 的位置：
+来自 `.mrules.log` §六 长期积累 + oracle report §9.3，三个维度上 ZwerGe-UI 的位置：
 
 1. **Uncertainty/信号来源**：解码后多次采样（UI-Zoomer, AutoFocus, MVP）vs. **单次前向内部状态（ZwerGe ✅）**
 2. **Layer-wise 建模**：无层概念/最后层（GUI-Actor）、全层 attention 需 `output_attentions`（GUI-AIMA, Re-Prefill）
@@ -188,16 +188,16 @@ Re-Prefill 的表达。目前论文标题/abstract 已经用了 "Coordinate Seri
 3. **Zoom/决策触发**：启发式规则（ZoomClick）、外部 RL（SE-GUI）vs. **learned controller from internal
    posterior（ZwerGe 的设计方向，当前论文版本未包含 zoom controller，只到 probe+fusion）**
 
-**重要提醒**：当前投稿版本的论文（`docs/our_paper_tex`）**没有包含 zoom-in / uncertainty-gated controller**，
-只到 Stage1 probe + Stage2 fusion。`.mrules` 里大量关于 zoom_backbone 策略、GRPO controller 的记录是
+**重要提醒**：当前投稿版本的论文（`docs/our_tex`）**没有包含 zoom-in / uncertainty-gated controller**，
+只到 Stage1 probe + Stage2 fusion。`.mrules.log` 里大量关于 zoom_backbone 策略、GRPO controller 的记录是
 **代码库已实现但论文未使用**的部分，如果这轮修订要加 zoom 实验来回应"patch granularity ceiling"（Limitations
-里提到的问题），`zoom_backbone` decode strategy（`.mrules` [2026-05-22]）是现成可用的实现，直接可以拿来跑。
+里提到的问题），`zoom_backbone` decode strategy（`.mrules.log` [2026-05-22]）是现成可用的实现，直接可以拿来跑。
 
 ---
 
 ## 5. 代码历史 Bug 复发风险清单（防止重复踩坑）
 
-以下按"复现概率从高到低"排列，来自 `docs/record/debug`（原始调试日志）+ `.mrules` 沉淀总结。
+以下按"复现概率从高到低"排列，来自 `docs/record/debug`（原始调试日志）+ `.mrules.log` 沉淀总结。
 
 ### 高风险（几乎一定会在扩展新模型/新实验时复现）
 
@@ -256,7 +256,7 @@ Re-Prefill 的表达。目前论文标题/abstract 已经用了 "Coordinate Seri
 
 ### Qwen3 系列数值问题——用户明确指出"没有完全解决"，需要重点复查
 
-这是用户在本次任务里**明确点名**的关切点，梳理 `.mrules` 中所有相关记录的时间线和当前状态：
+这是用户在本次任务里**明确点名**的关切点，梳理 `.mrules.log` 中所有相关记录的时间线和当前状态：
 
 | 时间 | 问题 | 状态 |
 |---|---|---|
@@ -277,7 +277,7 @@ Re-Prefill 的表达。目前论文标题/abstract 已经用了 "Coordinate Seri
   引入 Conv3d monkey-patch 期间训练的，其 backbone 前向路径与"干净路径"存在系统性数值差异**，需要确认：
   1. 论文里报告的 GUI-Owl-1.5-8B / UI-Venus-1.5-8B checkpoint 具体是哪个训练时间点产出的
   2. 该训练时间点代码里是否包含 Conv3d monkey-patch
-  3. 如果包含，训练和推理是否**同时**用了这个 patch（`.mrules` 里说"训练推理一致性有保证"，因为两边都走
+  3. 如果包含，训练和推理是否**同时**用了这个 patch（`.mrules.log` 里说"训练推理一致性有保证"，因为两边都走
      同一个 `_GUIOwlImpl.__init__()`），如果训练推理两边一致，那么这只是一个"内部自洽但与官方实现不同"的
      系统，数字本身仍然有效，但**如果要与其他论文/其他人复现的 GUI-Owl-1.5 结果比较，可能存在系统性偏差**。
   **建议行动**：在这轮补实验之前，先确认当前所有要复用的 GUI-Owl-1.5/UI-Venus-1.5 checkpoint 是否是用
@@ -342,21 +342,22 @@ Re-Prefill 的表达。目前论文标题/abstract 已经用了 "Coordinate Seri
 ## 8. 关键文件/路径速查
 
 ```
-论文正文：       docs/our_paper_tex/secs/*.tex（1_intro ~ a_appendix）
+论文正文：       docs/our_tex/secs/*.tex（1_intro ~ a_appendix）
 审稿意见：       docs/reviews/Reviewer-{eKpD,4KeN,4sok}
 写作策略调研：   docs/oracle/writing_suggestion（论文结构/图表/标题建议，已部分采纳）
 方法论调研：     docs/oracle/report（6方向文献调研：attention sink/layer probing/token pruning/
                  uncertainty/sparse QK/frozen probe 先例，含大量可引用 arXiv ID）
 实验设计调研：   docs/oracle/chatgpt-export_坐标瓶颈假说实验设计（G_l/C_l/LLI/CBI/DBR 等指标形式化，
                  8个具体可执行 probe 实验设计，含数学定义/怎么跑/预期图/降级方案）
-最早期方法讨论： docs/oracle/chatgpt-export（历史背景，端到端问题讨论，核心结论已沉淀进 .mrules）
+最早期方法讨论： docs/oracle/chatgpt-export（历史背景，端到端问题讨论，核心结论已沉淀进 .mrules.log）
 Re-Prefill 原文：docs/references/2605.12549/neurips_2026.tex
-调试历史全record：docs/record/debug（原始日志，6247行，核心结论已提炼进 .mrules，一般不需要重读）
+调试历史全record：docs/record/debug（原始日志，6247行，核心结论已提炼进 .mrules.log，一般不需要重读）
 Stage2/A8设计：  docs/record/fusion（A8 ContextLoRACosMetaFusion 完整数学定义+代码改造点，已实现）
-核心工程细节：   .mrules（模型路径、训练脚本、evaluate流程、所有历史bug修复记录，本README的"底层数据库"）
+核心工程细节：   .mrules.log（模型路径、训练脚本、evaluate流程、所有历史bug修复记录，本README的"底层数据库"）
+仓库契约/同步： .mrules（精简规则+索引）+ scripts/sync_github.sh + docs/our_tex/scripts/sync_to_overleaf.sh
 ```
 
-**代码结构提醒**（详见 `.mrules` 一/二节）：主代码在 `zwerge/` 子模块，`src/zwerge_retrofit/` 是核心建模代码
+**代码结构提醒**（详见 `.mrules.log` 一/二节）：主代码在 `zwerge/` 子模块，`src/zwerge_retrofit/` 是核心建模代码
 （`modeling_base.py` 公共组件 + `modeling_{uitars,uitars1,guiowl,uivenus,qwen35}.py` 各模型分支），
 `eval/` 镜像同样结构，`experiments/*.yaml` + `eval_daemon.py` 是训练/评测异步流水线入口。
 
@@ -383,6 +384,11 @@ occlusion causal experiment（因果性论证薄弱，易被质疑"遮的本来�
 
 ## 9. 变更日志（本文件自身的维护记录）
 
-- [2026-07-22] 首次创建。基于用户要求，系统阅读 `docs/reviews`、`docs/oracle`、`docs/our_paper_tex`、
-  `docs/references/2605.12549`、`docs/record` 全部内容 + 重新梳理 `.mrules` 全文后撰写。
+- [2026-07-22] 首次创建。基于用户要求，系统阅读 `docs/reviews`、`docs/oracle`、论文 tex 目录、
+  `docs/references/2605.12549`、`docs/record` 全部内容 + 重新梳理 `.mrules.log` 全文后撰写。
   核心目的：为基于审稿人意见的补充实验阶段提供唯一记忆入口。
+- [2026-09-22] 仓库重组（对齐 a2ui 两级组织）：论文 tex 目录更名 `docs/our_tex` 并打通
+  Overleaf 双向同步（project 6a5edf2d15bb366a14bb9277，`bash docs/our_tex/scripts/sync_to_overleaf.sh push`）；
+  GitHub 推送链路修复（`bash scripts/sync_github.sh`，凭据走 credential store）；
+  `.mrules` 拆分为契约+索引（`.mrules`）与全量历史（`.mrules.log`），本文件内引用已同步更新；
+  清理 debug/临时/叶子文件约 9900 行 + wandb 271M。详见 `.mrules.log` 末尾 [2026-09-22] 条目。

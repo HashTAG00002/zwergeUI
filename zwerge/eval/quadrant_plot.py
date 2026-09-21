@@ -17,7 +17,7 @@ try:
 except Exception:
     _MPL = False
 
-_FIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "our_paper_tex", "figs")
+_FIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "our_tex", "figs")
 ORDER = ["guiowl7b_ss_pro","guiowl7b_ss_v2","uitars_ss_pro","uitars_ss_v2",
          "guiowl_ss_pro","guiowl_ss_v2","uivenus_ss_pro","uivenus_ss_v2"]
 LABEL = {"guiowl7b":"GUI-Owl-7B","uitars":"UI-TARS-1.5-7B","guiowl":"GUI-Owl-1.5-8B","uivenus":"UI-Venus-1.5-8B"}

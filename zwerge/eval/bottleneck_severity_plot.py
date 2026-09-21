@@ -15,7 +15,7 @@ quadrant; Qwen2.5-VL in the positive/positive quadrant.
 
 Reads the canonical A8 checkpoint-2800 layerwise_all_summary.json for the 4
 backbones; native-baseline overlap@1 (Overall) is transcribed from the main
-tables (docs/our_paper_tex/secs/5_experiment.tex).
+tables (docs/our_tex/secs/5_experiment.tex).
 
 Usage:
   python bottleneck_severity_plot.py --out figs/bottleneck_severity.pdf
@@ -33,7 +33,7 @@ except Exception:
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CKPT_BASE = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/ckpt/zwerge"
-_FIG_ROOT = os.path.join(_HERE, "..", "..", "docs", "our_paper_tex", "figs")
+_FIG_ROOT = os.path.join(_HERE, "..", "..", "docs", "our_tex", "figs")
 
 RUNS = {
     "GUI-Owl-7B":     ("guiowl7b_A8_cosmeta_ctx_exp001", "Qwen2.5-VL"),

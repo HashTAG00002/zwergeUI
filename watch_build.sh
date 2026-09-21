@@ -1,5 +1,5 @@
 #!/bin/bash
-# Watch docs/our_paper_tex/**/*.tex (and .bib) for saves and auto-run build.sh.
+# Watch docs/our_tex/**/*.tex (and .bib) for saves and auto-run build.sh.
 # This emulates "Ctrl+S auto-compile" (like LaTeX Workshop's onSave build)
 # without needing any editor extension, using inotify on the DolphinFS mount.
 #
