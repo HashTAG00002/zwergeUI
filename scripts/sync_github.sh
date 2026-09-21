@@ -9,7 +9,9 @@
 # 凭据：git credential.helper=store，有效 token 存于 ~/.git-credentials
 #   （⚠ 不要使用 .git/config 里曾内嵌的 PAT——已过期 401；
 #     remote URL 应保持为无内嵌凭据的干净形式，由 credential store 接管）
-# 代理：全局 git config 的 http.proxy 已失效，本脚本逐命令覆盖为有效代理。
+# 代理：~/.gitconfig 全局 http.proxy=http://10.70.16.106:3128（2026-09-22 修复，
+#   原仓库本地 .git/config 内嵌死代理 10.70.11.143:8412 已删），裸 git 命令即可联网；
+#   下方 -c 覆盖保留为双保险（-c 优先级最高）。
 # ==============================================================
 set -euo pipefail
 

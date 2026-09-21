@@ -79,8 +79,10 @@ bash docs/our_tex/scripts/compile.sh [main]            # 快速：只编主文�
   `docs/our_tex/.env.local`，gitignore，**绝不提交**；脚本会自动 source）。
 - GitHub 凭据：`credential.helper=store` + `~/.git-credentials`（有效）。
   ⚠️ 不要用 `.git/config` 里曾内嵌的 PAT（已过期 401）；remote URL 保持无内嵌凭据形式。
-- ⚠️ 全局 git config 的 `http.proxy=10.70.11.143:8412` **已失效**，所有 git 网络命令必须
-  `git -c http.proxy=http://10.70.16.106:3128` 逐命令覆盖（两个 sync 脚本已内置）。
+- 代理（2026-09-22 修复）：死代理 `10.70.11.143:8412` 实际内嵌在**本仓库** `.git/config`（非全局，
+  旧记录误写），config 优先级高于环境变量，是裸 git push Connection refused 的根因，已删除；
+  现全局 `~/.gitconfig` 设 `http.proxy=http://10.70.16.106:3128`，裸 git push/pull/fetch 直接可用；
+  两个 sync 脚本的 `-c` 覆盖保留为双保险（优先级最高，不冲突）。
 - push 到 overleaf 只推**已提交**的 `docs/our_tex` 树；PDF/凭据/scripts 已被 gitignore 隔离。
 
 ## 四、工程约束（写代码必须遵守）
@@ -182,3 +184,6 @@ git archive HEAD 只打 tracked 文件 + unzip -Z1 计数校验（默认输出 Z
   （project 6a5edf2d15bb366a14bb9277，首次 push 已验证 tree 一致）；GitHub 同步链路修复
   （内嵌死 PAT → credential store）；清理 debug/临时/叶子文件约 9900 行 + wandb 271M；
   详见 .mrules.log 末尾 [2026-09-22] 条目。
+- [2026-09-22] git 代理修复：删本仓库 `.git/config` 内嵌死代理 `10.70.11.143:8412`（config 压制
+  环境变量致裸 git push refused；旧记录误写为"全局"），全局 `~/.gitconfig` 设活代理
+  `http://10.70.16.106:3128`；详见 .mrules.log 末尾 [2026-09-22] 条目。

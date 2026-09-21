@@ -3213,3 +3213,29 @@
     理应进包，与 .gitignore L44 仅忽略 docs/our_tex/*.pdf 一致）。
     注意：pack.sh 自身当前 untracked，git archive HEAD 语义下不进包；若需入包先
     git add pack.sh（本会话未 add 未 commit，遵循 git 纪律）。
+
+  - [2026-09-22] 【git 代理修复：删仓库本地死代理 + 全局设活代理；纠正"全局"误记】
+
+    现象：裸 git push 报 Failed connect to 10.70.11.143:8412; Connection refused，
+    尽管环境变量 https_proxy=http://10.70.16.106:3128 正确。
+    根因（三条证据链，实测）：
+    ① 死代理实际内嵌在本仓库 .git/config [http] 段（原 L13-14）。注意：本文件 L3150
+      旧记录写"全局 git config"是位置误记——~/.gitconfig 与 a2ui/.git/config 均无
+      任何 proxy（git config --show-origin 实证）。
+    ② git 代理优先级：git -c 参数 > .git/config > ~/.gitconfig > /etc/gitconfig >
+      环境变量；config 任一级写死 http.proxy 即完全压制 https_proxy 环境变量。
+      对照实验：env 显式设活代理 + config 死代理 → 仍 8412 refused；-c 覆盖 → 成功。
+      官方文档 https://git-scm.com/docs/git-config 的 http.proxy 条目首词即 "Override"。
+    ③ 新开 shell 无任何代理环境变量（bashrc L42-43 仅定义手动 alias proxy/unproxy，
+      需手动敲 proxy 才 export），故"只删不设"会使新 shell 裸 git 直连失败
+      （容器无直连外网）——修复因此选"全局设活代理"而非单纯 unset。
+    修复（HashTAG_00001 选定方案 B）：
+      git config --global http.proxy http://10.70.16.106:3128            # 全局设活代理
+      git config --unset http.proxy && git config --remove-section http  # 删仓库本地死条目
+    验证（全部通过）：生效链仅剩 file:/home/hadoop-mt-ocr/.gitconfig 一条活代理；
+    .git/config 零 proxy 残留；env -u 清空全部代理变量后裸 git ls-remote origin HEAD
+    成功（纯 config 路径）；裸 git push 成功 68d6617..baa3ad4（"before AAAI rebuttal:
+    for GPT pro SVG"），推送后 master 与 origin/master 同步。
+    连带修正：.mrules §三 契约行改写 + §八 变更日志；scripts/sync_github.sh 与
+    docs/our_tex/scripts/sync_to_overleaf.sh 注释中"全局已失效"说法同步更新
+    （gitp()/-c 覆盖保留为双保险，行为不变）。
