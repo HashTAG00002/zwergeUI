@@ -11,8 +11,8 @@
 
 set -u
 REPO_ROOT="/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/zwerge/code"
-TEX_DIR="$REPO_ROOT/docs/our_paper_tex"
-BUILD_SCRIPT="$REPO_ROOT/build.sh"
+TEX_DIR="$REPO_ROOT/docs/our_tex"
+BUILD_SCRIPT="$REPO_ROOT/docs/our_tex/build.sh"
 DEBOUNCE_SECONDS=1
 
 if ! command -v inotifywait >/dev/null 2>&1; then

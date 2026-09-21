@@ -1,6 +1,48 @@
-results/
-wandb/
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.claude/
+
+# Python
 __pycache__/
+*.py[cod]
 *.egg-info/
+.pytest_cache/
+*.egg
+
+# 训练/评测运行时产物（共享盘持久，不入 git）
+wandb/
+results/
 outputs/
+
+# 竞品论文原文等参考资料（体积大，共享盘持久，不入 git）
 references/
+docs/references/
+
+# Secrets / local env
+.env
+.env.*
+*APIKEY
+
+# LaTeX 构建产物（docs/our_tex/，经 git subtree 与 Overleaf 同步）
+docs/our_tex/**/*.aux
+docs/our_tex/**/*.bbl
+docs/our_tex/**/*.blg
+docs/our_tex/**/*.fdb_latexmk
+docs/our_tex/**/*.fls
+docs/our_tex/**/*.log
+docs/our_tex/**/*.out
+docs/our_tex/**/*.synctex.gz
+docs/our_tex/**/*.toc
+docs/our_tex/**/*.lof
+docs/our_tex/**/*.lot
+docs/our_tex/*.pdf
+
+# Overleaf 凭据与本地同步工具（不进 git，也不推送到 Overleaf）
+docs/our_tex/.env.local
+docs/our_tex/scripts/
