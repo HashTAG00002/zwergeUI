@@ -1,0 +1,52 @@
+# ============================================================
+# ZwerGe Experiment Config — A7-SVD sanity / GUI-Owl-1.5-8B (Qwen3-VL)
+# Arm B3: qk_svd_next（paired QK-SVD，donor = 下一层；probe L35 无 block-36
+# 会显式 fallback 到 same 并写 report，禁止静默——验收时核对 init report）
+# ============================================================
+#
+# 用法：
+#   tmux new -s svd_guiowl_svdnext
+#   python eval_daemon.py --config experiments/A7SVD_guiowl_svdnext.yaml
+#   Ctrl+b d
+
+experiment_name: "guiowl_A7svd_svdnext"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  # 双队列交替（.mrules §五）：guiowl 4 组 train=vision / eval=aipnlp，uivenus 4 组反之
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "guiowl"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    GROUNDING_INIT_METHOD: "qk_svd_next"
+    GROUNDING_INIT_STATS_N_SAMPLES: "16"
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "guiowl"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

@@ -10,6 +10,7 @@
 方法：frozen backbone + Stage1 独立 CrossAttn probe（~42M，0.5% of 8B）+ Stage2 跨层融合（<200K）+
 training-free margin-gated ensemble（fusion 点 vs backbone native 坐标按 margin 门控）。
 当前阶段：**AAAI rebuttal 准备**（评分 2/3/3.5，三位审稿人意见在 `docs/reviews/`，应对清单在 `README.md` §2）。
+**请注意一个很重要的恶性 bug： 见 四、工程约束（写代码必须遵守） - Qwen3-VL patch-embed Conv3d 退化**
 
 ---
 
@@ -39,7 +40,8 @@ code/                            # git 仓库根（github.com/HashTAG00002/zwerg
 │   ├── probe/                   # 论文 §3 分析实验：exp3_serialization_lens.py / exp4_counterfactual.py /
 │   │                            #       analysis_{ood,bootstrap_ci,targetsize,fusion_ablation,norm_census,
 │   │                            #       random_instruction,tuned_lens}.py + probe_utils.py + plot_probes.py
-│   ├── experiments/*.yaml       # eval_daemon 实验配置（A3/A7/A8 各模型）
+│   ├── experiments/A7SVD_*.yaml # eval_daemon 实验配置（本轮 SVD sanity：guiowl/uivenus × 4 arm）
+│   ├── experiments/old/         # 旧配置归档（A3/A7/A8，2026-09-23 移入，git 保留历史）
 │   ├── scripts/                 # 训练 hope/shell（train_ablation_A0~A8）+ eval hope
 │   ├── train_retrofit.py        # 训练主入口
 │   ├── eval_daemon.py           # 异步评估守护进程（训练/评测解耦）
@@ -55,9 +57,19 @@ code/                            # git 仓库根（github.com/HashTAG00002/zwerg
 - 模型根目录（先 `ls` 确认子目录名，不要凭记忆猜路径）：
   GUI Agent 系列：`/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/`
   Qwen 系列：`/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/Qwen/`
-- conda 环境：uitars/guiowl7b 训练=`gui_actor`；uitars1=`qwen2`；评测(Qwen2.5)=`qwen25`；
-  guiowl/uivenus(Qwen3-VL)=`qwen3`（⚠️ 勿用 qwen3-verl，Conv3d 退化 bug；`conda run -n qwen3` 可能解析错，
-  直接调 `/mnt/.../conda/envs/qwen3/bin/python`）；qwen35=`qwen35`。
+- conda 环境速查表（2026-09-22 全量实测复核；Conv3d 判定详见 §四.3，A100/A800 实测数据见 .mrules.log 末尾）：
+
+  | conda env | torch | transformers | 本项目用途 | Qwen3-VL Conv3d 状态 |
+  |---|---|---|---|---|
+  | `gui_actor` | 2.5.1 | 4.51.3 | uitars / guiowl7b（Qwen2.5-VL）训练 | —（Qwen2.5-VL，非 2.9.x） |
+  | `qwen2` | 2.6.0 | 4.49.0 | uitars1（UI-TARS-7B-SFT）训练 | —（同上） |
+  | `qwen25` | 2.7.0 | 4.51.1 | Qwen2.5-VL 评测 | —（同上） |
+  | `qwen3` | 2.8.0 | 4.57.1 | guiowl/uivenus（Qwen3-VL）训练+评测 | ✅ A100 实测快（1.6/7.9 ms） |
+  | `qwen35` | 2.10.0 | 5.9.0 | qwen35（Qwen3.5） | ✅ A800 实测快（2.10 已修复上游 bug） |
+  | `qwen3-verl` | 2.9.1 | 4.57.1（+vllm 0.14） | ECCV 红队项目遗留（verl/vLLM） | ❌ **训练禁用**（bf16/fp16 退化 ×16万；vLLM 推理免疫） |
+
+  调用方式：`conda run -n <env>` 可能解析错，一律直接调 `/mnt/.../conda/envs/<env>/bin/python`。
+  其余环境（gui_aima/mobilegym/osworld/senseact/taskvm/service）与本项目无关。
 - 论文 checkpoint：A8 checkpoint-2800（主结果）；ckpt 根 `/mnt/.../.hdd/ckpt/zwerge/`。
 
 ## 三、Git 两级同步（Overleaf + GitHub）
@@ -93,13 +105,32 @@ bash docs/our_tex/scripts/compile.sh [main]            # 快速：只编主文�
    - `reinit_grounding_head`：Stage2/续训必须显式 `--reinit_grounding_head false`，否则静默擦除已训权重。
    - bf16 `from_pretrained` 新增 LayerNorm 权重是 NaN（未初始化内存）→ 必须调 `reinit_grounding_head()`。
    - 深层 hidden state L2 norm 爆炸（L26 可达 1.4e4）→ 任何新 probe 必须在 MLP/LN 前做 RMS pre-scale。
-   - Qwen3-VL Conv3d 退化是 PyTorch 版本问题（2.8 已修/2.9.1 有 bug），**禁止重新引入 Conv3d→Linear
-     monkey-patch**（bf16 下系统性数值漂移，已被证明是伪修复）。
+- Qwen3-VL patch-embed Conv3d 退化（2026-09-22 重写，取代旧"2.8 已修/2.9.1 有 bug"表述）：
+  **根因=上游 PyTorch 2.9.0/2.9.1 禁用 cuDNN Conv3D（pytorch#166122），vLLM 因自带
+  Conv3dLayer 在 2.9.x 自动切 unfold+F.linear（vllm#27406）而不受影响——ECCV 项目
+  （qwen3-verl=2.9.1 + vLLM 0.14）从未退化即因此；该问题是"torch 版本 × GPU 架构 × 精度"三维：
+  A100+2.8 快 / A100+2.9.1 慢 / V100(sm_70) bf16 下 fp32·fp16 快(2ms)而 bf16 全版本慢(19s)。**
+  铁律：① 同一实验的训练与推理必须走同一 forward 路径并把路径身份写进 run manifest
+  （05-24 灾难=路径混用致 bf16 漂移级联）；② 任何新 GPU 架构/torch 版本上线训练前必须先跑
+  Conv3d benchmark（脚本 docs/oracle_new/conv3d/）；③ 禁止静默引入 Conv3d 替代实现——
+  替代实现（F.linear 数学等价，fp64 差 1e-13）只允许以"全链路一致 + 显式记录"方式启用；
+  ④ qwen3-verl(2.9.1) 训练禁用；qwen35(2.10) 在 A100 的 Conv3d 状态待 benchmark 确认。
    - DDP+GC：显式 `gradient_checkpointing_kwargs={"use_reentrant": False}` + `ddp_find_unused_parameters=True`。
    - 新模型接入先查 config.json `architectures` 对应 transformers 类（同系列模型类无继承关系）。
 4. RL 范围：GRPO 只施加在 zoom controller，不对整 backbone 做在线 RL。
 
 ## 五、评测基准与输出
+
+**训练/评测全自动流程（eval_daemon，启动实验的默认方式）**：在 codelab tmux 里
+`cd zwerge && python eval_daemon.py --config experiments/<配置>.yaml`（一个配置一个窗口，Ctrl+b d 挂起）。
+机制：自动提交训练 hope job → 轮询 OUTPUT_DIR 中带 `is_permanent_ckpt` 标记的 checkpoint
+（save_steps=400 一个）→ 异步提交 eval job（幂等，`.eval_submitted.json` 记账）→ 训练完成且全部
+ckpt 派发完才退出。产物落盘：ckpt 与评测结果都在 `/mnt/.../.hdd/ckpt/zwerge/<experiment_name>/`
+（eval 在 `checkpoint-*/results/`），daemon 日志 `OUTPUT_DIR/eval_daemon.log`。
+**双队列交替规则（防突发争用，2026-09-23 起）**：`root.zw05_training_cluster.hadoop-vision.elastic_job`
+与 `root.zw05_training_cluster.hadoop-aipnlp.elastic` 两队列都可用、可互换；并行起多个实验时，
+一半配置 train 走 vision + eval 走 aipnlp，另一半反之（例：本轮 8 个 A7SVD 配置中 guiowl 4 组 =
+train vision/eval aipnlp，uivenus 4 组 = train aipnlp/eval vision）。
 
 - P0：ScreenSpot-Pro（高分辨率小目标主战场）；P1：ScreenSpot-v2（已饱和）；P2：OSWorld-G；
   P3：MMBench-GUI L2 / UI-Vision。
@@ -172,6 +203,10 @@ A7 四实验启动、qwen3 环境验证、Qwen3.5(qwen35)/UI-TARS-7B-SFT(uitars1
 git archive HEAD 只打 tracked 文件 + unzip -Z1 计数校验（默认输出 ZwerGeUI_main_<SHA>.zip），
 实测 184/184 一致、敏感 gitignore 项（.env.local/references/wandb）零泄漏。
 
+**eval_daemon 全流程 + 双队列交替 2026-09-23**（log 末尾条目）：tmux 手动 eval_daemon 定型为
+训练/评测标准流程；双队列交替规则（vision.elastic_job / aipnlp.elastic 各半互换防争用）；
+8 个 A7SVD yaml（xavier/qk_svd_same/qk_svd_next/randorient_same × guiowl/uivenus）+ 旧 yaml 归档 old/。
+
 **维护规则**：每轮对话结束前将核心变动以同样格式追加到 .mrules.log 末尾（一条 = 日期+主题+可验证细节），
 本文件的 §七 索引同步加一行；.mrules 正文只在契约级事实变化时修改。
 
@@ -187,3 +222,9 @@ git archive HEAD 只打 tracked 文件 + unzip -Z1 计数校验（默认输出 Z
 - [2026-09-22] git 代理修复：删本仓库 `.git/config` 内嵌死代理 `10.70.11.143:8412`（config 压制
   环境变量致裸 git push refused；旧记录误写为"全局"），全局 `~/.gitconfig` 设活代理
   `http://10.70.16.106:3128`；详见 .mrules.log 末尾 [2026-09-22] 条目。
+- [2026-09-22] Conv3d 根因定位（CatPaw 亲办）：§四.3 条目重写为"torch 版本 × GPU 架构 × 精度"三维
+  铁律（根因 pytorch#166122，vLLM#27406 workaround，2.8/2.10 正常、2.9.1 禁用、V100 另因 sm_70 无
+  bf16 卷积全版本退化）；§二 conda 环境改为全量实测表格（6 个相关 env 的 torch/tf 版本逐一复核）；
+  详见 .mrules.log 末尾 [2026-09-22] Conv3d 条目。
+- [2026-09-23] §五 新增 eval_daemon 全流程启动块 + 双队列交替规则（两队列互换、并行实验各半交叉
+  防争用）；§一 experiments 结构更新（A7SVD_*.yaml 本轮 + old/ 归档）；详见 .mrules.log 末尾 [2026-09-23] 条目。

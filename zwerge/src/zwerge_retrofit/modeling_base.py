@@ -28,7 +28,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformers.modeling_outputs import ModelOutput
+from transformers.utils.generic import ModelOutput
 
 
 # =============================================================================
@@ -276,6 +276,41 @@ class CrossAttnGroundingProbe(nn.Module):
 
 
 # =============================================================================
+# Detached probe output statistics (observation only)
+# =============================================================================
+
+def probe_output_stats(logits: torch.Tensor, p: torch.Tensor) -> Dict[str, float]:
+    """Per-sample output statistics for one probe's [N_vis] logits/probs.
+
+    Observation only: detach + float32, no autograd graph, no RNG, no extra
+    backbone/head forward. Used by training-time diagnostics and by the
+    step-0 init-statistics report.
+
+      - logit_rms_centered: sqrt(mean((z - mean(z))^2)); invariant to an
+        overall logit shift, tracks softmax input scale.
+      - entropy_norm: H(p) / log(N_vis); 1.0 = uniform, 0.0 = one-hot.
+        Defined as 0.0 when N_vis == 1 (the log(1) denominator is 0).
+      - posterior_max: max_j p_j.
+    """
+    z  = logits.detach().float().view(-1)
+    pf = p.detach().float().view(-1)
+    n  = z.numel()
+    if n == 0:
+        nan = float("nan")
+        return {"logit_rms_centered": nan, "entropy_norm": nan, "posterior_max": nan}
+    rms = (z - z.mean()).square().mean().sqrt()
+    if n > 1:
+        ent = -(pf * pf.clamp_min(1e-8).log()).sum() / math.log(n)
+    else:
+        ent = torch.zeros((), dtype=pf.dtype, device=pf.device)
+    return {
+        "logit_rms_centered": float(rms),
+        "entropy_norm":        float(ent),
+        "posterior_max":       float(pf.max()),
+    }
+
+
+# =============================================================================
 # Context-Aware Cos-Meta Fusion Head
 # =============================================================================
 
@@ -402,6 +437,10 @@ class LayerWiseGroundingHead(nn.Module):
         self.independent_layers = independent_layers
         self.adapter_type      = adapter_type
         self.fusion_detach_queries = fusion_detach_queries
+        # Observation-only switch (set by train_retrofit.py from
+        # --grounding_diag_monitor). When False the forward below computes
+        # ZERO extra per-layer statistics; loss math is identical either way.
+        self.collect_diagnostics = True
 
         # Active-subset: which probe indices participate in forward/fusion/loss
         if active_probe_layers is not None:
@@ -477,19 +516,21 @@ class LayerWiseGroundingHead(nn.Module):
         """
         all_p: List[torch.Tensor] = []
         all_q: List[torch.Tensor] = []
+        all_logits: List[torch.Tensor] = []   # diagnostic only (references, no copy)
 
         for probe_i, layer_idx in enumerate(self.probe_layers):
             hs = all_hidden_states[layer_idx + 1]   # [seq_len, d_model]
             h_query = hs[ground_token_idx]           # [d_model]
             h_vis   = hs[visual_indices]             # [N_vis, d_model]
 
-            p_l, _, q_l = self.probes[probe_i](
+            p_l, logits_l, q_l = self.probes[probe_i](
                 h_query, h_vis,
                 self.q_proj, self.k_proj,
                 self.d_proj if self.use_shared_mlp else self.d_model,
             )
             all_p.append(p_l)
             all_q.append(q_l)
+            all_logits.append(logits_l)
 
         # Slice to active subset
         active_p = [all_p[i] for i in self.active_probe_indices]
@@ -520,13 +561,19 @@ class LayerWiseGroundingHead(nn.Module):
             labels_f   = labels.float()
             label_dist = labels_f / (labels_f.sum() + eps)
 
+            # Per-layer KL over active probes. Same arithmetic as before
+            # (sequential += from zeros, then / num_active) — kept in a list
+            # so diagnostics reuse the exact values without recomputation.
+            kl_per_layer = [
+                F.kl_div(torch.log(p_l.clamp(min=eps)), label_dist, reduction="sum")
+                for p_l in active_p
+            ]
+
             if self.independent_layers:
                 # Loss = mean per-layer KL over active probes only; no fusion term
                 loss_layer = torch.zeros((), device=label_dist.device)
-                for p_l in active_p:
-                    loss_layer = loss_layer + F.kl_div(
-                        torch.log(p_l.clamp(min=eps)), label_dist, reduction="sum",
-                    )
+                for kl_l in kl_per_layer:
+                    loss_layer = loss_layer + kl_l
                 loss_layer = loss_layer / self.num_active_probes
                 result["loss_fuse"]           = torch.zeros_like(loss_layer)
                 result["loss_layer"]          = loss_layer
@@ -536,14 +583,35 @@ class LayerWiseGroundingHead(nn.Module):
                     torch.log(p_final.clamp(min=eps)), label_dist, reduction="sum",
                 )
                 loss_layer = torch.zeros((), device=p_final.device)
-                for p_l in active_p:
-                    loss_layer = loss_layer + F.kl_div(
-                        torch.log(p_l.clamp(min=eps)), label_dist, reduction="sum",
-                    )
+                for kl_l in kl_per_layer:
+                    loss_layer = loss_layer + kl_l
                 loss_layer = loss_layer / self.num_active_probes
                 result["loss_fuse"]           = loss_fuse
                 result["loss_layer"]          = loss_layer
                 result["total_grounding_loss"] = loss_fuse + self.lambda_layer * loss_layer
+
+            # ── Detached per-sample diagnostics (observation only) ──────────
+            # Gated by collect_diagnostics; reuses values already computed
+            # above, never touches the autograd graph, never consumes RNG.
+            if self.collect_diagnostics:
+                n_vis = int(label_dist.shape[0])
+                y  = label_dist.detach()
+                h_y = float(-(y * y.clamp_min(eps).log()).sum())
+                diag_layers = []
+                for ai, probe_i in enumerate(self.active_probe_indices):
+                    stats = probe_output_stats(all_logits[probe_i], active_p[ai])
+                    pf = active_p[ai].detach().float()
+                    stats["gt_floor_mass"] = float((y * (pf < eps).float()).sum())
+                    stats["kl"] = float(kl_per_layer[ai].detach())
+                    stats["layer_idx"] = int(self.probe_layers[probe_i])
+                    diag_layers.append(stats)
+                result["diag"] = {
+                    "n_vis": n_vis,
+                    # KL(y || uniform) = log(N_vis) - H(y): separates output-
+                    # space / label-shape changes from model degradation.
+                    "uniform_ref_kl": float(math.log(n_vis) - h_y) if n_vis > 0 else float("nan"),
+                    "layers": diag_layers,
+                }
 
         return result
 
@@ -631,6 +699,11 @@ class RetrofitModelMixin:
         self._vision_end_token_id: Optional[int] = _vid
 
         self._anchor_source_counts: Dict[str, int] = {}
+        # Lightweight diagnostics payload of the most recent
+        # _compute_grounding_loss call (detached scalars only; None on
+        # inference paths). Consumed by RetrofitTrainer.compute_loss via
+        # getattr(model, "_grounding_diag", None) — wrappers need no changes.
+        self._grounding_diag: Optional[Dict] = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public setup helpers
@@ -946,6 +1019,7 @@ class RetrofitModelMixin:
           all_anchor_positions    — list[(int, AnchorStrategy)|None]
         """
         if multi_patch_labels is None:
+            self._grounding_diag = None
             return None, [], [], []
 
         batch_size = input_ids.shape[0]
@@ -953,6 +1027,22 @@ class RetrofitModelMixin:
         all_grounding_scores: List = []
         all_layer_weights: List = []
         all_anchor_positions: List = []
+
+        # ── Window diagnostics for THIS microbatch (observation only) ─────
+        # Detached Python scalars; zero-skip samples never enter the valid
+        # sums/counts below. Per-layer entries exist only when the head ran
+        # with collect_diagnostics=True.
+        batch_diag: Dict[str, object] = {
+            "batch_size": batch_size,
+            "valid_count": 0,
+            "valid_loss_sum": 0.0,
+            "valid_loss_finite_count": 0,
+            "valid_mean_tainted": 0,
+            "uniform_ref_kl_sum": 0.0,
+            "uniform_ref_kl_count": 0,
+            "nonfinite_forward_count": 0,
+            "layers": {},
+        }
 
         for i in range(batch_size):
             token_ids_i = input_ids[i]
@@ -1029,5 +1119,41 @@ class RetrofitModelMixin:
             all_grounding_scores.append(head_out["p_final"].detach().cpu())
             all_layer_weights.append(head_out["omega"].detach().cpu())
 
+            # ── diagnostics aggregation (detached scalars only) ────────────
+            batch_diag["valid_count"] += 1
+            _sample_loss = float(head_out["total_grounding_loss"].detach())
+            if math.isfinite(_sample_loss):
+                batch_diag["valid_loss_sum"] += _sample_loss
+                batch_diag["valid_loss_finite_count"] += 1
+            else:
+                # never fold a non-finite value into a mean as 0; the window
+                # mean is marked unavailable instead.
+                batch_diag["nonfinite_forward_count"] += 1
+                batch_diag["valid_mean_tainted"] = 1
+            _sample_diag = head_out.get("diag")
+            if _sample_diag is not None:
+                _urk = _sample_diag.get("uniform_ref_kl")
+                if _urk is not None and math.isfinite(_urk):
+                    batch_diag["uniform_ref_kl_sum"] += _urk
+                    batch_diag["uniform_ref_kl_count"] += 1
+                for _ld in _sample_diag.get("layers", []):
+                    _slot = batch_diag["layers"].setdefault(
+                        _ld["layer_idx"],
+                        {"kl_sum": 0.0, "logit_rms_sum": 0.0, "entropy_sum": 0.0,
+                         "gt_floor_mass_sum": 0.0, "count": 0, "nonfinite": 0},
+                    )
+                    _vals = (_ld["kl"], _ld["logit_rms_centered"],
+                             _ld["entropy_norm"], _ld["gt_floor_mass"])
+                    if all(math.isfinite(v) for v in _vals):
+                        _slot["kl_sum"] += _vals[0]
+                        _slot["logit_rms_sum"] += _vals[1]
+                        _slot["entropy_sum"] += _vals[2]
+                        _slot["gt_floor_mass_sum"] += _vals[3]
+                        _slot["count"] += 1
+                    else:
+                        _slot["nonfinite"] += 1
+                        batch_diag["nonfinite_forward_count"] += 1
+
         grounding_loss = torch.stack(grounding_losses).mean()
+        self._grounding_diag = batch_diag
         return grounding_loss, all_grounding_scores, all_layer_weights, all_anchor_positions

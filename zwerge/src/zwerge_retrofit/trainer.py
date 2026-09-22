@@ -23,10 +23,11 @@ import transformers
 from accelerate import Accelerator, DataLoaderConfiguration
 from accelerate.utils import GradientAccumulationPlugin, InitProcessGroupKwargs
 from torch.utils.data import DataLoader, RandomSampler
-from transformers import Trainer, TrainerCallback
-from transformers.trainer import (
-    get_parameter_names,
-    has_length,
+from transformers.trainer import Trainer
+from transformers.trainer_callback import TrainerCallback
+from transformers.trainer_pt_utils import get_parameter_names
+from transformers.trainer_utils import has_length
+from transformers.utils.import_utils import (
     is_accelerate_available,
     is_datasets_available,
     is_sagemaker_mp_enabled,
@@ -81,7 +82,7 @@ def maybe_zero_3(param, ignore_status=False, name=None):
     return param
 
 
-def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
+def safe_save_model_for_hf_trainer(trainer: "Trainer", output_dir: str):
     """Save model to disk (handles DeepSpeed and normal cases)."""
     trainer.accelerator.wait_for_everyone()
     torch.cuda.synchronize()
@@ -93,6 +94,131 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
         cpu_state_dict = {k: v.cpu() for k, v in state_dict.items()}
         del state_dict
         trainer._save(output_dir, state_dict=cpu_state_dict)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Window metric plumbing (observation only; no training-behavior changes)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Fixed global mean keys (window SUM / actual COUNT). Per-layer keys are
+# derived from the trainer's probe_layers so EVERY rank builds the same key
+# universe even when a rank saw zero valid samples in the window.
+_WINDOW_GLOBAL_MEAN_KEYS = (
+    "grounding_loss",            # legacy key; now a true window mean
+    "lm_loss",                   # legacy key; same fix
+    "diag/loss_model_mean",      # raw microbatch model loss mean
+    "diag/grounding_valid_mean", # valid-grounding-sample mean (zero-skip excluded)
+    "data/uniform_ref_kl_mean",  # log(N_vis) - H(label_dist), valid-sample mean
+)
+_WINDOW_LAYER_METRICS = ("kl_mean", "logit_rms_centered", "entropy_norm", "gt_floor_mass")
+_WINDOW_INT_KEYS = (
+    "diag/nonfinite_forward_count",
+    "_model_samples",
+    "_valid_samples",
+    "_newtoken_grad_none",
+)
+_WINDOW_MAX_KEYS = (
+    "diag/loss_micro_max",
+    "optim/grad_norm_preclip_max",
+    "optim/new_tokens_grad_rms_postclip",
+)
+# Legacy local running-mean keys kept with unchanged semantics (NOT reduced).
+_LEGACY_LOCAL_MEAN_KEYS = ("layer_weights", "omega_entropy", "p_final_entropy", "p_final_max")
+
+
+def _build_window_payloads(metrics, counts, maxes, taints, probe_layers):
+    """Pack window accumulators into flat payloads for cross-rank reduction.
+
+    Returns (sum_payload, max_payload):
+      sum_payload: "s:" value sums, "n:" matching counts, "t:" non-finite
+                   taint counts, "c:" integer counters — all SUM-reduced.
+      max_payload: "x:" window peaks (or -inf when absent) — MAX-reduced.
+
+    The key universe is fixed globals + probe_layers so all ranks build
+    identical key sets. Pure function: no I/O, no RNG, no model state.
+    """
+    layers = list(probe_layers or [])
+    if not layers:
+        layers = sorted({
+            int(k.split("/")[1][1:]) for k in metrics if k.startswith("probe/L")
+        })
+    mean_keys = list(_WINDOW_GLOBAL_MEAN_KEYS) + [
+        f"probe/L{ell}/{m}" for ell in layers for m in _WINDOW_LAYER_METRICS
+    ]
+    sum_payload = {}
+    for k in mean_keys:
+        sum_payload[f"s:{k}"] = float(metrics.get(k, 0.0))
+        sum_payload[f"n:{k}"] = float(counts.get(k, 0))
+        sum_payload[f"t:{k}"] = float(taints.get(k, 0))
+    for k in _WINDOW_INT_KEYS:
+        sum_payload[f"c:{k}"] = float(counts.get(k, 0))
+    max_payload = {f"x:{k}": float(maxes.get(k, float("-inf"))) for k in _WINDOW_MAX_KEYS}
+    return sum_payload, max_payload
+
+
+def _window_allreduce(sum_payload, max_payload):
+    """Cross-rank reduce: SUM for sum_payload, MAX for max_payload.
+
+    Observation only — reduced values are diagnostic scalars, never model
+    state. Must be entered by ALL ranks unconditionally (log() is called on
+    every rank at the same step, so no conditional-collective deadlock).
+    No-op when torch.distributed is not initialized.
+    """
+    if not (dist.is_available() and dist.is_initialized()):
+        return sum_payload, max_payload
+    device = (
+        torch.device("cuda", torch.cuda.current_device())
+        if dist.get_backend() == "nccl" else torch.device("cpu")
+    )
+    sum_keys = sorted(sum_payload)
+    t_sum = torch.tensor(
+        [sum_payload[k] for k in sum_keys], dtype=torch.float64, device=device
+    )
+    dist.all_reduce(t_sum, op=dist.ReduceOp.SUM)
+    out_sum = dict(zip(sum_keys, (float(v) for v in t_sum.tolist())))
+    out_max = max_payload
+    if max_payload:
+        max_keys = sorted(max_payload)
+        t_max = torch.tensor(
+            [max_payload[k] for k in max_keys], dtype=torch.float64, device=device
+        )
+        dist.all_reduce(t_max, op=dist.ReduceOp.MAX)
+        out_max = dict(zip(max_keys, (float(v) for v in t_max.tolist())))
+    return out_sum, out_max
+
+
+def _emit_window_logs(sum_payload, max_payload):
+    """Turn (reduced) payloads into final Trainer.log keys.
+
+    Mean = SUM(value) / SUM(count). A mean tainted by a non-finite
+    observation in this window is omitted (unavailable) rather than silently
+    folding the bad value in as 0. Peaks use MAX. Pure function.
+    """
+    logs = {}
+    mean_keys = sorted({k[2:] for k in sum_payload if k.startswith("s:")})
+    for k in mean_keys:
+        n = sum_payload.get(f"n:{k}", 0.0)
+        t = sum_payload.get(f"t:{k}", 0.0)
+        if n > 0 and t == 0:
+            logs[k] = sum_payload[f"s:{k}"] / n
+    n_model = sum_payload.get("c:_model_samples", 0.0)
+    if n_model > 0:
+        logs["data/grounding_valid_frac"] = (
+            sum_payload.get("c:_valid_samples", 0.0) / n_model
+        )
+    logs["diag/nonfinite_forward_count"] = sum_payload.get(
+        "c:diag/nonfinite_forward_count", 0.0
+    )
+    newtoken_grad_none = sum_payload.get("c:_newtoken_grad_none", 0.0)
+    for k in _WINDOW_MAX_KEYS:
+        v = max_payload.get(f"x:{k}", float("-inf"))
+        if v != float("-inf") and math.isfinite(v):
+            if k == "optim/new_tokens_grad_rms_postclip" and newtoken_grad_none > 0:
+                continue   # grad was None this window → unavailable, not 0
+            logs[k] = v
+    if newtoken_grad_none > 0:
+        logs["optim/new_tokens_grad_none_updates"] = newtoken_grad_none
+    return logs
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -196,54 +322,47 @@ class SaveWandbRunIdCallback(TrainerCallback):
             pass
 
 
-class WandbRetrofitCallback(TrainerCallback):
-    """
-    Custom wandb callback that logs retrofit-specific metrics:
-      - grounding_loss (vs lm_loss)
-      - layer_weights (omega_l per probe layer)
-      - grad_norm
-      - learning rate
-    """
-    def __init__(self, probe_layers: List[int]):
-        self.probe_layers = probe_layers
+class _OptimPostclipDiagCallback(TrainerCallback):
+    """Reads the post-clip new-token gradient RMS (observation only).
 
-    def on_log(self, args, state, control, logs: Optional[Dict] = None, **kwargs):
-        if logs is None:
+    HF 4.51 optimizer boundary order (verified in transformers 4.51.3):
+        accelerator.clip_grad_norm_  → returns the PRE-clip global norm
+        on_pre_optimizer_step        ← fires here: .grad already reduced+clipped
+        optimizer.step
+    So .grad read here is the post-clip gradient; we never re-clip, never
+    re-unscale, never touch optimizer.step. A None grad (no gradient path)
+    is counted separately from a numeric zero gradient — the RMS metric is
+    then reported unavailable for the window instead of a fake 0.
+    """
+
+    def __init__(self, trainer):
+        self._trainer = trainer
+
+    def on_pre_optimizer_step(self, args, state, control, model=None, **kwargs):
+        t = self._trainer
+        if model is None:
             return
-        try:
-            import wandb
-            if wandb.run is not None:
-                extra = {}
-                # ── core losses ──────────────────────────────────────────
-                if "grounding_loss" in logs:
-                    extra["train/grounding_loss"] = logs["grounding_loss"]
-                if "lm_loss" in logs:
-                    extra["train/lm_loss"] = logs["lm_loss"]
-                if "loss" in logs:
-                    extra["train/total_loss"] = logs["loss"]
-                # ── grad_norm ────────────────────────────────────────────
-                if "grad_norm" in logs:
-                    extra["train/grad_norm"] = logs["grad_norm"]
-                # ── learning rate ────────────────────────────────────────
-                if "learning_rate" in logs:
-                    extra["train/lr"] = logs["learning_rate"]
-                # ── layer weights (omega) ────────────────────────────────
-                if "layer_weights" in logs:
-                    omegas = logs["layer_weights"]  # list of floats, len=num_probes
-                    for i, (layer_idx, w) in enumerate(zip(self.probe_layers, omegas)):
-                        extra[f"layer_omega/L{layer_idx}"] = w
-                # ── omega entropy (layer-collapse detector) ──────────────
-                if "omega_entropy" in logs:
-                    extra["train/omega_entropy"] = logs["omega_entropy"]
-                # ── prediction sharpness ─────────────────────────────────
-                if "p_final_entropy" in logs:
-                    extra["train/p_final_entropy"] = logs["p_final_entropy"]
-                if "p_final_max" in logs:
-                    extra["train/p_final_max"] = logs["p_final_max"]
-                if extra:
-                    wandb.log(extra, step=state.global_step)
-        except ImportError:
-            pass
+        raw = getattr(model, "module", model)
+        p = getattr(raw, "_new_token_emb", None)
+        if p is None:
+            return
+        g = p.grad
+        counts = getattr(t, "_custom_counts", None)
+        if counts is None:
+            t._custom_counts = counts = {}
+        if g is None:
+            counts["_newtoken_grad_none"] = counts.get("_newtoken_grad_none", 0) + 1
+            return
+        with torch.no_grad():
+            v = float(g.detach().float().pow(2).mean().sqrt())
+        if math.isfinite(v):
+            maxes = getattr(t, "_custom_max", None)
+            if maxes is None:
+                t._custom_max = maxes = {}
+            prev = maxes.get("optim/new_tokens_grad_rms_postclip")
+            maxes["optim/new_tokens_grad_rms_postclip"] = (
+                v if prev is None else max(prev, v)
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -681,9 +800,21 @@ class RetrofitTrainer(Trainer):
       4. Periodic CUDA cache flush
     """
 
-    def __init__(self, *args, probe_layers: Optional[List[int]] = None, **kwargs):
+    def __init__(self, *args, probe_layers: Optional[List[int]] = None,
+                 metric_layer_labels: Optional[List[int]] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.probe_layers = probe_layers or []
+        # Layer labels for flattening layer_weights (omega) into scalar keys.
+        # For A8 this is the ACTIVE subset (same labeling the removed
+        # WandbRetrofitCallback used); defaults to probe_layers.
+        self.metric_layer_labels = metric_layer_labels or list(self.probe_layers)
+
+        # ── Window diagnostics accumulators (observation only) ────────────
+        self._custom_metrics: Dict[str, float] = {}
+        self._custom_counts: Dict[str, float] = {}
+        self._custom_max: Dict[str, float] = {}
+        self._custom_taint: Dict[str, float] = {}
+        self._install_optim_observers()
 
         # Wrap _save / save_model to handle EOS token during checkpoint
         original_save = self._save
@@ -697,6 +828,45 @@ class RetrofitTrainer(Trainer):
 
         self._save = wrap_save(original_save)
         self.save_model = wrap_save(original_save_model)
+
+    def _install_optim_observers(self):
+        """Attach pure-observation hooks to the optimizer boundary.
+
+        1. Wrap accelerator.clip_grad_norm_ to record the PRE-clip global
+           norm it actually returns (HF 4.51 calls it right before
+           on_pre_optimizer_step). The original function is called through
+           exactly once — no re-clip, no re-unscale, no behavior change.
+        2. Register _OptimPostclipDiagCallback for post-clip new-token grad.
+        """
+        trainer = self
+        try:
+            acc = self.accelerator
+            orig_clip = acc.clip_grad_norm_
+
+            def _observing_clip_grad_norm_(parameters, max_norm, norm_type=2):
+                result = orig_clip(parameters, max_norm, norm_type)
+                try:
+                    if result is not None:
+                        v = float(result)
+                        if math.isfinite(v):
+                            maxes = getattr(trainer, "_custom_max", None)
+                            if maxes is None:
+                                trainer._custom_max = maxes = {}
+                            prev = maxes.get("optim/grad_norm_preclip_max")
+                            maxes["optim/grad_norm_preclip_max"] = (
+                                v if prev is None else max(prev, v)
+                            )
+                except Exception:
+                    pass
+                return result
+
+            acc.clip_grad_norm_ = _observing_clip_grad_norm_
+        except Exception:
+            pass
+        try:
+            self.add_callback(_OptimPostclipDiagCallback(self))
+        except Exception:
+            pass
 
     def create_accelerator_and_postprocess(self):
         grad_acc_kwargs = {"num_steps": self.args.gradient_accumulation_steps}
@@ -858,29 +1028,98 @@ class RetrofitTrainer(Trainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         """
-        Override to accumulate grounding_loss, lm_loss, and layer_weights for logging.
-        Component metrics are stashed in self._custom_metrics and flushed by
-        the log() override, so they appear at the correct step in WandB.
+        Override to accumulate component/diagnostic metrics for logging.
+
+        Window accounting is SUM / actual COUNT (per microbatch or per valid
+        sample, depending on the metric), flushed by log(). This fixes the
+        old convention that divided the window sum by
+        gradient_accumulation_steps only, which inflated custom losses by
+        logging_steps (constant 2.0 logged as 40.0 at logging_steps=20).
+        The loss returned for backward is completely untouched; every
+        diagnostic value below is detached.
         """
         outputs = model(**inputs)
         loss = outputs.loss
 
-        # Stash component losses; log() will pick them up at the right step
+        # Stash component metrics; log() will pick them up at the right step
         if not hasattr(self, "_custom_metrics"):
             self._custom_metrics = {}
         if not hasattr(self, "_custom_counts"):
             self._custom_counts = {}
+        if not hasattr(self, "_custom_max"):
+            self._custom_max = {}
+        if not hasattr(self, "_custom_taint"):
+            self._custom_taint = {}
+        m, c = self._custom_metrics, self._custom_counts
 
-        if hasattr(outputs, "grounding_loss") and outputs.grounding_loss is not None:
-            gl = outputs.grounding_loss.item()
-            self._custom_metrics["grounding_loss"] = (
-                self._custom_metrics.get("grounding_loss", 0.0) + gl
-            )
-        if hasattr(outputs, "lm_loss") and outputs.lm_loss is not None:
-            ll = outputs.lm_loss.item()
-            self._custom_metrics["lm_loss"] = (
-                self._custom_metrics.get("lm_loss", 0.0) + ll
-            )
+        def _add_mean(key, value):
+            """sum/count accumulate; non-finite → count + taint, never 0."""
+            v = float(value)
+            if math.isfinite(v):
+                m[key] = m.get(key, 0.0) + v
+                c[key] = c.get(key, 0) + 1
+                return v
+            c["diag/nonfinite_forward_count"] = c.get("diag/nonfinite_forward_count", 0) + 1
+            self._custom_taint[key] = self._custom_taint.get(key, 0) + 1
+            return None
+
+        # ── raw microbatch model loss (HF's own 'loss' curve is untouched) ──
+        _lv = _add_mean("diag/loss_model_mean", loss.detach())
+        if _lv is not None:
+            prev = self._custom_max.get("diag/loss_micro_max")
+            self._custom_max["diag/loss_micro_max"] = _lv if prev is None else max(prev, _lv)
+
+        # ── legacy component losses (now true window means) ──
+        if getattr(outputs, "grounding_loss", None) is not None:
+            _add_mean("grounding_loss", outputs.grounding_loss.detach())
+        if getattr(outputs, "lm_loss", None) is not None:
+            _add_mean("lm_loss", outputs.lm_loss.detach())
+
+        # ── structured diagnostics payload from RetrofitModelMixin ──
+        # When training with DDP, model is wrapped by DistributedDataParallel;
+        # _grounding_diag is set on the inner (unwrapped) model.  We unwrap
+        # here (and in the eval/inference paths) so diagnostics flow through
+        # regardless of whether DDP/FSDP is active or not.
+        raw_model = getattr(model, "module", model)
+        diag = getattr(raw_model, "_grounding_diag", None)
+        if diag:
+            c["_model_samples"] = c.get("_model_samples", 0) + diag.get("batch_size", 0)
+            c["_valid_samples"] = c.get("_valid_samples", 0) + diag.get("valid_count", 0)
+            _nf = diag.get("nonfinite_forward_count", 0)
+            if _nf:
+                c["diag/nonfinite_forward_count"] = c.get("diag/nonfinite_forward_count", 0) + _nf
+            if diag.get("valid_mean_tainted"):
+                self._custom_taint["diag/grounding_valid_mean"] = (
+                    self._custom_taint.get("diag/grounding_valid_mean", 0) + 1
+                )
+            if diag.get("valid_loss_finite_count"):
+                m["diag/grounding_valid_mean"] = (
+                    m.get("diag/grounding_valid_mean", 0.0) + diag["valid_loss_sum"]
+                )
+                c["diag/grounding_valid_mean"] = (
+                    c.get("diag/grounding_valid_mean", 0) + diag["valid_loss_finite_count"]
+                )
+            if diag.get("uniform_ref_kl_count"):
+                m["data/uniform_ref_kl_mean"] = (
+                    m.get("data/uniform_ref_kl_mean", 0.0) + diag["uniform_ref_kl_sum"]
+                )
+                c["data/uniform_ref_kl_mean"] = (
+                    c.get("data/uniform_ref_kl_mean", 0) + diag["uniform_ref_kl_count"]
+                )
+            for _lidx, _slot in (diag.get("layers") or {}).items():
+                if _slot.get("count"):
+                    for _metric, _skey in (("kl_mean", "kl_sum"),
+                                           ("logit_rms_centered", "logit_rms_sum"),
+                                           ("entropy_norm", "entropy_sum"),
+                                           ("gt_floor_mass", "gt_floor_mass_sum")):
+                        _key = f"probe/L{_lidx}/{_metric}"
+                        m[_key] = m.get(_key, 0.0) + _slot[_skey]
+                        c[_key] = c.get(_key, 0) + _slot["count"]
+                if _slot.get("nonfinite"):
+                    for _metric in ("kl_mean", "logit_rms_centered",
+                                    "entropy_norm", "gt_floor_mass"):
+                        _key = f"probe/L{_lidx}/{_metric}"
+                        self._custom_taint[_key] = self._custom_taint.get(_key, 0) + _slot["nonfinite"]
 
         # ── layer weights (omega) from ContextLoRACosMetaFusion ──────────────
         if hasattr(outputs, "layer_weights") and outputs.layer_weights is not None:
@@ -937,24 +1176,49 @@ class RetrofitTrainer(Trainer):
 
     def log(self, logs: dict, start_time=None):
         """
-        Override to inject stashed custom metrics into the current logging event,
-        avoiding the WandB 'step must be monotonically increasing' warning that
-        occurs when self.log() is called independently from compute_loss().
+        Flush window accumulators into this logging event, then forward to
+        the HF parent. Single writer: the default HF WandbCallback adds the
+        'train/' prefix itself — these keys never carry a manual prefix.
+
+        Cross-rank: SUM for numerators/counts, MAX for peaks, entered by
+        every rank at the same step (HF calls log() on all ranks).
         """
-        if hasattr(self, "_custom_metrics") and self._custom_metrics:
-            ga = max(1, self.args.gradient_accumulation_steps)
-            # Metrics stored as running-mean (already averaged): pass as-is
-            _mean_keys = {"layer_weights", "omega_entropy", "p_final_entropy", "p_final_max"}
-            for k, v in self._custom_metrics.items():
-                if k == "layer_weights":
-                    logs[k] = v.tolist() if isinstance(v, torch.Tensor) else list(v)
-                elif k in _mean_keys:
-                    logs[k] = float(v)
-                else:
-                    # Sum-accumulated losses (grounding_loss, lm_loss) → average
-                    logs[k] = v / ga
+        if not hasattr(self, "_custom_metrics"):
+            self._custom_metrics = {}
+        if not hasattr(self, "_custom_counts"):
+            self._custom_counts = {}
+        if not hasattr(self, "_custom_max"):
+            self._custom_max = {}
+        if not hasattr(self, "_custom_taint"):
+            self._custom_taint = {}
+        if self._custom_metrics or self._custom_counts or self._custom_max:
+            sum_payload, max_payload = _build_window_payloads(
+                self._custom_metrics, self._custom_counts,
+                self._custom_max, self._custom_taint,
+                getattr(self, "probe_layers", None) or [],
+            )
+            sum_payload, max_payload = _window_allreduce(sum_payload, max_payload)
+            emitted = _emit_window_logs(sum_payload, max_payload)
+            # ── legacy local running means (unchanged semantics) ──────────
+            legacy_omega = self._custom_metrics.get("layer_weights")
+            if legacy_omega is not None:
+                om = (legacy_omega.tolist() if isinstance(legacy_omega, torch.Tensor)
+                      else list(legacy_omega))
+                labels = list(getattr(self, "metric_layer_labels", None)
+                              or getattr(self, "probe_layers", None) or [])
+                if len(labels) != len(om):
+                    labels = (labels[: len(om)] if len(labels) >= len(om)
+                              else list(range(len(om))))
+                for _l, _w in zip(labels, om):
+                    logs[f"layer_omega/L{_l}"] = float(_w)
+            for _k in ("omega_entropy", "p_final_entropy", "p_final_max"):
+                if _k in self._custom_metrics:
+                    logs[_k] = float(self._custom_metrics[_k])
+            logs.update(emitted)
             self._custom_metrics = {}
             self._custom_counts = {}
+            self._custom_max = {}
+            self._custom_taint = {}
         # Forward to parent (handles WandB, TensorBoard, etc.)
         if start_time is not None:
             super().log(logs, start_time=start_time)

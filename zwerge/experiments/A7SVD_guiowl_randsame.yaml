@@ -1,0 +1,54 @@
+# ============================================================
+# ZwerGe Experiment Config — A7-SVD sanity / GUI-Owl-1.5-8B (Qwen3-VL)
+# Arm B4: randorient_same（谱匹配随机朝向对照，seed 42）——最强对照：
+# 与 qk_svd_same 共享奇异值谱（尺度分布），但奇异向量方向随机。
+# B2 > B4 → 优势来自 SVD 的"内容方向"（与 attention QK 几何对齐）；
+# B2 ≈ B4 → 优势只是谱/尺度效应，结论必须如实写。
+# ============================================================
+#
+# 用法：
+#   tmux new -s svd_guiowl_randsame
+#   python eval_daemon.py --config experiments/A7SVD_guiowl_randsame.yaml
+#   Ctrl+b d
+
+experiment_name: "guiowl_A7svd_randsame"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  # 双队列交替（.mrules §五）：guiowl 4 组 train=vision / eval=aipnlp，uivenus 4 组反之
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "guiowl"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    GROUNDING_INIT_METHOD: "randorient_same"
+    GROUNDING_INIT_STATS_N_SAMPLES: "16"
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "guiowl"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

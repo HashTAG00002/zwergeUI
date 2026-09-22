@@ -1,0 +1,15 @@
+{
+  "requested_git_commit": "9329b271709aabceb54ca16224f75733116a9ee0",
+  "local_archive_sha256": "9a4143e18d9e11b64c2b133d2cbc8e12a2434ee20739c7401a93c9a522c73bac",
+  "remote_commit_page_read": true,
+  "complete_remote_archive_byte_verified": false,
+  "local_source_sha256": {
+    "zwerge/src/zwerge_retrofit/modeling_base.py": "a8534b3f59bd6b57e7b1c9f38825e549ad75bf888df3eacb677430aa15342d18",
+    "zwerge/src/zwerge_retrofit/modeling_uitars.py": "a9fe549ee2ee4312a0f9488412ec76a41f8af7083b74cc72e05942b73f731ce5",
+    "zwerge/src/zwerge_retrofit/modeling_guiowl.py": "79086e061c61bcc57bb6917c68199ea7f9b59d6b492533eab690a102595c897e",
+    "zwerge/train_retrofit.py": "a3bc59bef8fffd2b227766de674bed4444c5b59a855dcf86261f83299ceb6c29",
+    "zwerge/scripts/train_ablation_A7_crossattn_probe.sh": "933b063bbac06f38637c826a42be33adfecb9c2519e1260986360085ef292909",
+    "zwerge/scripts/train_ablation_A8_cosmeta_context.sh": "488572d53acdb820e24c4200cee3efc82317c7130f84ae8a66e069826e69d509",
+    "zwerge/probe/probe_utils.py": "b3d68cd89cd89d968367664bdde994a60ada3bc9fcdf97d718a0f104ffcd0ddf"
+  }
+}

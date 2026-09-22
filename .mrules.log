@@ -3239,3 +3239,169 @@
     连带修正：.mrules §三 契约行改写 + §八 变更日志；scripts/sync_github.sh 与
     docs/our_tex/scripts/sync_to_overleaf.sh 注释中"全局已失效"说法同步更新
     （gitp()/-c 覆盖保留为双保险，行为不变）。
+
+---
+
+## SVD Stage-1 初始化实验：审计与派单 2026-09-22（log 末尾条目）
+
+背景：GPT 派单（重训 Stage-1 probe，比较 Xavier / same-layer paired QK-SVD / next-layer paired QK-SVD），
+本轮 CatPaw 仅作审计+统筹，执行拆给 4 个子 agent（A 代码集成 / B 实验编排 / C 运行时审计 / D 评测分析）。
+审计结论（全部本地实证，非转述）：
+- 当前 HEAD == baseline 9329b27；GPT 审计包 7 个文件 sha256 与本地完全一致；12 项 CPU 测试本地复跑通过。
+- paired_qk_svd.py 数学独立复核通过：compensation=H_p·sqrt(d_p)=64 与 probe 实际 logits 路径
+  （scores/sqrt(d_head) @ softmax(head_gate=0)）精确对齐；GQA 按 kv 组内 query 均值等价；QR 约化 SVD 正确。
+- 真实权重冒烟：GUI-Owl-7B L15（q[3584,3584]/k[512,3584]，GQA 28/4）→ W[512,3584]，零截断 energy=1.0，
+  重建 rel-err 1.6e-6；GUI-Owl-1.5-8B L19（Qwen3-VL，32/8，core[1024,1024]）→ rank-512 保留 95.6% 能量。
+- 权重 key：Qwen2.5-VL(4.51.3)=`model.layers.N...`（无 language_model 中间层，attention 有 bias 无 qk_norm）；
+  Qwen3-VL(4.57.1)=`model.language_model.layers.N...`（有 q_norm/k_norm）。decoder_layers() 三 fallback 均覆盖。
+- Qwen2.5-VL 末个 hidden state 已过 final norm（4.51.3 源码 L1190-1194 实证）；probe L27 端点单独标注。
+- SVD 插入点：train_retrofit.py L700-705 setup_special_token_ids 之后、L733 setup_trainable_params 之前；
+  仅 fresh+independent+attn 允许，否则 hard error（防覆盖已训 probe）。
+- Xavier 无妥协基线（ckpt-2800，逐层 centroid）：best/first/last 层 hit@1+overlap@1 全表落盘
+  docs/oracle_new/svd/WORKSPACE_PATHS.md §4（如 guiowl7b SS-Pro L21 58.95→L27 48.20）。
+- 旧 run（3129 步 cosine 退火到 0）尾部 p_final_entropy 3.66 未饱和，欠训与否待本轮 budget 对照回答。
+- 实验命名空间：ckpt /mnt/.../.hdd/ckpt/zwerge/svd_stage1/<run>；结果 /mnt/.../zwerge/data/results/svd_stage1/。
+
+**Gate-C 运行时审计执行完毕 2026-09-22**（证据目录 docs/oracle_new/svd/audits/）：
+- hidden-state 契约实测（真 checkpoint 前向，V100/CPU）：Qwen2.5-VL(4.51.3) 中间层 hs[l+1]==block l 输出
+  ==block l+1 输入（误差 0），末层==final_norm 输出；**Qwen3-VL(4.57.1) 相反：末层==RAW block-35 输出
+  （误差 0），非 final-norm（rel_l2=30.6）** —— 两架构末层约定相反，WORKSPACE_PATHS §5.2 已改写。
+- 初始化验证（module 级，真权重）：guiowl7b next donor 映射 14→15…26→27、27→27 fallback，energy 全 1.0，
+  backbone 哈希前后一致；guiowl15 映射 18→19…34→35、35→35 fallback，energy 0.897-0.969（真截断），
+  source_has_qk_norm=True。Xavier→SVD 的 W_q norm 从 ~0.60 → 20.4(Qwen2.5)/26.0(Qwen3)，
+  ~34-43 倍尺度差 —— 实验公平性必须记录初始 logit RMS/entropy，必要时跑 scale-matched 控制。
+- eval 纯净性：逐层 hit/ovl 统计（eval_retrofit.py:543-567）只读 per_layer_points，p2p/ensemble/gated
+  分支仅污染 fusion_stats 不碰 layer_stats；centroid=默认 else 分支（inference_base.py:134-135）；
+  A7 fusion_acc=均匀均值（modeling_base.py:497-503）。落盘 eval_purity.md。
+ - 遗留：train_retrofit.py CLI 级端到端验证依赖 Gate-A（--grounding_init_method 尚未实现）。
+
+**Gate-A/Gate-C 审计复核 2026-09-22（CatPaw 独立复验，非转述子 agent 汇报）**：
+- 复跑 zwerge/tests/test_svd_init_integration.py 16/16 通过；zwerge_retrofit/paired_qk_svd.py 与
+  docs/oracle_new/svd/ 源逐字一致（diff 空）；git diff 仅 train_retrofit.py(+108)/A7 脚本(2 行透传)/新增 2 文件。
+- hidden_contract 两 JSON 内容亲读复核：Qwen2.5 L27==final_norm(err 0)、Qwen3 L35==raw block35
+  (err 0, vs final_norm rel_l2=30.6) —— C 的"两架构末层约定相反"结论成立。
+- 冒烟产物亲验：_smoke_qk_svd_next/svd_init_report.json donor 映射/energy=1.0 正确，train.log
+  30 步完成 0 处 nan（train_loss 4.42）；_smoke_xavier 无 report（正确跳过）。
+ - **放行前缺口（升级为 A2 阻断项）**：step-0 逐层 centered logit RMS / posterior entropy 未仪表化
+  （现仅 trainer 每 20 步记 uniform-mean 的 p_final_entropy）。C 实测 SVD 初始 W norm 为 Xavier 的
+  34-43×，不记录初始 logit 尺度则"收敛加速"不可归因。A2 微任务：全 arm（含 xavier）初始化后、
+  Trainer 创建前用真 dataloader 前向 N=16 样本统计进 init report；另加 --grounding_init_match_logit_rms
+  可选尺度匹配（复用 match_probe_logit_rms）。A2 完成后 B 方可提交。
+
+**环境盘点与 Conv3d 新事实 2026-09-22（CatPaw 实测）**：
+- 全环境 torch/tf：gui_actor=2.5.1(tf4.51.3) / qwen2=2.6.0 / qwen25=2.7.0 / qwen3=2.8.0(tf4.57.1) /
+  qwen35=2.10.0(tf5.9.0) / qwen3-verl=2.9.1(Conv3d bug 环境，禁用) / safety_qwen3_verl=2.8.0。
+- **V100 实测（新）**：退化 Conv3d(N=2040, bf16) 在 qwen3(torch2.8.0) 与 qwen35(torch2.10.0) 下均
+  ~15-18s vs F.linear 0.93ms（1.6-1.9 万倍慢）——即"torch 2.8 修复"是 A100 上 cuDNN implicit_gemm
+  dispatch 的架构相关行为，V100(sm_70) 上 2.8/2.10 全部退化。含义：①本 V100 容器只能跑 Qwen2.5-VL
+  小分辨率冒烟，Qwen3-VL 全分辨率前向在 V100 不可行；②sanity/sweep 必须提交 hope A100/H100 job；
+  ③qwen35(2.10) 在 A100 的 Conv3d 状态未验证，引入 Qwen3.5 前必须先跑 A100 benchmark。
+- Qwen3.5-9B 架构实为 Qwen3_5ForConditionalGeneration：**hybrid linear_attention（每 4 层 1 个
+  full_attention，head_dim=256, hidden=4096）**——线性注意力层无 softmax QK 匹配算子，paired-QK SVD
+  donor 假设在 Qwen3.5 上需要重新设计（本轮 scope 外，仅记录）。
+ - WandB 口径真 bug（GPT 审计+AST 复现，docs/oracle_new/w&b/）：trainer.py 自定义 grounding_loss 日志
+  只除 GA 步数没除窗口 microbatch 数（logging_steps=20 时显示值=真实 20×）；无效样本零损失稀释均值。
+  历史 loss 曲线的"震荡/跳变"部分可能是口径问题而非训练问题——A2′ 合并任务先修口径再加指标。
+
+**Conv3d 根因最终定位 2026-09-22（用户指令：训练暂停，A2 改专责此项；CatPaw 亲办）**：
+- **vLLM 为何免疫（源码实证）**：qwen3-verl 环境 vllm-0.14.0 的
+  `vllm/model_executor/layers/conv.py:254-262` Conv3dLayer.forward_cuda 注释明写
+  "PyTorch2.9.0 disabled CUDNN's Conv3D... vllm#27406 / pytorch#166122"，并在
+  is_torch_equal("2.9.0"/"2.9.1") 时自动改走 _forward_mulmat（unfold+permute+F.linear）。
+  ECCV 项目（sec/our/clients/victim_qwen3vl.py：Qwen3-VL 走 vLLM serve，victim=2.5-VL 走
+  vLLM async API）全程 vLLM → 从未触碰裸 nn.Conv3d → 从未退化。不是"vLLM 处理得好"，
+  是 vLLM 对该上游 bug 有版本探测 workaround。
+- **V100 机制分离实测（qwen3 环境）**：fp32 Conv3d=2.03ms / fp16=1.56ms / **bf16=18,924ms**。
+  V100(sm_70) 无 bf16 卷积加速路径，与 2.9.x 的 cuDNN 禁用是两个独立机制；
+  "torch 2.8 已修"仅对 A100 成立（05-24 A100 实测 4-8ms），V100 上 2.8/2.10 全退化。
+- **数值一致性（fp64 CPU）**：conv3d vs flat-linear vs unfold-linear 三者 max_abs=1.4e-13，
+  flat vs unfold bit-exact —— 数学等价成立；bf16 下不同 kernel 累加序不可逐 bit 一致，
+  铁律改为"单实验单路径 + manifest 记录路径身份"（.mrules §四.3 已重写）。
+- A100 三环境（qwen3=2.8 / qwen3-verl=2.9.1 / qwen35=2.10）benchmark job 已提交：
+  app psx99n4xrs7fieen，脚本 docs/oracle_new/conv3d/{conv3d_probe.py,a100_probe.sh,probe.hope}，
+  结果落 /mnt/.../zwerge/data/results/conv3d_probe/a100_<env>.json。
+  **实测矩阵（A100/A800-80G，2026-09-22 收齐，全部 CatPaw 亲跑）**：
+  | env / torch | bf16 Conv3d N=2040 | bf16 Conv3d N=11360 | fp32 Conv3d | Linear(bf16) | 判定 |
+  | qwen3 / 2.8.0 | 1.58 ms ✅ | 7.89 ms ✅ | 1.53 ms | 0.11 ms | 快 |
+  | qwen3-verl / 2.9.1 | 11,624 ms ❌(×16万) | 68,768 ms ❌(×32万) | 1.29 ms ✅ | 0.07 ms | 灾难性退化 |
+  | qwen35 / 2.10.0 | 1.56 ms ✅ | 7.92 ms ✅ | 1.53 ms | 0.09 ms | 快 |
+  关键发现：①2.9.1 的退化波及 bf16 **和 fp16**（fp16 也 1.1万 ms），但 **fp32 不退化**——
+  说明 2.9 禁用的是 cuDNN 的低精度卷积路径，fp32 走另一条；②**torch 2.10 已修复**（与 2.8 同速），
+  qwen35(2.10) 在 A800 上可正常用于 Qwen3-VL 系训练，无需 workaround；③注意 qwen3 跑在 A100-SXM4、
+  qwen3-verl/qwen35 跑在 A800-SXM4（同 hop job 池不同节点），但 2.9.1 退化 16万倍、2.8/2.10 差 0.1%
+  级别，节点差异不影响结论方向。④bf16 数值一致性（A100）：Conv3d vs Linear max_abs≈0.016、
+  相对 <3%，fp64 CPU 1e-14 严格等价——与铁律"单实验单路径+manifest"一致。
+  **最终结论**：Conv3d 退化=上游 pytorch#166122（2.9.0/2.9.1 禁用 cuDNN 低精度 Conv3D，vLLM#27406 内置
+  版本探测 workaround 故 ECCV 项目免疫）；2.8 与 2.10 均正常；V100 另因 sm_70 无 bf16 卷积而全版本退化。
+  生产路径 qwen3(2.8)/A100 + qwen35(2.10)/A800 + stock Conv3d 全链路一致 = "合理速度+严格一致"已达成。
+
+- [2026-09-22] 训练动力学诊断监控 + SVD 公平性 init stats（CatPaw 亲办，零算法改动）：
+  **任务**：修复训练日志口径 bug（sum/count 聚合替代固定 GA 除数）+ 接入 WandB 精选指标
+  （P0: per-layer KL/logit RMS/entropy；P1: gt_floor_mass/grad_norm）+ SVD 公平性 step-0
+  初始化统计（logit RMS/entropy 写入 init report + 可选尺度匹配）。铁律：monitor on/off
+  bit-identical（相同种子+batch 顺序下 loss/梯度/参数更新逐 bit 一致）。
+  **文件改动**（git diff --stat HEAD）：
+  | 文件 | 改动 |
+  | zwerge/src/zwerge_retrofit/trainer.py | +405 -93（sum/count 累加器 + DDP allreduce + optimizer observer） |
+  | zwerge/src/zwerge_retrofit/modeling_base.py | +144（probe_output_stats + collect_diagnostics flag） |
+  | zwerge/train_retrofit.py | +397（ModelArguments + _collect_probe_init_stats + _apply_logit_rms_matching + RNG snapshot/restore） |
+  | zwerge/scripts/train_ablation_A7_crossattn_probe.sh | +6（stats/match/diag 参数传递） |
+  | zwerge/tests/test_training_diagnostics.py | +513 新文件（AST 提取测试，18 test cases） |
+  | zwerge/tests/test_svd_init_integration.py | +317 新文件（16 test cases） |
+  总计：4 tracked 文件 +859 -93 行，2 untracked 测试文件 830 行。
+  **口径修复**：trainer.py 的自定义 metrics 改为 sum/count 累加器——log() 输出 = 窗口内
+  SUM/实际计数（不是只除 gradient_accumulation_steps）；窗口变短时数值口径不变。回归测试：
+  恒定 loss=2、GA=4、logging_steps=20 与 5 与末尾短窗口，输出均值恒为 2（旧行为 40/10 作为
+  反例断言）。DDP 聚合：SUM for numerators/counts，MAX for peaks across ranks。
+  **新增诊断指标（observation only）**：
+  - P0: kl_mean / logit_rms_centered / entropy_norm（H(p)/log(N_vis)）
+  - P1: gt_floor_mass / grad_norm_preclip / new_tokens_grad_rms_postclip
+  - loss_model_mean / loss_micro_max / nonfinite_forward_count（taint 标记）
+  **SVD 公平性 init stats**：step-0 对前 N 个 sequential batch（no RNG consumption）跑
+  torch.no_grad forward，收集 per-layer logit_rms_centered / entropy_norm / posterior_max
+  （mean+std）写入 init report JSON。可选 logit RMS matching（scale W_q/W_k by
+  sqrt(target/measured)），5% tolerance 验证。RNG snapshot/restore 保证零 train-RNG 消耗。
+  **非侵入性验证**：
+  ① 单元测试 test_monitor_on_off_bit_identical：AST 提取 compute_loss 核心，构造 toy
+  model+dataloader，monitor on vs off 跑 3 步，assert_close(loss/grad/params) bit-identical。
+  ② 单元测试 test_refactored_kl_bookkeeping_matches_old_arithmetic：KL 聚合逻辑与旧公式
+  数值等价。
+  ③ 全部 34 test cases pass（18 new + 16 SVD init）。
+  **冒烟验证**（V100-32G, guiowl7b/Qwen2.5-VL, fp16, MAX_PIXELS=200704, 30 steps）：
+  - Run1 xavier stats=0 monitor=on：30/30 完成，loss=4.8002，diag 指标出现在 trainer_state.json
+    （diag/loss_model_mean=4.800, diag/loss_micro_max=6.082, optim/grad_norm_preclip_max=109.0），
+    WandB offline run-s8gngim8.wandb 90KB。
+  - Run2 qk_svd_next stats=8 monitor=on：30/30 完成，loss=4.4138，[INIT-STATS] 8 samples 14 layers
+    collected，svd_init_report.json 写入（L14 logit_rms=0.390, entropy_norm=0.988, posterior_max=0.009），
+    WandB offline run-887w6slu.wandb 32KB。
+  - 两次 checkpoint-30 均完整保存（4 safetensors shards + optimizer.pt + trainer_state.json）。
+  **WandB offline**：WANDB_MODE=offline 确认正常生成 .wandb 文件，无云端上传。
+  **环境**：gui_actor conda env（torch 2.5.1, transformers 4.51.3），pytest 已安装。
+
+**eval_daemon 全流程启动定型 + 双队列交替规则 + A7SVD 发车准备 2026-09-23（用户指令，契约级）**：
+- **eval_daemon.py 用法（训练/评测解耦的标准流程）**：codelab tmux 内
+  `cd zwerge && python eval_daemon.py --config experiments/<配置>.yaml`，一配置一窗口（Ctrl+b d 挂起）。
+  机制：submit_train_job 生成 train_<exp>.hope（注入 ZWERGE_JOB_NAME + train.env，可覆盖 queue/
+  bash_script）→ hope run 提交；之后每 60s 轮询 OUTPUT_DIR（默认 `_BASE_CKPT_DIR/<experiment_name>`，
+  eval_daemon.py:52-54）中带 is_permanent_ckpt 标记的 ckpt（trainer.py ResumeManager 落标记，
+  save_steps=400 一个）→ 异步提交 eval job（CKPT/OUTPUT_DIR_FINAL 注入 eval_<exp>_ckpt<step>.hope，
+  bench 为位置参数）→ .eval_submitted.json 幂等记账，训练完成且全部 permanent ckpt 派发后退出。
+  daemon 日志自动落 OUTPUT_DIR/eval_daemon.log（eval_daemon.py:689-695）。
+- **双队列交替规则（契约）**：`root.zw05_training_cluster.hadoop-vision.elastic_job` 与
+  `root.zw05_training_cluster.hadoop-aipnlp.elastic` 都可用且可互换（train_qwen3.hope 本身 active
+  queue=vision.elastic_job、worker.gcores80g=8，eval_daemon 的 queue 覆盖正则对两者都生效，
+  已核实 train_qwen3.hope L8 存在 active queue 行）。并行起 N 个实验时：一半配置 train=vision +
+  eval=aipnlp，另一半 train=aipnlp + eval=vision，防单队列突发争用。
+- **8 个 A7SVD 配置**（experiments/A7SVD_{guiowl,uivenus}_{xavier,svdsame,svdnext,randsame}.yaml）：
+  复刻旧 A7 1.5 配方（train_qwen3.hope + train_ablation_A7_crossattn_probe.sh + save_steps=400 +
+  centroid + bench=all + WandB zwerge），唯一新增 env = GROUNDING_INIT_METHOD（xavier/qk_svd_same/
+  qk_svd_next/randorient_same）+ GROUNDING_INIT_STATS_N_SAMPLES=16（A2' 补丁在 A7 脚本 L229-232 透传）。
+  队列分配按双队列规则：guiowl 4 组 train=vision/eval=aipnlp；uivenus 4 组 train=aipnlp/eval=vision。
+  第 4 对照组升级为 randorient_same（train_retrofit.py:242-247 已实现，谱匹配随机朝向 seed 42）：
+  B2>B4 ⇒ 优势来自 SVD 内容方向（与 attention QK 几何对齐）；B2≈B4 ⇒ 只是谱/尺度效应，如实写。
+  qk_svd_next 的 probe L35 无 block-36 → 显式 fallback same 并写 init report（禁静默）。
+- **旧配置归档**：experiments/A3_*.yaml、A7_*.yaml、A8_*.yaml（14 个）mv 到 experiments/old/
+  （git 识别 rename，历史可追溯；注意 A7_*.yaml glob 不会匹配 A7SVD_*.yaml）。
+- **commit "BEFORE SVD TRAIN"**：A2' 全部 diff（trainer/modeling_base/train_retrofit/A7 脚本 +
+  2 测试文件 + paired_qk_svd.py + 8 A7SVD yaml + 旧 yaml 归档 + 本条规则 + oracle 重组）入库并
+  push GitHub（bash scripts/sync_github.sh，代理双保险）。

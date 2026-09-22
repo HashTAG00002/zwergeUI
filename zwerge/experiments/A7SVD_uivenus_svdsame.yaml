@@ -1,0 +1,54 @@
+# ============================================================
+# ZwerGe Experiment Config — A7-SVD sanity / UI-Venus-1.5-8B (Qwen3-VL)
+# Arm B2: qk_svd_same（paired QK-SVD，donor = 同层）
+# 注意 Qwen3-VL 两个 caveat（WORKSPACE_PATHS §2/§5.4）：核宽 1024→512 截断
+# （L19 实测保留 95.6% 能量）；原生 attention 有 per-head QK RMSNorm，
+# weight-only 核是近似（init report 含 source_has_qk_norm 标记）。
+# ============================================================
+#
+# 用法：
+#   tmux new -s svd_uivenus_svdsame
+#   python eval_daemon.py --config experiments/A7SVD_uivenus_svdsame.yaml
+#   Ctrl+b d
+
+experiment_name: "uivenus_A7svd_svdsame"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  # 双队列交替（.mrules §五）：uivenus 4 组 train=aipnlp / eval=vision，guiowl 4 组反之
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "uivenus"
+    ATTN_HEADS: "8"
+    ATTN_HEAD_DIM: "64"
+    GROUNDING_INIT_METHOD: "qk_svd_same"
+    GROUNDING_INIT_STATS_N_SAMPLES: "16"
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "uivenus"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

@@ -1,0 +1,52 @@
+# ============================================================
+# ZwerGe Experiment Config — A7-SVD sanity / UI-Venus-1.5-8B (Qwen3-VL)
+# Arm B1: xavier（对照组 = 复现旧 A7 配方，唯一新增是 step-0 init stats）
+# 协议与判定标准：docs/oracle_new/svd/WORKSPACE_PATHS.md §3/§5/§6
+# ============================================================
+#
+# 用法：
+#   tmux new -s svd_uivenus_xavier
+#   python eval_daemon.py --config experiments/A7SVD_uivenus_xavier.yaml
+#   Ctrl+b d
+
+experiment_name: "uivenus_A7svd_xavier"
+
+# ── 训练配置 ──────────────────────────────────────────────────────────────────
+train:
+  hope_file: "scripts/train_qwen3.hope"
+  bash_script: "scripts/train_ablation_A7_crossattn_probe.sh"
+  # 双队列交替（.mrules §五）：uivenus 4 组 train=aipnlp / eval=vision，guiowl 4 组反之
+  queue: "root.zw05_training_cluster.hadoop-aipnlp.elastic"
+
+  env:
+    MODEL_TYPE: "uivenus"
+    ATTN_HEADS: "8"        # d_attn = 8×64 = 512
+    ATTN_HEAD_DIM: "64"
+    GROUNDING_INIT_METHOD: "xavier"
+    GROUNDING_INIT_STATS_N_SAMPLES: "16"   # 对称写 init_report_xavier.json
+
+  save_steps: 400
+  num_train_epochs: 1
+  skip_submit: false
+
+# ── 评估配置 ──────────────────────────────────────────────────────────────────
+eval:
+  hope_template: "scripts/eval/eval_zwerge_qwen3.hope"
+  queue: "root.zw05_training_cluster.hadoop-vision.elastic_job"
+
+  env:
+    MODEL_TYPE: "uivenus"
+    DECODE_STRATEGY: "centroid"
+    ZOOM_PADDING_CELLS: "3"
+
+  bench: "all"
+  max_concurrent_jobs: 2
+  wandb_project: "zwerge"
+
+# ── 监控 & 守护进程 ────────────────────────────────────────────────────────────
+watch:
+  poll_interval_sec: 60
+
+daemon:
+  tmp_dir: null
+  log_file: null

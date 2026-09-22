@@ -1,0 +1,17 @@
+test_actual_probe_forward_and_gradients (__main__.SVDTests.test_actual_probe_forward_and_gradients) ... ok
+test_endpoint_error_no_changes (__main__.SVDTests.test_endpoint_error_no_changes) ... ok
+test_full_reconstruction (__main__.SVDTests.test_full_reconstruction) ... ok
+test_gqa_factorization (__main__.SVDTests.test_gqa_factorization) ... ok
+test_hidden_state_endpoint_audit (__main__.SVDTests.test_hidden_state_endpoint_audit) ... ok
+test_invalid_or_zero_donors (__main__.SVDTests.test_invalid_or_zero_donors) ... ok
+test_logit_gain (__main__.SVDTests.test_logit_gain) ... ok
+test_model_paths_and_frozen_donors (__main__.SVDTests.test_model_paths_and_frozen_donors) ... ok
+test_orientation_control (__main__.SVDTests.test_orientation_control) ... ok
+test_refuse_a8 (__main__.SVDTests.test_refuse_a8) ... ok
+test_scale_matching (__main__.SVDTests.test_scale_matching) ... ok
+test_truncated_optimum (__main__.SVDTests.test_truncated_optimum) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.041s
+
+OK

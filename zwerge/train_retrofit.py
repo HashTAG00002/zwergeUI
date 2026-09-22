@@ -54,12 +54,16 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import json
+import math
+import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 import transformers
 from PIL import ImageFile
+from torch.utils.data import DataLoader, SequentialSampler
 
 # PyTorch >= 2.4 enforces weights_only=True in torch.load, but HF Trainer's
 # _load_rng_state() loads rng_state_*.pth files that contain numpy arrays.
@@ -80,7 +84,7 @@ def _patched_load_rng_state(self, checkpoint):
         torch.cuda.random.set_rng_state_all(checkpoint_rng_state["cuda"])
 
 transformers.Trainer._load_rng_state = _patched_load_rng_state
-from transformers import AutoProcessor
+from transformers.models.auto.processing_auto import AutoProcessor
 
 from zwerge_retrofit.constants import (
     ADDITIONAL_SPECIAL_TOKENS,
@@ -95,13 +99,13 @@ from zwerge_retrofit.constants import (
 )
 from zwerge_retrofit.dataset import RetrofitDataset, RetrofitDataCollator
 from zwerge_retrofit import get_model_class
+from zwerge_retrofit.modeling_base import probe_output_stats
 from zwerge_retrofit.trainer import (
     RetrofitTrainer,
     EmptyCacheCallback,
     ResumeCheckpointManagerCallback,
     SaveWandbRunIdCallback,
     SyncNewTokenEmbCallback,
-    WandbRetrofitCallback,
     ValEvalCallback,
     rank0_print,
     safe_save_model_for_hf_trainer,
@@ -233,6 +237,50 @@ class ModelArguments:
         metadata={"help": (
             "Validate that A7 probe keys loaded cleanly (no shape mismatch). "
             "Set to True for A8 stage-2 runs that load from an A7 retrofit checkpoint."
+        )},
+    )
+    grounding_init_method: str = field(
+        default="xavier",
+        metadata={"help": (
+            "Stage-1 probe initialization method: 'xavier' (default, control group) | "
+            "'qk_svd_same' / 'qk_svd_next' (paired QK-SVD from same/next donor layer) | "
+            "'randorient_same' / 'randorient_next' (spectrum-matched random-orientation control, seed 42). "
+            "Only allowed for fresh A7 runs (independent_layers=True, adapter_type='attn')."
+        )},
+    )
+    grounding_init_logit_gain: float = field(
+        default=1.0,
+        metadata={"help": "Logit gain multiplier for SVD probe initialization (default 1.0)"},
+    )
+    grounding_init_report_path: str = field(
+        default="",
+        metadata={"help": (
+            "Path to write the initialization report JSON. "
+            "Empty (default) = <output_dir>/svd_init_report.json for SVD arms, "
+            "<output_dir>/init_report_xavier.json for the xavier control."
+        )},
+    )
+    grounding_init_stats_n_samples: int = field(
+        default=0,
+        metadata={"help": (
+            "Step-0 initialization statistics (SVD fairness): run the first N "
+            "training samples (SEQUENTIAL order, no train-RNG consumption, "
+            "torch.no_grad) through the fresh probes AFTER the init branch and "
+            "BEFORE Trainer creation, and record per-layer logit_rms_centered / "
+            "entropy_norm / posterior_max (mean/std) into the init report JSON. "
+            "Written for ALL arms (xavier included) so reports stay symmetric. "
+            "0 = disabled; disabled is bit-identical to previous behavior."
+        )},
+    )
+    grounding_init_match_logit_rms: float = field(
+        default=0.0,
+        metadata={"help": (
+            "If > 0 (requires grounding_init_stats_n_samples > 0, fresh run, "
+            "adapter_type='attn'): scale each probe's W_q/W_k by "
+            "sqrt(target/measured) so the measured centered logit RMS matches "
+            "this target (paired_qk_svd.match_probe_logit_rms semantics). "
+            "Scale factors and post-scale re-measurements (5% tolerance) are "
+            "written into the init report. 0.0 = no matching."
         )},
     )
 
@@ -380,6 +428,17 @@ class TrainingArguments(transformers.TrainingArguments):
     val_cell_w: int = field(default=300, metadata={"help": "Vis PNG cell width"})
     val_cell_h: int = field(default=220, metadata={"help": "Vis PNG cell height"})
     val_alpha:  float = field(default=0.55, metadata={"help": "Vis heatmap alpha"})
+
+    # ── Training dynamics diagnostics (observation only) ──
+    grounding_diag_monitor: bool = field(
+        default=True,
+        metadata={"help": (
+            "Collect detached per-layer probe diagnostics (kl_mean / "
+            "logit_rms_centered / entropy_norm / gt_floor_mass) during training. "
+            "Observation only: on/off never changes loss, gradients or parameter "
+            "updates (bit-identical under the same seed and batch order)."
+        )},
+    )
 
     # ── Elastic-queue resume ──
     save_steps_only_for_resume: int = field(
@@ -538,6 +597,154 @@ def dump_args_to_json(model_config, processor, model_args, data_args, training_a
     with open(out_path, "w") as f:
         json.dump(args_dict, f, indent=2, default=str)
     rank0_print(f"Args saved to {out_path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step-0 initialization statistics (SVD fairness; observation only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _snapshot_rng_states() -> Dict:
+    """Snapshot python/numpy/torch RNG states so the stats pass provably
+    consumes ZERO training RNG (restored unconditionally afterwards)."""
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.random.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _restore_rng_states(state: Dict) -> None:
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.random.set_rng_state(state["torch"])
+    if "cuda" in state and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["cuda"])
+
+
+@torch.no_grad()
+def _collect_probe_init_stats(model, stats_loader, device, max_samples: int) -> Dict:
+    """Step-0 per-layer probe output stats over the first max_samples samples.
+
+    Observation only: no_grad, model.eval() (previous mode restored),
+    sequential batches (no RNG). Uses each architecture's own
+    _forward_hidden_states_for_grounding convention. Labels are NOT used
+    (init fairness: no bbox information enters the measurement).
+    """
+    head = model.layerwise_grounding_head
+    was_training = model.training
+    model.eval()
+    raw = {
+        int(l): {"logit_rms_centered": [], "entropy_norm": [], "posterior_max": []}
+        for l in head.probe_layers
+    }
+    n_used = 0
+    try:
+        for batch in stats_loader:
+            if n_used >= max_samples:
+                break
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            pixel_values = batch.get("pixel_values")
+            if pixel_values is not None:
+                pixel_values = pixel_values.to(device)
+            image_grid_thw = batch.get("image_grid_thw")
+            if image_grid_thw is not None:
+                image_grid_thw = image_grid_thw.to(device)
+            mm_token_type_ids = batch.get("mm_token_type_ids")
+            if mm_token_type_ids is not None:
+                mm_token_type_ids = mm_token_type_ids.to(device)
+            all_hidden = model._forward_hidden_states_for_grounding(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                image_grid_thw=image_grid_thw,
+                device=device,
+                mm_token_type_ids=mm_token_type_ids,
+            )
+            hints = batch.get("ground_token_indices")
+            for i in range(input_ids.shape[0]):
+                if n_used >= max_samples:
+                    break
+                token_ids = input_ids[i]
+                visual_indices = model._get_visual_indices(token_ids)
+                if visual_indices.numel() == 0:
+                    continue
+                hint = hints[i] if hints is not None else None
+                anchor_idx, _strategy = model._find_ground_anchor(
+                    token_ids=token_ids, external_hint=hint, verbose=False,
+                )
+                for probe_i, layer_idx in enumerate(head.probe_layers):
+                    hs = all_hidden[layer_idx + 1]
+                    if hs is None:
+                        continue   # sparse (hook) tuples: non-probe positions
+                    hs_i = hs[i]
+                    p_l, logits_l, _ = head.probes[probe_i](
+                        hs_i[anchor_idx], hs_i[visual_indices],
+                        head.q_proj, head.k_proj,
+                        head.d_proj if head.use_shared_mlp else head.d_model,
+                    )
+                    st = probe_output_stats(logits_l, p_l)
+                    slot = raw[int(layer_idx)]
+                    for k, v in st.items():
+                        if math.isfinite(v):
+                            slot[k].append(v)
+                n_used += 1
+    finally:
+        if was_training:
+            model.train()
+    layers_doc = {}
+    for layer_idx, slot in raw.items():
+        ld = {}
+        for k, vals in slot.items():
+            if vals:
+                t = torch.tensor(vals, dtype=torch.float64)
+                ld[k] = {
+                    "mean": float(t.mean()),
+                    "std": float(t.std(unbiased=True)) if len(vals) > 1 else 0.0,
+                    "n": len(vals),
+                }
+            else:
+                ld[k] = {"mean": None, "std": None, "n": 0}
+        layers_doc[str(layer_idx)] = ld
+    return {
+        "n_samples_requested": max_samples,
+        "n_samples_used": n_used,
+        "sampling": "sequential_first_N_no_rng",
+        "layers": layers_doc,
+    }
+
+
+def _apply_logit_rms_matching(model, stats_doc: Dict, target_rms: float) -> Dict:
+    """Scale each probe's W_q/W_k by sqrt(target/measured) so the centered
+    logit RMS matches target_rms (paired_qk_svd.match_probe_logit_rms
+    semantics: logits scale by factor^2 = target/measured)."""
+    head = model.layerwise_grounding_head
+    doc = {
+        "target_rms": target_rms,
+        "formula": "W_q,W_k *= sqrt(target_rms / measured_logit_rms_centered)",
+        "layers": {},
+    }
+    for probe_i, layer_idx in enumerate(head.probe_layers):
+        entry = stats_doc["layers"].get(str(layer_idx), {})
+        measured = (entry.get("logit_rms_centered") or {}).get("mean")
+        if measured is None or not math.isfinite(measured) or measured <= 1e-12:
+            raise ValueError(
+                f"L{layer_idx}: measured centered logit RMS is {measured}; "
+                "logits are effectively constant — scaling cannot supply missing signal."
+            )
+        factor = math.sqrt(target_rms / measured)
+        probe = head.probes[probe_i]
+        with torch.no_grad():
+            probe.W_q.weight.mul_(factor)
+            probe.W_k.weight.mul_(factor)
+        doc["layers"][str(layer_idx)] = {
+            "measured_before": measured,
+            "scale_factor": factor,
+        }
+    return doc
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -710,6 +917,69 @@ def train():
         f"vision_end={_vision_end_id}"
     )
 
+    # ── Stage-1 probe initialization (paired QK-SVD / controls) ─────────────
+    # Must run AFTER setup_special_token_ids (Xavier reset) and BEFORE
+    # setup_trainable_params / optimizer creation. "xavier" = control, no-op.
+    _init_method = model_args.grounding_init_method
+    _INIT_METHODS = ("xavier", "qk_svd_same", "qk_svd_next",
+                     "randorient_same", "randorient_next")
+    if _init_method not in _INIT_METHODS:
+        raise ValueError(
+            f"grounding_init_method must be one of {_INIT_METHODS}, got {_init_method!r}"
+        )
+    if _init_method != "xavier":
+        # Hard guards: never silently degrade. SVD init must not overwrite
+        # trained/resumed probes nor apply to non-A7 architectures.
+        _guard_failures = []
+        if _reinit_head is not True:
+            _guard_failures.append("_reinit_head is not True")
+        if _is_resuming is not False:
+            _guard_failures.append("_is_resuming is not False")
+        if model_args.grounding_independent_layers is not True:
+            _guard_failures.append("grounding_independent_layers is not True")
+        if model_args.grounding_adapter_type != "attn":
+            _guard_failures.append("grounding_adapter_type != 'attn'")
+        if model_args.stage2_from_retrofit_checkpoint is not False:
+            _guard_failures.append("stage2_from_retrofit_checkpoint is not False")
+        if _guard_failures:
+            raise ValueError(
+                "grounding_init_method=" + repr(_init_method) +
+                " requires a fresh A7 run; guard(s) failed: " +
+                "; ".join(_guard_failures)
+            )
+        from zwerge_retrofit.paired_qk_svd import initialize_a7_probes
+        _donor_mode = "same" if _init_method.endswith("_same") else "next"
+        _rand_seed = 42 if _init_method.startswith("randorient_") else None
+        _head = model.layerwise_grounding_head
+        with torch.no_grad():
+            _norms_before = [
+                (float(p.W_q.weight.norm()), float(p.W_k.weight.norm()))
+                for p in _head.probes
+            ]
+        rank0_print(
+            f"[SVD-INIT] method={_init_method} donor_mode={_donor_mode} "
+            f"random_orientation_seed={_rand_seed} "
+            f"logit_gain={model_args.grounding_init_logit_gain} device=cpu"
+        )
+        _svd_report = initialize_a7_probes(
+            model,
+            donor_mode=_donor_mode,
+            terminal_policy="same",
+            device="cpu",
+            logit_gain=model_args.grounding_init_logit_gain,
+            random_orientation_seed=_rand_seed,
+        )
+        with torch.no_grad():
+            for _info, _probe, (_wq_b, _wk_b) in zip(
+                _svd_report, _head.probes, _norms_before
+            ):
+                _info["wq_frobenius_norm_before"] = _wq_b
+                _info["wk_frobenius_norm_before"] = _wk_b
+                _info["wq_frobenius_norm_after"] = float(_probe.W_q.weight.norm())
+                _info["wk_frobenius_norm_after"] = float(_probe.W_k.weight.norm())
+    else:
+        rank0_print("[SVD-INIT] grounding_init_method=xavier (control); keeping Xavier init")
+
     # ── Inject model-specific constants into data_args for RetrofitDataset ──
     data_args.system_message       = model_constants["system_message"]
     data_args.ground_response      = model_constants["ground_response"]
@@ -731,6 +1001,14 @@ def train():
 
     # ── Freeze / unfreeze params ─────────────────────────────────────────────
     setup_trainable_params(model, training_args)
+
+    # ── Diagnostics monitor switch (observation only) ─────────────────────
+    # Off ⇒ the head computes ZERO extra per-layer statistics during training;
+    # loss / gradients / parameter updates are bit-identical either way.
+    model.layerwise_grounding_head.collect_diagnostics = bool(
+        training_args.grounding_diag_monitor
+    )
+    rank0_print(f"[Diag] grounding_diag_monitor={training_args.grounding_diag_monitor}")
 
     # ── A8: freeze inactive probes (retain for checkpoint compat, not trained) ──
     if (not model_args.grounding_independent_layers
@@ -824,6 +1102,106 @@ def train():
     )
     data_collator = RetrofitDataCollator(tokenizer=tokenizer)
 
+    # ── Step-0 initialization statistics (SVD fairness, ALL arms) ──────────
+    # Runs AFTER the init-method branch, BEFORE Trainer creation. Sequential
+    # first-N batches + RNG snapshot/restore ⇒ zero train-RNG consumption;
+    # disabled (default 0) ⇒ bit-identical to previous behavior.
+    _stats_n = model_args.grounding_init_stats_n_samples
+    _match_rms = model_args.grounding_init_match_logit_rms
+    _init_stats_doc = None
+    _match_doc = None
+    if _match_rms > 0 and _stats_n <= 0:
+        raise ValueError(
+            "grounding_init_match_logit_rms > 0 requires "
+            "--grounding_init_stats_n_samples > 0 (need a measurement to match)."
+        )
+    if _stats_n > 0:
+        if _is_resuming:
+            raise ValueError(
+                "grounding_init_stats_n_samples / match_logit_rms are only valid "
+                "for fresh runs (found existing checkpoint-* in output_dir)."
+            )
+        if _match_rms > 0 and model_args.grounding_adapter_type != "attn":
+            raise ValueError(
+                "grounding_init_match_logit_rms scales W_q/W_k and requires "
+                "grounding_adapter_type='attn'."
+            )
+        _rng_snapshot = _snapshot_rng_states()
+        try:
+            _stats_device = (
+                torch.device("cuda", training_args.local_rank)
+                if torch.cuda.is_available() else torch.device("cpu")
+            )
+            model.to(_stats_device)
+            _stats_loader = DataLoader(
+                train_dataset,
+                batch_size=training_args.per_device_train_batch_size,
+                sampler=SequentialSampler(train_dataset),  # deterministic, no RNG
+                collate_fn=data_collator,
+                num_workers=0,
+            )
+            rank0_print(f"[INIT-STATS] collecting step-0 stats over first {_stats_n} samples...")
+            _init_stats_doc = _collect_probe_init_stats(
+                model, _stats_loader, _stats_device, _stats_n
+            )
+            rank0_print(
+                f"[INIT-STATS] done: n_used={_init_stats_doc['n_samples_used']} "
+                f"layers={list(_init_stats_doc['layers'].keys())}"
+            )
+            if _match_rms > 0:
+                _match_doc = _apply_logit_rms_matching(model, _init_stats_doc, _match_rms)
+                # Re-measure after scaling (same deterministic loader/order).
+                _post_stats = _collect_probe_init_stats(
+                    model, _stats_loader, _stats_device, _stats_n
+                )
+                for _lk, _entry in _match_doc["layers"].items():
+                    _after = _post_stats["layers"][_lk]["logit_rms_centered"]["mean"]
+                    _entry["measured_after"] = _after
+                    _entry["within_5pct_of_target"] = bool(
+                        _after is not None and abs(_after - _match_rms) <= 0.05 * _match_rms
+                    )
+                rank0_print(
+                    f"[INIT-STATS] logit-RMS matching applied: target={_match_rms}, "
+                    f"all_within_5pct={all(e['within_5pct_of_target'] for e in _match_doc['layers'].values())}"
+                )
+        finally:
+            _restore_rng_states(_rng_snapshot)
+
+    # ── Unified init report (SVD arms always; xavier when stats enabled) ────
+    if _init_method != "xavier" or _init_stats_doc is not None:
+        if training_args.local_rank in (0, -1):
+            import subprocess as _sp
+            try:
+                _git_sha = _sp.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                ).decode().strip()
+            except Exception:
+                _git_sha = None
+            if model_args.grounding_init_report_path:
+                _report_path = model_args.grounding_init_report_path
+            elif _init_method == "xavier":
+                _report_path = os.path.join(training_args.output_dir, "init_report_xavier.json")
+            else:
+                _report_path = os.path.join(training_args.output_dir, "svd_init_report.json")
+            os.makedirs(os.path.dirname(os.path.abspath(_report_path)), exist_ok=True)
+            _report_doc = {
+                "git_sha": _git_sha,
+                "model_type": model_args.model_type,
+                "grounding_init_method": _init_method,
+                "logit_gain": model_args.grounding_init_logit_gain if _init_method != "xavier" else None,
+                "probe_layers": probe_layers_list,
+            }
+            if _init_method != "xavier":
+                _report_doc["probes"] = _svd_report
+            if _init_stats_doc is not None:
+                _report_doc["init_stats"] = _init_stats_doc
+            if _match_doc is not None:
+                _report_doc["logit_rms_matching"] = _match_doc
+            with open(_report_path, "w") as _f:
+                json.dump(_report_doc, _f, indent=2)
+            rank0_print(f"[INIT-REPORT] written to {_report_path}")
+
     # ── Elastic-queue resume: override save frequency and disable HF's rotation ──
     _permanent_save_steps = training_args.save_steps
     _resume_save_steps = training_args.save_steps_only_for_resume
@@ -844,15 +1222,17 @@ def train():
             resume_save_steps=_resume_save_steps,
         ),
     ]
-    # WandB callback (log retrofit-specific metrics)
+    # Single-writer design: retrofit metrics are flattened inside
+    # RetrofitTrainer.log() and written ONCE by the default HF WandbCallback
+    # (which adds the 'train/' prefix itself). The old WandbRetrofitCallback
+    # (a second, independent wandb.log writer) has been removed.
     # For A8: omega has len=num_active_probes; use active_probe_layers for correct L-labels.
+    _metric_layers = probe_layers_list
+    if model_args.grounding_active_probe_layers:
+        _metric_layers = [
+            int(x.strip()) for x in model_args.grounding_active_probe_layers.split(",")
+        ]
     if "wandb" in training_args.report_to:
-        _wandb_layers = probe_layers_list
-        if model_args.grounding_active_probe_layers:
-            _wandb_layers = [
-                int(x.strip()) for x in model_args.grounding_active_probe_layers.split(",")
-            ]
-        callbacks.append(WandbRetrofitCallback(probe_layers=_wandb_layers))
         callbacks.append(SaveWandbRunIdCallback())
     # In-training eval callback
     if training_args.val_steps > 0:
@@ -876,6 +1256,7 @@ def train():
         data_collator=data_collator,
         callbacks=callbacks,
         probe_layers=probe_layers_list,
+        metric_layer_labels=_metric_layers,
     )
 
     # ── Train ─────────────────────────────────────────────────────────────────

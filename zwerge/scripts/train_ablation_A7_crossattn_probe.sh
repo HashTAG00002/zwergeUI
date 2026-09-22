@@ -36,7 +36,7 @@ unset http_proxy https_proxy
 
 if [[ -z "${AFO_ENV_CLUSTER_SPEC:-}" ]]; then
     echo "===== [A7-crossattn_probe] DEBUG MODE ====="
-    export NPROC_PER_NODE=2
+    export NPROC_PER_NODE="${NPROC_PER_NODE:-2}"
     export NODE_RANK=0
     export NNODES=1
     export MASTER_ADDR="127.0.0.1"
@@ -226,6 +226,10 @@ ${TORCHRUN} \
     --grounding_adapter_type ${ADAPTER_TYPE} \
     --grounding_attn_heads ${ATTN_HEADS} \
     --grounding_attn_head_dim ${ATTN_HEAD_DIM} \
+    --grounding_init_method "${GROUNDING_INIT_METHOD:-xavier}" \
+    --grounding_init_stats_n_samples ${GROUNDING_INIT_STATS_N_SAMPLES:-0} \
+    --grounding_init_match_logit_rms ${GROUNDING_INIT_MATCH_LOGIT_RMS:-0.0} \
+    --grounding_diag_monitor ${GROUNDING_DIAG_MONITOR:-True} \
     \
     --data_path "${DATA_PATH}" \
     --image_folder "" \

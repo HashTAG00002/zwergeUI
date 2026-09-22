@@ -1,0 +1,55 @@
+{
+  "decoder_path": "model.layers",
+  "tuple_length": 29,
+  "layers": {
+    "14": {
+      "output_14": {
+        "max_abs_error": 0.0,
+        "relative_l2_error": 0.0
+      },
+      "next_input_14": {
+        "max_abs_error": 0.0,
+        "relative_l2_error": 0.0
+      }
+    },
+    "20": {
+      "output_20": {
+        "max_abs_error": 0.0,
+        "relative_l2_error": 0.0
+      },
+      "next_input_20": {
+        "max_abs_error": 0.0,
+        "relative_l2_error": 0.0
+      }
+    },
+    "27": {
+      "output_27": {
+        "max_abs_error": 303.0390625,
+        "relative_l2_error": 0.6914076805114746
+      },
+      "final_norm_output": {
+        "max_abs_error": 0.0,
+        "relative_l2_error": 0.0
+      }
+    }
+  },
+  "model_key": "guiowl7b",
+  "model_path": "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/.hdd/models/huggingface.co/GUI_Agents/GUI-Owl-7B",
+  "transformers_version": "4.51.3",
+  "torch_version": "2.5.1",
+  "dtype": "bfloat16",
+  "attn_implementation": "sdpa (V100: no FA2)",
+  "sample_image": "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mt-ocr/yangwenkui03/datasets/evaluation/ScreenSpot-Pro/images/android_studio_mac/screenshot_2024-11-05_16-01-19.png",
+  "seq_len": 282,
+  "token_positions": [
+    0,
+    141,
+    280
+  ],
+  "audit_layers": [
+    14,
+    20,
+    27
+  ],
+  "elapsed_s": 16.1
+}

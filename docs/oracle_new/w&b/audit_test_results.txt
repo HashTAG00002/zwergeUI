@@ -1,0 +1,17 @@
+test_count_based_mean_is_window_invariant (__main__.ObservabilityAudit.test_count_based_mean_is_window_invariant) ... ok
+test_ddp_valid_mean_requires_sum_and_count_not_mean_of_means (__main__.ObservabilityAudit.test_ddp_valid_mean_requires_sum_and_count_not_mean_of_means) ... ok
+test_detached_probe_scalar_collection_does_not_change_gradients (__main__.ObservabilityAudit.test_detached_probe_scalar_collection_does_not_change_gradients) ... ok
+test_mean_does_not_preserve_impulse_but_max_does (__main__.ObservabilityAudit.test_mean_does_not_preserve_impulse_but_max_does) ... ok
+test_original_log_full_window_is_scaled_by_logging_interval (__main__.ObservabilityAudit.test_original_log_full_window_is_scaled_by_logging_interval) ... ok
+test_original_log_scale_changes_with_partial_window (__main__.ObservabilityAudit.test_original_log_scale_changes_with_partial_window) ... ok
+test_original_skip_branch_dilutes_batch_loss (__main__.ObservabilityAudit.test_original_skip_branch_dilutes_batch_loss) ... ok
+test_target_floor_can_hide_corrective_gradient_in_toy_case (__main__.ObservabilityAudit.test_target_floor_can_hide_corrective_gradient_in_toy_case) ... ok
+test_uniform_reference_and_entropy_normalization (__main__.ObservabilityAudit.test_uniform_reference_and_entropy_normalization) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.071s
+
+OK
+Scope: CPU source snippets and mathematical contracts only.
+No real checkpoint, GPU training, W&B integration, or multi-process DDP test.
+Original full-window reported grounding_loss: 40.0 (true constant = 2.0)
